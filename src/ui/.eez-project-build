@@ -1,0 +1,20 @@
+{
+  "files": [
+    "actions.h",
+    "fonts.h",
+    "images.c",
+    "images.h",
+    "screens.c",
+    "screens.h",
+    "structs.h",
+    "styles.c",
+    "styles.h",
+    "ui.c",
+    "ui.h",
+    "ui_font_ricty_diminished_120.c",
+    "ui_font_ricty_diminished_160.c",
+    "ui_font_ricty_diminished_48.c",
+    "ui_font_ricty_diminished_96.c",
+    "vars.h"
+  ]
+}
