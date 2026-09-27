@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 120 px
  * Bpp: 4
- * Opts: --bpp 4 --size 120 --no-compress --font ../../workspace/delta-vega-v2/eez/fonts/RictyDiminished-Regular.ttf --symbols 0123456789.- --range 32-127 --format lvgl
+ * Opts: --bpp 4 --size 120 --no-compress --font fonts/RictyDiminished-Regular.ttf --symbols 0123456789.- --range 32-127 --format lvgl
  ******************************************************************************/
 
 #ifdef __has_include

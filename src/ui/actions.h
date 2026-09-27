@@ -7,6 +7,11 @@
 extern "C" {
 #endif
 
+extern void action_open_menu(lv_event_t * e);
+extern void action_close_menu(lv_event_t * e);
+extern void action_open_settings(lv_event_t * e);
+extern void action_return_to_dashboard(lv_event_t * e);
+
 #ifdef __cplusplus
 }
 #endif
