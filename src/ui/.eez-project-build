@@ -13,8 +13,12 @@
     "ui.h",
     "ui_font_ricty_diminished_120.c",
     "ui_font_ricty_diminished_160.c",
+    "ui_font_ricty_diminished_24.c",
+    "ui_font_ricty_diminished_32.c",
     "ui_font_ricty_diminished_48.c",
+    "ui_font_ricty_diminished_64.c",
     "ui_font_ricty_diminished_96.c",
+    "ui_image_motegi_background_480.c",
     "vars.h"
   ]
 }
