@@ -17,6 +17,14 @@ enum ScreensEnum {
 
 typedef struct _objects_t {
     lv_obj_t *main;
+    lv_obj_t *speed_label;
+    lv_obj_t *speed_unit_label;
+    lv_obj_t *ttl_time_title_label;
+    lv_obj_t *lap_time_title_label_1;
+    lv_obj_t *total_time_now_label;
+    lv_obj_t *total_time_target_label;
+    lv_obj_t *total_time_now_label_1;
+    lv_obj_t *total_time_target_label_1;
 } objects_t;
 
 extern objects_t objects;

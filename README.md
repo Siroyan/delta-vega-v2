@@ -27,5 +27,15 @@ EEZ Studio の画面をまだ配置していない場合は、`Hello World` と 
    `src/main.cpp` はそれらを検出し、`ui_init()` と `ui_tick()` を呼びます。
 
 生成された `src/ui` 内のコードは直接編集せず、機器側の処理は別のファイルに書きます。
-追加のフォントや LVGL 機能を使う場合は `include/lv_conf.h` で有効にします。
+LVGL の組み込みフォントや追加機能を使う場合は `include/lv_conf.h` で有効にします。
 **LVGL with EEZ Flow** を選ぶ場合は別途 EEZ Flow ランタイムが必要です。
+
+## フォントのライセンス
+
+`eez/fonts/RictyDiminished-Regular.ttf` は [Ricty Diminished 4.1.1](https://rictyfonts.github.io/diminished)
+に含まれるフォントです。著作権表示と SIL Open Font License 1.1 の全文は
+[eez/fonts/OFL.txt](eez/fonts/OFL.txt) に保存しています。
+
+EEZ Studio でこのフォントから生成したフォントデータも同じライセンスの対象です。
+ファームウェアや生成したフォントデータを配布するときは、著作権表示とライセンス文を
+配布物に添付してください。

@@ -30,12 +30,84 @@ void create_screen_main() {
     {
         lv_obj_t *parent_obj = obj;
         {
+            // speed_label
             lv_obj_t *obj = lv_label_create(parent_obj);
-            lv_obj_set_pos(obj, 0, 0);
-            lv_obj_set_size(obj, 122, 67);
-            lv_obj_set_style_text_font(obj, &lv_font_montserrat_48, LV_PART_MAIN | LV_STATE_DEFAULT);
+            objects.speed_label = obj;
+            lv_obj_set_pos(obj, 29, 29);
+            lv_obj_set_size(obj, 328, 115);
+            lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_160, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_label_set_text_static(obj, "25.2");
+        }
+        {
+            // speed_unit_label
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.speed_unit_label = obj;
+            lv_obj_set_pos(obj, 379, 103);
+            lv_obj_set_size(obj, 112, 41);
+            lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_48, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text_static(obj, "km/s");
+        }
+        {
+            // ttl_time_title_label
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.ttl_time_title_label = obj;
+            lv_obj_set_pos(obj, 29, 179);
+            lv_obj_set_size(obj, 377, 41);
+            lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_48, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text_static(obj, "Total Time");
+        }
+        {
+            // lap_time_title_label_1
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.lap_time_title_label_1 = obj;
+            lv_obj_set_pos(obj, 29, 365);
+            lv_obj_set_size(obj, 377, 41);
+            lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_48, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text_static(obj, "Lap Time");
+        }
+        {
+            // total_time_now_label
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.total_time_now_label = obj;
+            lv_obj_set_pos(obj, 29, 240);
+            lv_obj_set_size(obj, 244, 77);
+            lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_96, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text_static(obj, "00:22");
+        }
+        {
+            // total_time_target_label
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.total_time_target_label = obj;
+            lv_obj_set_pos(obj, 338, 241);
+            lv_obj_set_size(obj, 244, 77);
+            lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_96, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text_static(obj, "39:16");
+        }
+        {
+            // total_time_now_label_1
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.total_time_now_label_1 = obj;
+            lv_obj_set_pos(obj, 29, 430);
+            lv_obj_set_size(obj, 244, 77);
+            lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_96, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text_static(obj, "00:18");
+        }
+        {
+            // total_time_target_label_1
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.total_time_target_label_1 = obj;
+            lv_obj_set_pos(obj, 338, 431);
+            lv_obj_set_size(obj, 244, 77);
+            lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_96, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text_static(obj, "05:23");
         }
     }
     
@@ -63,6 +135,10 @@ void tick_screen_by_id(enum ScreensEnum screenId) {
 //
 
 ext_font_desc_t fonts[] = {
+    { "RictyDiminished_48", &ui_font_ricty_diminished_48 },
+    { "RictyDiminished_96", &ui_font_ricty_diminished_96 },
+    { "RictyDiminished_120", &ui_font_ricty_diminished_120 },
+    { "RictyDiminished_160", &ui_font_ricty_diminished_160 },
 #if LV_FONT_MONTSERRAT_8
     { "MONTSERRAT_8", &lv_font_montserrat_8 },
 #endif
