@@ -1,0 +1,1 @@
+{"name":"vega_core","version":"0.1.0","description":"Portable race, engine command and presentation logic","build":{"flags":"-std=gnu++17"}}
