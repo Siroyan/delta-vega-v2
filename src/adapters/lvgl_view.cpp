@@ -1,0 +1,420 @@
+#include "lvgl_view.h"
+
+#include <Arduino.h>
+#include <lvgl.h>
+
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+
+#include "../ui/actions.h"
+#include "../ui/screens.h"
+#include "../ui/ui.h"
+#include "course_data.h"
+#include "presentation/settings_form.h"
+#include "tab5_runtime.h"
+
+namespace tab5 {
+void finishEdit();
+namespace {
+void text(lv_obj_t *o, const char *value) {
+  if (o && strcmp(lv_label_get_text(o), value)) lv_label_set_text(o, value);
+}
+void enabled(lv_obj_t *o, bool value) {
+  if (o) {
+    if (value)
+      lv_obj_remove_state(o, LV_STATE_DISABLED);
+    else
+      lv_obj_add_state(o, LV_STATE_DISABLED);
+  }
+}
+void visible(lv_obj_t *o, bool value) {
+  if (o) {
+    if (value)
+      lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+    else
+      lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+void led(lv_obj_t *o, bool value) {
+  if (o) lv_obj_set_style_bg_color(o, lv_color_hex(value ? 0x087F8C : 0xBCC6D0), 0);
+}
+void checked(lv_obj_t *o, bool value) {
+  if (!o) return;
+  // Programmatic state updates do not emit VALUE_CHANGED.
+  if (value)
+    lv_obj_add_state(o, LV_STATE_CHECKED);
+  else
+    lv_obj_remove_state(o, LV_STATE_CHECKED);
+}
+struct PageWidgets {
+  lv_obj_t *screen, *speed, *average, *lap, *total, *lap_time, *total_target, *lap_target;
+  lv_obj_t *notice, *map_status, *gps_status, *link, *plan_status, *race_status, *action, *detail,
+      *clock, *ntp;
+  lv_obj_t *power, *ignition, *lap_button, *heartbeat, *pulse, *gps, *marker, *marker_backing,
+      *cancel_button;
+};
+#define PAGE(prefix, screen_name, action_obj, detail_obj) \
+  {objects.screen_name,                                   \
+   objects.prefix##speed_label,                           \
+   objects.prefix##average_speed_label,                   \
+   objects.prefix##lap_number_label,                      \
+   objects.prefix##total_elapsed_label,                   \
+   objects.prefix##lap_elapsed_label,                     \
+   objects.prefix##total_target_label,                    \
+   objects.prefix##lap_target_label,                      \
+   objects.prefix##notice_label,                          \
+   objects.prefix##live_map_status_label,                 \
+   objects.prefix##gps_status_label,                      \
+   objects.prefix##communication_status_label,            \
+   objects.prefix##plan_status_label,                     \
+   objects.prefix##race_status_label,                     \
+   action_obj,                                            \
+   detail_obj,                                            \
+   objects.prefix##clock_label,                           \
+   objects.prefix##ntp_status_label,                      \
+   objects.prefix##electrical_standby_switch,             \
+   objects.prefix##ignition_switch,                       \
+   objects.prefix##manual_lap_button,                     \
+   objects.prefix##heartbeat_led,                         \
+   objects.prefix##pulse_led,                             \
+   objects.prefix##gps_led,                               \
+   objects.prefix##position_marker,                       \
+   objects.prefix##position_marker_backing,               \
+   objects.prefix##cancel_timing_button}
+
+ScreensEnum live_screen = SCREEN_ID_WAITING;
+bool initialized = false;
+vega::Settings draft{};
+size_t editing_field = 0;
+bool save_pending = false;
+bool ignition_pending = false;
+uint64_t save_started = 0;
+uint32_t pending_settings_attempt = 0;
+char message[180] = "TARGET / MM:SS - COORDINATES / DEGREES";
+
+lv_obj_t *fieldButton(size_t i) {
+  lv_obj_t *fields[] = {objects.settings_total_button,      objects.settings_lap1_button,
+                        objects.settings_lap2_button,       objects.settings_lap3_button,
+                        objects.settings_lap4_button,       objects.settings_lap5_button,
+                        objects.settings_lap6_button,       objects.settings_lap7_button,
+                        objects.settings_start_lat_button,  objects.settings_start_lon_button,
+                        objects.settings_timing_lat_button, objects.settings_timing_lon_button,
+                        objects.settings_goal_lat_button,   objects.settings_goal_lon_button};
+  return i < vega::kSettingsFieldCount ? fields[i] : nullptr;
+}
+void refreshFields() {
+  for (size_t i = 0; i < vega::kSettingsFieldCount; ++i) {
+    char value[32];
+    vega::settingText(draft, i, value, sizeof(value));
+    text(lv_obj_get_child(fieldButton(i), 0), value);
+  }
+}
+void setMessage(const char *value) {
+  std::snprintf(message, sizeof(message), "%s", value);
+  text(objects.settings_message_label, message);
+}
+class View final : public vega::IView {
+ public:
+  void show(const vega::DisplayModel &m) override {
+    PageWidgets pages[] = {
+        PAGE(, main, objects.next_action_label, objects.next_action_detail_label),
+        PAGE(waiting_, waiting, nullptr, nullptr),
+        PAGE(finished_, finished, objects.finished_next_action_label,
+             objects.finished_next_action_detail_label)};
+    auto next = m.phase == vega::RacePhase::Waiting    ? SCREEN_ID_WAITING
+                : m.phase == vega::RacePhase::Finished ? SCREEN_ID_FINISHED
+                                                       : SCREEN_ID_MAIN;
+    bool changed = !initialized || live_screen != next;
+    live_screen = next;
+    auto active = lv_screen_active();
+    if (changed && (!initialized || active == objects.main || active == objects.waiting ||
+                    active == objects.finished))
+      loadScreen(live_screen);
+    initialized = true;
+    if (!m.ignition_enabled) ignition_pending = false;
+    enabled(objects.start_button, m.phase == vega::RacePhase::Waiting);
+    static lv_point_precise_t marker_points[3][5];
+    size_t page_index = 0;
+    // Keep all live page copies consistent, including off-screen controls.
+    for (auto &p : pages) {
+      text(p.speed, m.speed);
+      text(p.average, m.average);
+      text(p.lap, m.lap);
+      text(p.total, m.total);
+      text(p.lap_time, m.lap_time);
+      text(p.total_target, m.total_target);
+      text(p.lap_target, m.lap_target);
+      text(p.notice, m.notice);
+      text(p.map_status, m.map_status);
+      text(p.gps_status, m.gps_status);
+      text(p.link, m.link);
+      text(p.plan_status, "PLAN NOT SET");
+      text(p.race_status, m.race_status);
+      text(p.action, m.action);
+      text(p.detail, m.detail);
+      text(p.clock, m.clock);
+      text(p.ntp, m.ntp);
+      checked(p.power, m.power_on);
+      enabled(p.ignition, m.ignition_enabled && !ignition_pending);
+      enabled(p.lap_button, m.lap_enabled);
+      enabled(p.cancel_button, m.phase == vega::RacePhase::Measuring);
+      led(p.heartbeat, m.heartbeat);
+      led(p.pulse, m.pulse);
+      led(p.gps, m.gps_ok);
+      visible(p.marker, m.position_visible);
+      visible(p.marker_backing, m.position_visible);
+      if (m.position_visible) {
+        lv_obj_set_pos(p.marker, 0, 0);
+        lv_obj_set_pos(p.marker_backing, m.marker_x - lv_obj_get_width(p.marker_backing) / 2,
+                       m.marker_y - lv_obj_get_height(p.marker_backing) / 2);
+        // Rotate a north-pointing arrow into the reported GPS course. Coordinates
+        // stay in the course container and are never snapped onto the route.
+        constexpr double shape[5][2] = {{0, -15}, {12, 12}, {0, 6}, {-12, 12}, {0, -15}};
+        double angle = m.marker_heading * 3.14159265358979323846 / 180;
+        for (size_t i = 0; i < 5; ++i) {
+          marker_points[page_index][i].x =
+              m.marker_x + shape[i][0] * std::cos(angle) - shape[i][1] * std::sin(angle);
+          marker_points[page_index][i].y =
+              m.marker_y + shape[i][0] * std::sin(angle) + shape[i][1] * std::cos(angle);
+        }
+        lv_line_set_points(p.marker, marker_points[page_index], 5);
+        lv_obj_set_style_opa(p.marker, m.position_stale ? 100 : 255, 0);
+        lv_obj_set_style_opa(p.marker_backing, m.position_stale ? 100 : 255, 0);
+        // Preserve the established marker geometry; course position is raw GPS.
+      }
+      lv_obj_set_style_text_color(p.total, lv_color_hex(m.overtime ? 0xB43832 : 0x202B36), 0);
+      ++page_index;
+    }
+    bool editable = m.phase != vega::RacePhase::Measuring && !save_pending;
+    for (size_t i = 0; i < vega::kSettingsFieldCount; ++i) enabled(fieldButton(i), editable);
+    enabled(objects.settings_save_button, editable);
+    enabled(objects.settings_cancel_button, m.phase == vega::RacePhase::Measuring);
+    if (m.phase == vega::RacePhase::Measuring && lv_screen_active() == objects.settings &&
+        !save_pending) {
+      setMessage("TIMING ACTIVE - SETTINGS LOCKED");
+      visible(objects.settings_editor_overlay, false);
+    }
+  }
+} view;
+struct Sink final : vega::ICommandSink {
+  bool submit(const vega::Command &c) override { return tab5::submit(c); }
+} sink;
+vega::Presenter presenter(view, sink);
+
+bool request(CommandKind kind) {
+  Command command{};
+  command.kind = kind;
+  if (!presenter.request(command)) {
+    setMessage("COMMAND QUEUE FULL - TRY AGAIN");
+    return false;
+  }
+  return true;
+}
+}  // namespace
+
+void viewBegin() {
+  // ASCII keys work with the project's font and include the time separator.
+  static const char *keys[] = {"7", "8", "9", "DEL",  "\n", "4", "5", "6", "CLR", "\n",
+                               "1", "2", "3", "DONE", "\n", "-", "0", ".", ":",   ""};
+  constexpr auto control = static_cast<lv_buttonmatrix_ctrl_t>(1 | LV_BUTTONMATRIX_CTRL_CLICK_TRIG |
+                                                               LV_BUTTONMATRIX_CTRL_NO_REPEAT);
+  static const lv_buttonmatrix_ctrl_t controls[16] = {
+      control, control, control, control, control, control, control, control,
+      control, control, control, control, control, control, control, control};
+  lv_keyboard_set_map(objects.settings_keyboard, LV_KEYBOARD_MODE_NUMBER, keys, controls);
+  lv_obj_remove_event_cb(objects.settings_keyboard, lv_keyboard_def_event_cb);
+  lv_obj_add_event_cb(
+      objects.settings_keyboard,
+      [](lv_event_t *e) {
+        auto *keyboard = lv_event_get_target_obj(e);
+        auto index = lv_keyboard_get_selected_button(keyboard);
+        if (index == LV_BUTTONMATRIX_BUTTON_NONE) return;
+        const char *key = lv_keyboard_get_button_text(keyboard, index);
+        if (!strcmp(key, "DEL"))
+          lv_textarea_delete_char(objects.settings_editor_input);
+        else if (!strcmp(key, "CLR"))
+          lv_textarea_set_text(objects.settings_editor_input, "");
+        else if (!strcmp(key, "DONE"))
+          finishEdit();
+        else
+          lv_textarea_add_text(objects.settings_editor_input, key);
+      },
+      LV_EVENT_VALUE_CHANGED, nullptr);
+  loadScreen(SCREEN_ID_WAITING);
+}
+void viewUpdate() {
+  vega::Snapshot s;
+  if (!snapshot(s)) return;
+  if (save_pending) {
+    bool same = s.settings.total_target_s == draft.total_target_s &&
+                s.settings.lap_target_s == draft.lap_target_s &&
+                s.settings.start.latitude == draft.start.latitude &&
+                s.settings.start.longitude == draft.start.longitude &&
+                s.settings.timing.latitude == draft.timing.latitude &&
+                s.settings.timing.longitude == draft.timing.longitude &&
+                s.settings.goal.latitude == draft.goal.latitude &&
+                s.settings.goal.longitude == draft.goal.longitude;
+    if (s.settings_attempt != pending_settings_attempt || s.now_ms - save_started > 3000) {
+      save_pending = false;
+      setMessage(s.settings_attempt != pending_settings_attempt && s.settings_accepted && same
+                     ? "SETTINGS SAVED"
+                 : s.settings_error ? "SAVE FAILED - SETTINGS NOT CHANGED"
+                                    : "SAVE NOT ACCEPTED - TRY AGAIN");
+    }
+  }
+  presenter.render(s, status());
+  char start[90];
+  if (s.gps_fresh) {
+    const auto &p = s.settings.start;
+    double north = (s.gps.position.latitude - p.latitude) * course_data.north_per_degree;
+    double east = (s.gps.position.longitude - p.longitude) * course_data.east_per_degree;
+    std::snprintf(start, sizeof(start), "START POSITION: %.0f m", std::hypot(north, east));
+  } else
+    std::snprintf(start, sizeof(start), "START POSITION: GPS UNAVAILABLE");
+  text(objects.waiting_start_position_label, start);
+}
+void viewOpenSettings() {
+  draft = presenter.settings();
+  save_pending = false;
+  refreshFields();
+  setMessage(presenter.phase() == vega::RacePhase::Measuring
+                 ? "TIMING ACTIVE - SETTINGS LOCKED"
+                 : "TARGET / MM:SS - COORDINATES / DEGREES");
+  visible(objects.settings_editor_overlay, false);
+  visible(objects.cancel_confirmation_overlay, false);
+}
+void viewReturnDashboard() {
+  visible(objects.settings_editor_overlay, false);
+  visible(objects.cancel_confirmation_overlay, false);
+  loadScreen(live_screen);
+}
+
+void editField(size_t index) {
+  if (index >= vega::kSettingsFieldCount || presenter.phase() == vega::RacePhase::Measuring ||
+      save_pending)
+    return;
+  editing_field = index;
+  char value[32];
+  vega::settingText(draft, index, value, sizeof(value));
+  text(objects.settings_editor_title, vega::settingTitle(index));
+  lv_textarea_set_text(objects.settings_editor_input, value);
+  lv_textarea_set_accepted_chars(objects.settings_editor_input,
+                                 index < 8 ? "0123456789:" : "0123456789.-");
+  lv_keyboard_set_textarea(objects.settings_keyboard, objects.settings_editor_input);
+  visible(objects.settings_editor_overlay, true);
+  lv_obj_move_foreground(objects.settings_editor_overlay);
+}
+void finishEdit() {
+  if (presenter.phase() == vega::RacePhase::Measuring) return;
+  if (!vega::editSetting(draft, editing_field,
+                         lv_textarea_get_text(objects.settings_editor_input))) {
+    text(objects.settings_editor_title,
+         editing_field < 8 ? "INVALID - USE MM:SS" : "INVALID COORDINATE");
+    return;
+  }
+  refreshFields();
+  visible(objects.settings_editor_overlay, false);
+}
+void discardEdit() { visible(objects.settings_editor_overlay, false); }
+void saveSettings() {
+  Command c{};
+  c.kind = CommandKind::Configure;
+  c.settings = draft;
+  vega::Snapshot before;
+  if (!snapshot(before)) return;
+  if (!presenter.request(c)) {
+    setMessage("SETTINGS NOT ACCEPTED");
+    return;
+  }
+  save_pending = true;
+  save_started = before.now_ms;
+  pending_settings_attempt = before.settings_attempt;
+  setMessage("SAVING SETTINGS...");
+}
+void confirmCancel() {
+  if (presenter.phase() != vega::RacePhase::Measuring) return;
+  action_open_settings(nullptr);
+  visible(objects.cancel_confirmation_overlay, true);
+  lv_obj_move_foreground(objects.cancel_confirmation_overlay);
+}
+void cancelTiming() {
+  if (request(CommandKind::Cancel)) {
+    visible(objects.cancel_confirmation_overlay, false);
+    viewReturnDashboard();
+  }
+}
+void dismissCancel() { visible(objects.cancel_confirmation_overlay, false); }
+void startTiming() {
+  if (request(CommandKind::Start)) enabled(objects.start_button, false);
+}
+void manualLap() {
+  if (request(CommandKind::Lap)) enabled(objects.manual_lap_button, false);
+}
+void ignite() {
+  if (request(CommandKind::Ignite)) {
+    ignition_pending = true;
+    enabled(objects.ignition_switch, false);
+    enabled(objects.waiting_ignition_switch, false);
+    enabled(objects.finished_ignition_switch, false);
+  }
+}
+void electrical(lv_event_t *e) {
+  request(lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED) ? CommandKind::PowerOn
+                                                                         : CommandKind::PowerOff);
+}
+bool viewDiagnostic(const char *command) {
+  if (!objects.waiting || strncmp(command, "ui-", 3)) return false;
+  if (!strcmp(command, "ui-status")) {
+    Serial.printf(
+        "[UI] screen=%s start_enabled=%u ignition_enabled=%u settings_enabled=%u editor_visible=%u "
+        "message=%s\n",
+        lv_screen_active() == objects.settings  ? "settings"
+        : lv_screen_active() == objects.waiting ? "waiting"
+        : lv_screen_active() == objects.main    ? "main"
+                                                : "other",
+        !lv_obj_has_state(objects.start_button, LV_STATE_DISABLED),
+        !lv_obj_has_state(objects.waiting_ignition_switch, LV_STATE_DISABLED),
+        !lv_obj_has_state(objects.settings_save_button, LV_STATE_DISABLED),
+        !lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN), message);
+  } else if (!strcmp(command, "ui-settings"))
+    action_open_settings(nullptr);
+  else if (!strcmp(command, "ui-back"))
+    viewReturnDashboard();
+  else if (!strcmp(command, "ui-start"))
+    lv_obj_send_event(objects.start_button, LV_EVENT_CLICKED, nullptr);
+  else if (!strcmp(command, "ui-save"))
+    lv_obj_send_event(objects.settings_save_button, LV_EVENT_CLICKED, nullptr);
+  else if (!strcmp(command, "ui-cancel"))
+    action_confirm_cancel(nullptr);
+  else if (!strcmp(command, "ui-confirm-cancel"))
+    lv_obj_send_event(objects.cancel_confirmation_yes, LV_EVENT_CLICKED, nullptr);
+  else if (!strncmp(command, "ui-edit ", 8)) {
+    unsigned index;
+    char value[25];
+    if (sscanf(command + 8, "%u %24s", &index, value) == 2 && index < vega::kSettingsFieldCount) {
+      lv_obj_send_event(fieldButton(index), LV_EVENT_CLICKED, nullptr);
+      if (!lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN)) {
+        lv_textarea_set_text(objects.settings_editor_input, value);
+        lv_obj_send_event(objects.settings_editor_done, LV_EVENT_CLICKED, nullptr);
+      }
+    }
+  } else
+    Serial.println("[UI] unknown diagnostic command");
+  return true;
+}
+}  // namespace tab5
+
+extern "C" void action_start_timing(lv_event_t *) { tab5::startTiming(); }
+extern "C" void action_manual_lap(lv_event_t *) { tab5::manualLap(); }
+extern "C" void action_electrical_changed(lv_event_t *e) { tab5::electrical(e); }
+extern "C" void action_ignite(lv_event_t *) { tab5::ignite(); }
+extern "C" void action_edit_setting(lv_event_t *e) {
+  tab5::editField(reinterpret_cast<uintptr_t>(lv_event_get_user_data(e)));
+}
+extern "C" void action_finish_edit(lv_event_t *) { tab5::finishEdit(); }
+extern "C" void action_discard_edit(lv_event_t *) { tab5::discardEdit(); }
+extern "C" void action_save_settings(lv_event_t *) { tab5::saveSettings(); }
+extern "C" void action_confirm_cancel(lv_event_t *) { tab5::confirmCancel(); }
+extern "C" void action_cancel_timing(lv_event_t *) { tab5::cancelTiming(); }
+extern "C" void action_dismiss_cancel(lv_event_t *) { tab5::dismissCancel(); }

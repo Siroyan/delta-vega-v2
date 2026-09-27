@@ -1,72 +1,44 @@
 #include <M5Unified.h>
 #include <lvgl.h>
 
+#include "adapters/lvgl_view.h"
+#include "adapters/tab5_runtime.h"
 #include "tab5_lvgl.h"
-
-#if __has_include("ui/ui.h")
 #include "ui/ui.h"
-#define HAS_EEZ_UI 1
-#else
-#define HAS_EEZ_UI 0
-#endif
-
-namespace {
-
-#if !HAS_EEZ_UI
-void on_button_clicked(lv_event_t *event) {
-  auto *label = static_cast<lv_obj_t *>(lv_event_get_user_data(event));
-  lv_label_set_text(label, "Touch OK");
-  Serial.println("Touch OK");
-}
-
-void create_demo_ui() {
-  lv_obj_t *screen = lv_screen_active();
-  lv_obj_set_style_bg_color(screen, lv_color_hex(0x102030), 0);
-
-  lv_obj_t *title = lv_label_create(screen);
-  lv_label_set_text(title, "Hello World");
-  lv_obj_align(title, LV_ALIGN_CENTER, 0, -70);
-
-  lv_obj_t *button = lv_button_create(screen);
-  lv_obj_set_size(button, 240, 80);
-  lv_obj_align(button, LV_ALIGN_CENTER, 0, 60);
-  lv_obj_add_event_cb(button, on_button_clicked, LV_EVENT_CLICKED, title);
-
-  lv_obj_t *button_text = lv_label_create(button);
-  lv_label_set_text(button_text, "Tap me");
-  lv_obj_center(button_text);
-}
-#endif
-
-}  // namespace
 
 void setup() {
+  // Apply the configured OFF polarity before initializing the display.
+  bool outputs_ready = tab5::prepareOutputs();
   auto config = M5.config();
   config.serial_baudrate = 115200;
   M5.begin(config);
-  M5.Display.setRotation(1);  // Landscape: 1280 x 720.
-
-  if (!tab5_lvgl_begin()) {
-    M5.Display.fillScreen(TFT_BLACK);
-    M5.Display.setTextColor(TFT_RED);
-    M5.Display.drawString("LVGL initialization failed", 20, 20);
-    while (true) {
-      delay(1000);
-    }
+  M5.Display.setRotation(1);
+  Serial.println("[BOOT] Delta Vega v2 / Ports and Adapters / MVP");
+  if (!outputs_ready || !tab5::begin()) {
+    Serial.println("[FATAL] application initialization failed; electrical OFF");
+    tab5::outputsOff();
+    for (;;) delay(1000);
   }
-
-#if HAS_EEZ_UI
+  if (!tab5_lvgl_begin()) {
+    Serial.println("[FATAL] LVGL initialization failed; application keeps running");
+    return;
+  }
   ui_init();
-#else
-  create_demo_ui();
-#endif
-  Serial.println("Hello World");
+  tab5::viewBegin();
+  Serial.println("[BOOT] UI ready; no simulated sensor data");
 }
 
 void loop() {
-  tab5_lvgl_update();
-#if HAS_EEZ_UI
-  ui_tick();
-#endif
+  tab5::serialPoll();
+  if (objects.waiting) {
+    static uint32_t last_view_ms = 0;
+    uint32_t now = millis();
+    if (now - last_view_ms >= 100) {
+      last_view_ms = now;
+      tab5::viewUpdate();
+    }
+    tab5_lvgl_update();
+    ui_tick();
+  }
   delay(5);
 }

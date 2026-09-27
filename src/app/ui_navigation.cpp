@@ -1,3 +1,4 @@
+#include "../adapters/lvgl_view.h"
 #include "../ui/actions.h"
 #include "../ui/screens.h"
 #include "../ui/ui.h"
@@ -48,16 +49,15 @@ extern "C" void action_open_menu(lv_event_t *event) {
   }
 }
 
-extern "C" void action_close_menu(lv_event_t *) {
-  close_menus();
-}
+extern "C" void action_close_menu(lv_event_t *) { close_menus(); }
 
 extern "C" void action_open_settings(lv_event_t *) {
   close_menus();
+  tab5::viewOpenSettings();
   loadScreen(SCREEN_ID_SETTINGS);
 }
 
 extern "C" void action_return_to_dashboard(lv_event_t *) {
   close_menus();
-  loadScreen(dashboard_screen);
+  tab5::viewReturnDashboard();
 }
