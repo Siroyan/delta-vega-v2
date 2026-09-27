@@ -39,3 +39,13 @@ LVGL の組み込みフォントや追加機能を使う場合は `include/lv_co
 EEZ Studio でこのフォントから生成したフォントデータも同じライセンスの対象です。
 ファームウェアや生成したフォントデータを配布するときは、著作権表示とライセンス文を
 配布物に添付してください。
+
+## UIアイコンのライセンス
+
+電源・炎・メニュー・閉じる・戻る・設定には[Lucide](https://lucide.dev/)のアイコンを使用しています。
+原本SVG、色・配置を調整したSVGとPNG、取得元のコミットは
+[assets/icons/lucide/README.md](assets/icons/lucide/README.md)に保存しています。
+
+ISC LicenseとFeather由来アイコンのMIT Licenseの全文・著作権表示は
+[assets/icons/lucide/LICENSE](assets/icons/lucide/LICENSE)を参照してください。
+これらのアセットや生成画像を含むファームウェアを配布する際は、ライセンス文も添付してください。
