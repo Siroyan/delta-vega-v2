@@ -13,22 +13,35 @@ pio run -e esp32p4_pioarduino -t upload
 pio device monitor -b 115200
 ```
 
-EEZ Studio の画面をまだ配置していない場合は、`Hello World` と `Tap me` ボタンが
-表示されます。ボタンを押すと文字が `Touch OK` に変わり、シリアルにも出力されます。
+起動時は開始待ち画面・エンジン系電装OFFです。`START TIMING`で7周の計測を開始します。
+GPS未接続時は自動ラップを行わず、`MANUAL LAP +1`で周回を進められます。
+全体TARGETは42:00、各周は06:00が初期値です。ハンバーガーメニューのSettingsから
+TARGETと3地点を編集・保存できます。計測中は編集を禁止し、確認付きの計測取消が可能です。
 
-## EEZ Studio の画面を組み込む
+## 構成と検証
 
-1. EEZ Studio で **LVGL** プロジェクト（EEZ Flow なし）を作り、LVGL **9.2.2**、
-   横向き **1280 × 720** を選びます。
-2. `.eez-project` ファイルを `eez/` に保存し、ファームウェアと一緒に管理します。
-3. **Settings → Build** で生成先を `../src/ui` に設定し、EEZ Studio でビルドします。
-   この相対パスは `eez/` に置いた `.eez-project` ファイルを基準にします。
-4. `src/ui/ui.h` と生成されたソースが揃ったら、ファームウェアを再ビルドします。
-   `src/main.cpp` はそれらを検出し、`ui_init()` と `ui_tick()` を呼びます。
+- [画面仕様](docs/ui-spec.md)
+- [アーキテクチャ](docs/architecture.md)
+- [設定・GPIO・保存形式・検証手順](docs/firmware-guide.md)
 
-生成された `src/ui` 内のコードは直接編集せず、機器側の処理は別のファイルに書きます。
-LVGL の組み込みフォントや追加機能を使う場合は `include/lv_conf.h` で有効にします。
-**LVGL with EEZ Flow** を選ぶ場合は別途 EEZ Flow ランタイムが必要です。
+```sh
+python3 scripts/test_native.py       # C++17 host tests, ASan / UBSan
+python3 scripts/generate_course_data.py
+python3 scripts/build_ui.py         # macOS; --studioでEEZ Studioの実行ファイルを指定可能
+```
+
+`lib/vega_core`はArduino/LVGLに依存しない計測・制御・MVPの中核です。
+EEZ Studioでは`eez/delta-vega-v2.eez-project`を編集し、LVGL 9.2.2 / 1280×720 /
+EEZ Flowなしで`../src/ui`へ生成します。生成物は直接編集しません。
+`build_ui.py`はEEZ Studio 0.29 CLIが未変更の埋込フォントを削除する問題を回避します。
+コースJSONの組込定数は`generate_course_data.py`で生成します。
+
+## Wi-Fi / AWS / NTP
+
+`include/config/network_secrets.example.h`を`network_secrets.h`へコピーし、
+Wi-Fi情報とAWS IoTの証明書をローカルで設定して再ビルドしてください。
+`network_secrets.h`はGitの追跡対象外です。未設定でも計測・表示・SD保存は動作します。
+AWSへの実接続とNTP同期の実検証は今回スキップしています。
 
 ## フォントのライセンス
 
