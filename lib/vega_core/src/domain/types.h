@@ -46,7 +46,8 @@ enum class Event : uint8_t {
   PowerOn,
   PowerOff,
   Ignition,
-  SettingsSaved
+  SettingsSaved,
+  ManualFinish
 };
 struct WheelInput {
   uint64_t pulses = 0;

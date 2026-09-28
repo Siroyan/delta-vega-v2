@@ -13,6 +13,7 @@ class Application {
   bool start();
   bool cancel();
   bool manualLap();
+  bool manualFinish();
   void power(bool on);
   bool ignite();
   bool configure(const Settings &settings);
@@ -24,6 +25,7 @@ class Application {
  private:
   void event(Event e);
   void resetFinishBranch();
+  bool finish(Millis now, bool manual = false);
   IClock &clock_;
   IEngineOutput &output_;
   ISettingsStore &store_;

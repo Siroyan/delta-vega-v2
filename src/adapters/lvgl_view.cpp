@@ -25,6 +25,8 @@ void pressKey(size_t index);
 lv_obj_t *controlHit(int16_t x, int16_t y);
 void controlAction(lv_obj_t *control);
 void controlCleanup();
+void manualFinishConfirm();
+void manualFinishDismiss();
 namespace {
 constexpr const char *kKeypadKeys[] = {"7", "8", "9", "DEL", "4", "5", "6", "CLR",
                                       "1", "2", "3", "SET", "-", "0", ".", ":"};
@@ -66,8 +68,8 @@ struct PageWidgets {
   lv_obj_t *screen, *speed, *average, *lap, *total, *lap_time, *total_target, *lap_target;
   lv_obj_t *notice, *map_status, *gps_status, *link, *plan_status, *race_status, *action, *detail,
       *clock, *ntp;
-  lv_obj_t *power, *ignition, *lap_button, *heartbeat, *pulse, *gps, *marker, *marker_backing,
-      *cancel_button;
+  lv_obj_t *power, *ignition, *lap_button, *lap_title, *lap_action, *heartbeat, *pulse, *gps,
+      *marker, *marker_backing, *cancel_button;
 };
 #define PAGE(prefix, screen_name, action_obj, detail_obj) \
   {objects.screen_name,                                   \
@@ -91,6 +93,8 @@ struct PageWidgets {
    objects.prefix##electrical_standby_switch,             \
    objects.prefix##ignition_switch,                       \
    objects.prefix##manual_lap_button,                     \
+   objects.prefix##manual_lap_button_text,                \
+   objects.prefix##manual_lap_increment_label,           \
    objects.prefix##heartbeat_led,                         \
    objects.prefix##pulse_led,                             \
    objects.prefix##gps_led,                               \
@@ -104,6 +108,11 @@ vega::Settings draft{};
 size_t editing_field = 0;
 bool save_pending = false;
 bool ignition_pending = false;
+bool finish_mode = false;
+bool finish_ready = false;
+bool finish_pending = false;
+uint64_t finish_requested_ms = 0;
+lv_obj_t *finish_overlay = nullptr;
 PowerIntent power_intent;
 uint32_t stale_control_presses = 0;
 uint32_t power_taps = 0, ignition_taps = 0;
@@ -345,7 +354,12 @@ class View final : public vega::IView {
       text(p.ntp, m.ntp);
       checked(p.power, m.power_on);
       enabled(p.ignition, m.ignition_enabled && !ignition_pending);
-      enabled(p.lap_button, m.lap_enabled);
+      enabled(p.lap_button, m.lap_enabled && !finish_pending);
+      text(p.lap_title, m.finish_mode ? "GOAL" : "MANUAL");
+      text(p.lap_action, m.finish_mode ? "FINISH" : "LAP +1");
+      const auto lap_color = lv_color_hex(m.finish_mode ? 0xB43832 : 0x1769B2);
+      if (!lv_color_eq(lv_obj_get_style_bg_color(p.lap_button, LV_PART_MAIN), lap_color))
+        lv_obj_set_style_bg_color(p.lap_button, lap_color, LV_STATE_DEFAULT);
       enabled(p.cancel_button, m.phase == vega::RacePhase::Measuring);
       led(p.heartbeat, m.heartbeat);
       led(p.pulse, m.pulse);
@@ -390,6 +404,12 @@ class View final : public vega::IView {
       ++page_index;
     }
     for (const auto &page : control_pages) checked(page.power, m.power_on);
+    finish_mode = m.finish_mode;
+    finish_ready = m.lap_enabled;
+    if (!finish_mode || m.phase != vega::RacePhase::Measuring) {
+      finish_pending = false;
+      visible(finish_overlay, false);
+    }
     bool editable = m.phase != vega::RacePhase::Measuring && !save_pending;
     for (size_t i = 0; i < vega::kSettingsFieldCount; ++i) enabled(fieldButton(i), editable);
     for (size_t i = 16; i <= 18; ++i) enabled(fieldButton(i), editable && !m.power_on);
@@ -453,6 +473,49 @@ void viewBegin() {
     lv_obj_remove_event_cb(page.ignition, action_ignite);
   }
   tab5_lvgl_set_control_handlers(controlHit, controlAction, controlCleanup);
+  // A full-screen confirmation prevents an accidental second touch from
+  // finishing the race. The electrical OFF gesture is still handled below.
+  finish_overlay = lv_obj_create(lv_display_get_layer_top(lv_display_get_default()));
+  lv_obj_set_pos(finish_overlay, 0, 0);
+  lv_obj_set_size(finish_overlay, 1280, 720);
+  lv_obj_remove_flag(finish_overlay, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_pad_all(finish_overlay, 0, 0);
+  lv_obj_set_style_border_width(finish_overlay, 0, 0);
+  lv_obj_set_style_radius(finish_overlay, 0, 0);
+  lv_obj_set_style_bg_color(finish_overlay, lv_color_hex(0xF0F4F8), 0);
+  visible(finish_overlay, false);
+  auto *title = lv_label_create(finish_overlay);
+  lv_obj_set_pos(title, 150, 210);
+  lv_obj_set_size(title, 1000, 64);
+  lv_obj_set_style_text_font(title, &ui_font_ricty_diminished_48, 0);
+  lv_obj_set_style_text_color(title, lv_color_hex(0x202B36), 0);
+  lv_label_set_text_static(title, "FINISH TIMING?");
+  auto *detail = lv_label_create(finish_overlay);
+  lv_obj_set_pos(detail, 150, 290);
+  lv_obj_set_size(detail, 1000, 60);
+  lv_obj_set_style_text_font(detail, &ui_font_ricty_diminished_32, 0);
+  lv_obj_set_style_text_color(detail, lv_color_hex(0x202B36), 0);
+  lv_label_set_text_static(detail, "Finalize the result at the current time?");
+  auto add_finish_button = [](int32_t x, const char *caption, uint32_t color,
+                              lv_event_cb_t callback) {
+    auto *button = lv_button_create(finish_overlay);
+    lv_obj_set_pos(button, x, 410);
+    lv_obj_set_size(button, 420, 96);
+    lv_obj_set_style_radius(button, 12, 0);
+    lv_obj_set_style_border_width(button, 0, 0);
+    lv_obj_set_style_shadow_width(button, 0, 0);
+    lv_obj_set_style_bg_color(button, lv_color_hex(color), 0);
+    lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, nullptr);
+    auto *label = lv_label_create(button);
+    lv_label_set_text_static(label, caption);
+    lv_obj_set_style_text_font(label, &ui_font_ricty_diminished_32, 0);
+    lv_obj_set_style_text_color(label, lv_color_white(), 0);
+    lv_obj_center(label);
+  };
+  add_finish_button(170, "FINISH TIMING", 0xB43832,
+                    [](lv_event_t *) { manualFinishConfirm(); });
+  add_finish_button(680, "KEEP TIMING", 0x1769B2,
+                    [](lv_event_t *) { manualFinishDismiss(); });
   // lv_textarea_set_one_line() replaces the EEZ height with LV_SIZE_CONTENT.
   // Restore it so the input and SET button share the same bottom edge.
   lv_obj_set_height(objects.settings_editor_input, 76);
@@ -544,6 +607,9 @@ void viewBegin() {
 void viewUpdate() {
   vega::Snapshot s;
   if (!snapshot(s)) return;
+  if (finish_pending && s.race.phase == vega::RacePhase::Measuring &&
+      s.now_ms - finish_requested_ms > 2000)
+    finish_pending = false;
   if (save_pending) {
     bool same = sameSettings(s.settings, draft);
     if (s.settings_attempt != pending_settings_attempt || s.now_ms - save_started > 3000) {
@@ -672,8 +738,26 @@ void startTiming() {
   if (request(CommandKind::Start)) enabled(objects.start_button, false);
 }
 void manualLap() {
-  if (request(CommandKind::Lap)) enabled(objects.manual_lap_button, false);
+  if (presenter.phase() != vega::RacePhase::Measuring || !finish_ready) return;
+  if (finish_mode) {
+    visible(finish_overlay, true);
+    lv_obj_move_foreground(finish_overlay);
+  } else if (request(CommandKind::Lap)) {
+    enabled(objects.manual_lap_button, false);
+  }
 }
+void manualFinishConfirm() {
+  if (!finish_mode || !finish_ready || finish_pending ||
+      presenter.phase() != vega::RacePhase::Measuring)
+    return;
+  if (request(CommandKind::Finish)) {
+    vega::Snapshot s;
+    if (snapshot(s)) finish_requested_ms = s.now_ms;
+    finish_pending = true;
+    visible(finish_overlay, false);
+  }
+}
+void manualFinishDismiss() { visible(finish_overlay, false); }
 void ignite() {
   if (request(CommandKind::Ignite)) {
     ignition_pending = true;
@@ -692,6 +776,11 @@ lv_obj_t *controlHit(int16_t x, int16_t y) {
   lv_point_t point{x, y};
   auto *display = lv_display_get_default();
   // System/top layers and EEZ overlays take precedence over dashboard controls.
+  if (finish_overlay && !lv_obj_has_flag(finish_overlay, LV_OBJ_FLAG_HIDDEN)) {
+    auto *hit = lv_indev_search_obj(screen, &point);
+    if (hit == page->power && !lv_obj_has_state(hit, LV_STATE_DISABLED)) return hit;
+    return nullptr;
+  }
   if (lv_indev_search_obj(lv_display_get_layer_sys(display), &point) ||
       lv_indev_search_obj(lv_display_get_layer_top(display), &point))
     return nullptr;

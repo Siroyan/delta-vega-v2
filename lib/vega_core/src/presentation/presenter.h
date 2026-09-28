@@ -15,7 +15,8 @@ struct DisplayModel {
   char notice[100]{}, map_status[48]{}, gps_status[32]{}, link[32]{}, race_status[32]{},
       action[48]{}, detail[60]{};
   char clock[24]{}, ntp[24]{};
-  bool power_on = false, ignition_enabled = false, lap_enabled = false, heartbeat = false,
+  bool power_on = false, ignition_enabled = false, lap_enabled = false, finish_mode = false,
+       heartbeat = false,
        pulse = false, gps_ok = false;
   bool position_visible = false, position_stale = false, overtime = false;
   int marker_x = 0, marker_y = 0;

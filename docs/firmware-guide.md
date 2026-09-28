@@ -5,7 +5,7 @@
 ## 操作
 
 - 起動はWaiting・エンジン系電装OFF。START TIMINGで1/7、時間0から計測する。
-- 有効なGPS通過またはMANUAL LAP +1で周回を進める。6回更新した7/7の状態で、別地点のゴール通過を検出するとFinishedになる。
+- 有効なGPS通過またはMANUAL LAP +1で周回を進める。6回更新した7/7の状態で、別地点のゴール通過を検出するとFinishedになる。7/7では手動ラップボタンが赤い`GOAL / FINISH`に変わり、GPSがゴールを取り逃した場合は確認画面の`FINISH TIMING`で現在時刻の結果を確定できる。`KEEP TIMING`では計測を続ける。手動完走はSD記録に`manual_finish`イベントとして残る。
 - 取消はメニュー/SettingsのCANCEL TIMING → 確認画面のCANCEL TIMING。KEEP TIMINGで継続。取消後は新規開始可能。完走後の再計測は提供しない。
 - 左下の青緑の電源トグルはエンジン系電装への指令。ON後1000 ms待って点火ボタンを有効にする。右下の炎ボタンはECUへの1000 ms HIGHパルス。電装ONごとに1回まで。
 - 電装OFFは準備待ち/パルスを中止する。計測とTab5は動作継続。Tab5はエンジンの実運転状態を確認できない。

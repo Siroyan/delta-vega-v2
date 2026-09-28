@@ -85,6 +85,16 @@ bool Application::manualLap() {
   event(Event::ManualLap);
   return true;
 }
+bool Application::finish(Millis now, bool manual) {
+  if (!race_.finish(now, wheel_.pulses, settings_)) return false;
+  auto s = snapshot();
+  recorder_.sample(s);
+  telemetry_.publish(s);
+  recorder_.event(manual ? Event::ManualFinish : Event::Finished, s);
+  recorder_.end(EndReason::Finished, s);
+  return true;
+}
+bool Application::manualFinish() { return finish(clock_.now(), true); }
 void Application::power(bool on) {
   bool was_on = engine_.phase() != EnginePhase::Off;
   engine_.power(on, clock_.now(), settings_);
@@ -161,14 +171,8 @@ void Application::gps(const GpsFix &fix) {
   if (!course_.hasRoute(CourseRoute::FinishApproach)) {
     const auto goal_gate = course_.locate(settings_.goal, settings_.course_corridor_m);
     if (goal_gate.on_course &&
-        goal_.update(map_, fix.received_ms, goal_gate.s_m, 100, course_, settings_) &&
-        race_.finish(fix.received_ms, wheel_.pulses, settings_)) {
-      auto s = snapshot();
-      recorder_.sample(s);
-      telemetry_.publish(s);
-      recorder_.event(Event::Finished, s);
-      recorder_.end(EndReason::Finished, s);
-    }
+        goal_.update(map_, fix.received_ms, goal_gate.s_m, 100, course_, settings_))
+      finish(fix.received_ms);
     return;
   }
 
@@ -208,14 +212,7 @@ void Application::gps(const GpsFix &fix) {
   const bool crossed_goal = goal_.update(finish_position, fix.received_ms, goal_gate.s_m,
                                          remaining_progress, course_, settings_,
                                          CourseRoute::FinishApproach);
-  if (finish_branch_matches_ >= 2 && crossed_goal &&
-      race_.finish(fix.received_ms, wheel_.pulses, settings_)) {
-    auto s = snapshot();
-    recorder_.sample(s);
-    telemetry_.publish(s);
-    recorder_.event(Event::Finished, s);
-    recorder_.end(EndReason::Finished, s);
-  }
+  if (finish_branch_matches_ >= 2 && crossed_goal) finish(fix.received_ms);
 }
 void Application::tick() {
   auto now = clock_.now();

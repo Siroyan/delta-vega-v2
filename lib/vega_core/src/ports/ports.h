@@ -1,7 +1,7 @@
 #pragma once
 #include "domain/types.h"
 namespace vega {
-enum class CommandKind : uint8_t { Start, Cancel, Lap, PowerOn, PowerOff, Ignite, Configure };
+enum class CommandKind : uint8_t { Start, Cancel, Lap, PowerOn, PowerOff, Ignite, Configure, Finish };
 struct Command {
   CommandKind kind;
   Settings settings{};

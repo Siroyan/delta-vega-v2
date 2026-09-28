@@ -40,7 +40,8 @@ void Presenter::render(const Snapshot &s, const UiStatus &status) {
   std::snprintf(m.lap_target, sizeof(m.lap_target), "TARGET %s", time);
   m.power_on = s.engine != EnginePhase::Off;
   m.ignition_enabled = s.engine == EnginePhase::Ready && !s.output_error;
-  m.lap_enabled = m.phase == RacePhase::Measuring && static_cast<size_t>(lap) < kLapCount &&
+  m.finish_mode = m.phase == RacePhase::Measuring && static_cast<size_t>(lap) == kLapCount;
+  m.lap_enabled = m.phase == RacePhase::Measuring &&
                   s.race.lap_ms >= s.settings.lap_duplicate_ms;
   m.heartbeat = (s.now_ms / 500) % 2;
   m.pulse = s.wheel.pulse_recent;

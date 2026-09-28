@@ -231,6 +231,8 @@ const char *eventName(vega::Event e) {
       return "cancelled";
     case vega::Event::Finished:
       return "finished";
+    case vega::Event::ManualFinish:
+      return "manual_finish";
     case vega::Event::ManualLap:
       return "manual_lap";
     case vega::Event::GpsLap:
@@ -524,6 +526,9 @@ void applicationTask(void *) {
           break;
         case CommandKind::Lap:
           ok = app.manualLap();
+          break;
+        case CommandKind::Finish:
+          ok = app.manualFinish();
           break;
         case CommandKind::PowerOn:
           app.power(true);

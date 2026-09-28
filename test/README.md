@@ -15,7 +15,7 @@ CXX=/path/to/clang++ python3 scripts/test_native.py
 スクリプトは`lib/vega_core/src`配下の全`.cpp`と`test/native/core_tests.cpp`を一つの実行ファイルにまとめ、一時ディレクトリで実行します。操作判定は[`src/control_gesture.h`](../src/control_gesture.h)をテストコードから読み込みます。主要なコンパイル条件は`-std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined`です。成功時は次の1行を表示します。
 
 ```text
-PASS: engine, race, GPS laps/finish, passages, wheel, NMEA, settings, MVP/JSON, control gestures
+PASS: engine, race, GPS/manual finish, passages, wheel, NMEA, settings, MVP/JSON, control gestures
 ```
 
 判定にはC++の`assert`を使用しています。失敗すると該当行で停止し、サニタイザーが検出したメモリ破壊や未定義動作もエラーになります。スクリプトは`NDEBUG`を定義しないため、`assert`は有効です。全テストは一つのプログラム内で順番に実行され、現状は個別テストの選択・網羅率計測はありません。
@@ -44,6 +44,7 @@ PASS: engine, race, GPS laps/finish, passages, wheel, NMEA, settings, MVP/JSON, 
 | `engineTest` | 電装ON/OFF、時計を999→1000 ms進める、点火の連打、出力失敗 | 準備待ち中は始動拒否、1000 ms後に一度だけ1000 msパルス、期限後LOW、同じONサイクルで再始動拒否、OFFで中断・再ONで再許可、出力失敗時のエラーと始動権消費 |
 | `raceTest` | 手動開始、車輪パルス総数、時計、手動ラップ6回、取消・再開始 | 開始時1/7・経過0、距離10.3 mと停止時間を含む平均速度、電装OFFでも計測継続、計測中の設定変更拒否、連打の重複拒否、7/7では追加ラップ不可、取消理由と新規セッション |
 | `gpsRaceTest` | 正方形を模擬走行し周回更新地点と別のゴールを通過 | 1〜6周目のゴールでは完走せず、6回の周回更新で7/7、その後のゴールで完走。結果は時間経過後も固定され、完走後の開始・取消は拒否 |
+| `manualFinishTest` | GPSなしで手動周回を進め、7/7から手動完走 | 7/7より前や周回更新直後の完走を拒否。完走時刻を固定し、SD記録向けの`manual_finish`イベントと終了記録を各1回だけ発行。二重完走・完走後の取消と再開始を拒否 |
 | `passageTest` | 正方形上の前進・逆走・大きなジャンプ・受信間隔の空き・コース外・距離原点越え | 有効な前進通過だけを受理し、方向・最大ステップ・進行量・鮮度・コース回廊による誤検出抑制を確認 |
 | `wheelTest` | 未取得、2パルス、長時間パルスなし、開始前後のパルス総数 | 未取得と有効0の区別、速度の単位換算、停止判定、計測開始前のパルスを距離に含めないことを確認 |
 | `nmeaTest` | チェックサム付きRMC、破損文、無効fix、長すぎる文 | 緯度経度の十進変換、ノットからkm/hへの換算、方位、チェックサム不一致・過長入力の拒否、無効fixの通知を確認 |

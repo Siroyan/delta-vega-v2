@@ -41,7 +41,7 @@ struct Store : ISettingsStore {
   }
 };
 struct Recorder : ISessionRecorder {
-  unsigned begins = 0, samples = 0, ends = 0;
+  unsigned begins = 0, samples = 0, ends = 0, finished_events = 0, manual_finish_events = 0;
   EndReason reason{};
   Snapshot last{};
   void begin(uint32_t, const Settings &, Millis) override { ++begins; }
@@ -49,7 +49,10 @@ struct Recorder : ISessionRecorder {
     ++samples;
     last = s;
   }
-  void event(Event, const Snapshot &) override {}
+  void event(Event e, const Snapshot &) override {
+    if (e == Event::Finished) ++finished_events;
+    if (e == Event::ManualFinish) ++manual_finish_events;
+  }
   void end(EndReason r, const Snapshot &s) override {
     ++ends;
     reason = r;
@@ -181,6 +184,32 @@ void raceTest() {
   assert(f.app.snapshot().race.session == 2);
   assert(f.app.snapshot().race.total_ms == 0);
 }
+void manualFinishTest() {
+  Fixture f;
+  assert(!f.app.manualFinish());
+  assert(f.app.start());
+  assert(!f.app.manualFinish());
+  for (int lap = 1; lap < 7; ++lap) {
+    f.clock.time += 10000;
+    if (lap == 6) assert(!f.app.manualFinish());
+    assert(f.app.manualLap());
+  }
+  assert(f.app.snapshot().race.lap == 7);
+  assert(!f.app.manualFinish());  // Duplicate protection after the last lap update.
+  f.clock.time += f.settings.lap_duplicate_ms;
+  const auto expected_total = f.app.snapshot().race.total_ms;
+  assert(f.app.manualFinish());
+  assert(f.app.snapshot().race.phase == RacePhase::Finished);
+  assert(f.app.snapshot().race.total_ms == expected_total);
+  assert(f.recorder.ends == 1 && f.recorder.manual_finish_events == 1 &&
+         f.recorder.finished_events == 0);
+  assert(f.recorder.reason == EndReason::Finished);
+  assert(f.recorder.last.race.total_ms == expected_total);
+  assert(!f.app.manualFinish());
+  f.clock.time += 300000;
+  assert(f.app.snapshot().race.total_ms == expected_total);
+  assert(!f.app.cancel() && !f.app.start());
+}
 void gpsRaceTest() {
   Fixture f;
   assert(f.app.start());
@@ -294,6 +323,7 @@ void presenterTest() {
   assert(std::strcmp(view.model.total_target, "TARGET 42:00") == 0);
   assert(std::strcmp(view.model.lap_target, "TARGET 06:00") == 0);
   assert(!view.model.position_visible);
+  assert(!view.model.finish_mode && !view.model.lap_enabled);
   char time[24];
   Presenter::formatTime(3600123, time, sizeof(time));
   assert(std::strcmp(time, "1:00:00") == 0);
@@ -315,6 +345,17 @@ void presenterTest() {
   assert(std::strstr(json, "\"average_speed\":null"));
   assert(std::strstr(json, "\\\"note\\\""));
   assert(!telemetryJson(f.app.snapshot(), json, 8));
+  assert(f.app.start());
+  for (int lap = 1; lap < 7; ++lap) {
+    f.clock.time += 10000;
+    assert(f.app.manualLap());
+    presenter.render(f.app.snapshot(), status);
+    assert(view.model.finish_mode == (lap == 6));
+  }
+  assert(!view.model.lap_enabled);
+  f.clock.time += f.settings.lap_duplicate_ms;
+  presenter.render(f.app.snapshot(), status);
+  assert(view.model.finish_mode && view.model.lap_enabled);
 }
 void settingsFormTest() {
   Settings s;
@@ -501,6 +542,7 @@ void controlGestureTest() {
 int main() {
   engineTest();
   raceTest();
+  manualFinishTest();
   gpsRaceTest();
   passageTest();
   wheelTest();
@@ -511,6 +553,6 @@ int main() {
   realCourseTest();
   combinedLapTest();
   controlGestureTest();
-  std::cout << "PASS: engine, race, GPS laps/finish, passages, wheel, NMEA, settings, "
+  std::cout << "PASS: engine, race, GPS/manual finish, passages, wheel, NMEA, settings, "
                "MVP/JSON, control gestures\n";
 }
