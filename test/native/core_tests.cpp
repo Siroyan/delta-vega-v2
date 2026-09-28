@@ -413,16 +413,23 @@ void strategyTest() {
   char error[80]{};
   assert(parseStrategy(json.data(), json.size(), course, tab5::course_data.id, plan,
                        error, sizeof(error)));
-  assert(std::strcmp(plan.plan_id, "dummy-race-001") == 0);
+  assert(std::strcmp(plan.plan_id, "dummy-race-002") == 0);
   assert(plan.demo);
-  assert(plan.laps[0].route == CourseRoute::First && plan.laps[0].run_count == 1);
-  assert(plan.laps[6].route == CourseRoute::Final && plan.laps[6].run_count == 1);
-  auto next = nextStrategyCue(plan.laps[0], 100, plan.laps[0].route_length_m);
-  assert(next.cue == StrategyCue::On && next.distance_m == 80);
-  next = nextStrategyCue(plan.laps[0], 200, plan.laps[0].route_length_m);
-  assert(next.cue == StrategyCue::Off && next.distance_m == 830);
+  assert(plan.laps[0].route == CourseRoute::First && plan.laps[0].runs[0].on_s_m == 0);
+  assert(plan.laps[6].route == CourseRoute::Final);
+  for (const auto &lap : plan.laps) assert(lap.run_count == 3);
+  auto next = nextStrategyCue(plan.laps[0], 0, plan.laps[0].route_length_m);
+  assert(next.cue == StrategyCue::On && next.distance_m == 0);
+  next = nextStrategyCue(plan.laps[0], 100, plan.laps[0].route_length_m);
+  assert(next.cue == StrategyCue::Off && next.distance_m == 200);
+  next = nextStrategyCue(plan.laps[0], 500, plan.laps[0].route_length_m);
+  assert(next.cue == StrategyCue::On && next.distance_m == 220);
+  next = nextStrategyCue(plan.laps[0], 800, plan.laps[0].route_length_m);
+  assert(next.cue == StrategyCue::Off && next.distance_m == 150);
   next = nextStrategyCue(plan.laps[0], 1100, plan.laps[0].route_length_m);
-  assert(next.cue == StrategyCue::LapEnd && next.distance_m > 1000);
+  assert(next.cue == StrategyCue::On && next.distance_m == 330);
+  next = nextStrategyCue(plan.laps[0], 1800, plan.laps[0].route_length_m);
+  assert(next.cue == StrategyCue::LapEnd && next.distance_m > 300);
   View view;
   Presenter presenter(view);
   UiStatus status;
@@ -439,9 +446,9 @@ void strategyTest() {
   presenter.render(snapshot, status, &plan);
   assert(view.model.plan_loaded && view.model.plan_lap_number == 1);
   assert(std::strcmp(view.model.plan_status, "PLAN DEMO") == 0);
-  assert(std::strcmp(view.model.action, "NEXT ON IN 80 m") == 0);
+  assert(std::strcmp(view.model.action, "NEXT OFF IN 200 m") == 0);
   snapshot.race.lap = 7;
-  snapshot.route_map.s_m = 1100;
+  snapshot.route_map.s_m = 1900;
   presenter.render(snapshot, status, &plan);
   assert(view.model.plan_lap.route == CourseRoute::Final);
   assert(std::strcmp(view.model.action, "COAST TO LAP END") == 0);
@@ -455,6 +462,9 @@ void strategyTest() {
     assert(error[0] && std::strcmp(result.plan_id, plan.plan_id) == 0);
   };
   std::string original_demo = json;
+  auto legacy_id = original_demo.find("dummy-race-002");
+  assert(legacy_id != std::string::npos);
+  original_demo.replace(legacy_id, std::strlen("dummy-race-002"), "dummy-race-001");
   auto demo_type = original_demo.find("  \"plan_type\": \"demo\",\n");
   assert(demo_type != std::string::npos);
   original_demo.erase(demo_type, std::strlen("  \"plan_type\": \"demo\",\n"));
@@ -477,10 +487,10 @@ void strategyTest() {
   replace("motegi_oval_2025_full_v2", "wrong_course");
   replace("\"lap\": 7", "\"lap\": 6");
   replace("\"route_id\": \"final_lap\"", "\"route_id\": \"regular_lap\"");
-  replace("\"off_s_m\": 1030", "\"off_s_m\": 99999");
-  replace("\"on_s_m\": 180", "\"on_s_m\": 1100");
+  replace("\"off_s_m\": 300", "\"off_s_m\": 99999");
+  replace("\"on_s_m\": 0", "\"on_s_m\": 400");
   replace("\"schema_version\": 1", "\"schema_version\": 2");
-  replace("\"on_s_m\": 180", "\"on_s_m\": 180, \"on_s_m\": 181");
+  replace("\"on_s_m\": 0", "\"on_s_m\": 0, \"on_s_m\": 1");
   invalid(json + "unexpected");
   invalid(std::string(kMaxStrategyFileBytes + 1, ' '));
 }
