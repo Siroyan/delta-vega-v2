@@ -796,6 +796,7 @@ inline const vega::CourseData course_data{
     {regular_points, sizeof(regular_points)/sizeof(regular_points[0]), 2412.009998, false},
     {final_points, sizeof(final_points)/sizeof(final_points[0]), 2208.099909, false},
     {finish_approach_points, sizeof(finish_approach_points)/sizeof(finish_approach_points[0]), 174.72289, false},
-  }}
+  }},
+  "motegi_oval_2025_full_v2"
 };
 }

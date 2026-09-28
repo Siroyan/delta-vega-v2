@@ -38,7 +38,7 @@ class Application {
   WheelInput wheel_{};
   GpsFix gps_{};
   bool gps_seen_ = false, output_error_ = false, settings_error_ = false;
-  MapPosition map_{};
+  MapPosition map_{}, route_map_{};
   PassageDetector timing_, goal_;
   double finish_branch_start_s_ = 0, finish_branch_previous_s_ = 0;
   Millis finish_branch_previous_ms_ = 0;

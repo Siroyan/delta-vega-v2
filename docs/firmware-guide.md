@@ -50,6 +50,7 @@
 
 ## 保存・通信
 
+- 走行戦略は起動時にmicroSDの`/vega/strategy.json`から読み、7周分の経路IDとON/OFF地点を検証する。Waitingで1周目をプレビューし、Mainでは現在周回の橙色のエンジン使用区間、青色の惰性区間、点火/OFF地点を地図へ重ねる。GPSが有効なら次の地点までの距離を表示する。形式とダミーは[走行戦略データREADME](../assets/strategy/README.md)。プランは表示専用で、GPIO出力を変更しない。
 - 計測開始から取消/完走までのみ、`/vega/session-0000000001.jsonl`のような個別ファイルをmicroSDへ保存する。NVSの連番と既存ファイルの確認で再起動後も上書きを防ぐ。
 - 最初の行は設定メタデータ。500 ms周期のサンプルはMQTTと共通のエンコーダから作り、開始・取消・完走・手動補正・電装操作は`type:event`で記録する。取消データは残す。
 - SD Writerは別タスク。48件のキュー、約24秒分（イベント数で減少）。書込、flush/fsync、キューあふれを警告し、計測を継続する。同期は1秒周期/終了時。突然の電源断で直近の未同期データが失われる可能性がある。計測復元は未実装。
@@ -69,11 +70,14 @@
 |---|---|
 | `status` | 計測・指令・GPIO読み取り・GPS・パルス・SD・通信・TARGET |
 | `settings` | UIで編集可能な27項目の現在値 |
+| `plan-status` | 走行戦略の読込状態と採用したID |
+| `plan-upload BYTES` | 4096バイト以内のJSONを後続の生バイトで受け取り、SDに`/vega/strategy.json`がない場合だけ検証・保存。通常は`scripts/upload_strategy.py`から実行 |
 | `start` / `cancel` / `lap` | UIと同じ中核へ計測コマンドを送る |
 | `on` / `off` / `ignite` | 実GPIOへの指令を伴う。実車接続時は車両状態を把握して使用 |
 | `log` | 最後の計測ファイルをSDから読み戻す。記録中は拒否 |
 | `ui-status` / `ui-settings` / `ui-back` | 現在のUI状態確認・設定への遷移・復帰 |
 | `ui-course-markers` | メイン画面のスタート・ゴールマーカーと周回更新線の画像内座標・表示状態 |
+| `ui-plan` | Main上の戦略線・地点マーカー・次の操作案内の状態 |
 | `ui-advanced` / `ui-advanced-back` | Advanced Settingsを開く/Settingsへ戻る |
 | `ui-inspect-field 8` | 指定した設定欄を開き、表示文字列を出力して閉じる。値は変更しない |
 | `ui-edit 0 39:16` / `ui-save` | 生成ボタン/編集イベントを通したUIテスト。項目番号0=全体、1〜7=各周、8〜13=地点緯度経度、14〜26=Advanced Settings |
@@ -117,3 +121,7 @@ python3 scripts/test_device.py --standalone-tab5 --log /tmp/vega-device.log
 SD読み戻しの終了マーカーがUSB出力で欠ける事象を検出し、データと開始/終了マーカーに送信確認を追加した。修正後の再実行で全JSON行と終了マーカーを受信できた。実GPSの測位/通過精度、リードスイッチの電気的ノイズ、ECUパルス波形、リセット中の外部回路、SDの長時間運用/実カード障害、ネットワーク実接続、画面の視認性は今後の実機評価事項。
 
 2026-09-29、進入路・周回路・ゴール分岐を含むschema 2のコースへ更新した。nativeテストでは1周目の進入、2〜6周目の更新、7周目のゴール分岐、周回路を走り続けた場合の誤完走防止、Settingsで周回更新地点またはゴールを動かした場合を模擬測位で確認した。EEZビルドは0 errors / 0 warnings、PlatformIOビルドはSUCCESS。Tab5単体（車両回路・GPS・リードスイッチ未接続）へUSBシリアルで書き込み、転送データのハッシュ照合に成功した。起動後の`status`はWaiting・電装OFF・SD ready、`ui-course-markers`はWaiting画面のSTART `(216,380)`、GOAL `(106,181)`、周回更新線表示を示した。利用者が実機画面で進入路とゴール分岐の両方を確認した。実GPSによる合流・分岐・通過の精度は未検証。
+
+2026-09-29、7周のダミー戦略を`/vega/strategy.json`へシリアル転送してmicroSDに保存した。再書込・再起動後も`plan-status`が`loaded=1 id=dummy-race-001`を報告。Mainで`ui-plan`は`PLAN DEMO`、橙・青の線とON/OFFマーカーを表示状態と報告した。GPSなしで手動ラップを1〜7周まで進め、各周でマーカー座標が変わることを確認し、最後に取消してWaiting・電装OFFへ戻した。nativeテストは実コースとサンプルの全7周、欠周・重複・経路不一致・範囲外データの拒否、次地点までの距離と表示モデルを検証した。初回の戦略描画は経路点への繰り返し投影をやめ、実機の`perf`でView最大437 msから22 msへ短縮した。同じ場面のLVGL描画最大は約294 ms。実GPSによる案内距離、画面の目視、車両での戦略妥当性は未検証。
+
+待機画面の1周目プレビューを追加したファームウェアも書き込み済み。書き込み直後は画面とUSBシリアルが応答しなかったが、電源ボタンで再起動すると復帰した。復帰後の`plan-status`は読込完了、`ui-plan`はWaitingで1周目の橙・青の線とON/OFFマーカーを表示状態と報告した。`ui-start`後のMainでも同じ描画と`PLAN DEMO`を確認し、計測取消後はWaiting・電装OFFに戻った。再実行したnativeテストとPlatformIOビルドは成功。書き込み後の自動再起動が確実かは別途確認する。

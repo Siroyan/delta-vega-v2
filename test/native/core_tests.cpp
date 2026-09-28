@@ -1,6 +1,8 @@
 #include <cassert>
 #include <cstring>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <string>
 
@@ -9,6 +11,7 @@
 #include "application/application.h"
 #include "application/telemetry_json.h"
 #include "domain/nmea.h"
+#include "domain/strategy.h"
 #include "presentation/presenter.h"
 #include "presentation/settings_form.h"
 
@@ -400,6 +403,87 @@ void settingsFormTest() {
   assert(!editSetting(s, 25, "3600001") && !editSetting(s, 26, "499"));
   assert(!editSetting(s, 25, "4294967296") && !editSetting(s, 22, "1..2"));
 }
+void strategyTest() {
+  std::ifstream input("assets/strategy/motegi_demo.json");
+  assert(input);
+  const std::string json((std::istreambuf_iterator<char>(input)),
+                         std::istreambuf_iterator<char>());
+  Course course(tab5::course_data);
+  Strategy plan;
+  char error[80]{};
+  assert(parseStrategy(json.data(), json.size(), course, tab5::course_data.id, plan,
+                       error, sizeof(error)));
+  assert(std::strcmp(plan.plan_id, "dummy-race-001") == 0);
+  assert(plan.demo);
+  assert(plan.laps[0].route == CourseRoute::First && plan.laps[0].run_count == 1);
+  assert(plan.laps[6].route == CourseRoute::Final && plan.laps[6].run_count == 1);
+  auto next = nextStrategyCue(plan.laps[0], 100, plan.laps[0].route_length_m);
+  assert(next.cue == StrategyCue::On && next.distance_m == 80);
+  next = nextStrategyCue(plan.laps[0], 200, plan.laps[0].route_length_m);
+  assert(next.cue == StrategyCue::Off && next.distance_m == 830);
+  next = nextStrategyCue(plan.laps[0], 1100, plan.laps[0].route_length_m);
+  assert(next.cue == StrategyCue::LapEnd && next.distance_m > 1000);
+  View view;
+  Presenter presenter(view);
+  UiStatus status;
+  status.plan_state = PlanState::Ready;
+  Snapshot snapshot{};
+  presenter.render(snapshot, status, &plan);
+  assert(view.model.plan_loaded && view.model.plan_lap_number == 1);
+  assert(std::strcmp(view.model.action, "START TIMING") == 0);
+  snapshot.race.phase = RacePhase::Measuring;
+  snapshot.race.lap = 1;
+  snapshot.gps_fresh = true;
+  snapshot.route_map.on_course = true;
+  snapshot.route_map.s_m = 100;
+  presenter.render(snapshot, status, &plan);
+  assert(view.model.plan_loaded && view.model.plan_lap_number == 1);
+  assert(std::strcmp(view.model.plan_status, "PLAN DEMO") == 0);
+  assert(std::strcmp(view.model.action, "NEXT ON IN 80 m") == 0);
+  snapshot.race.lap = 7;
+  snapshot.route_map.s_m = 1100;
+  presenter.render(snapshot, status, &plan);
+  assert(view.model.plan_lap.route == CourseRoute::Final);
+  assert(std::strcmp(view.model.action, "COAST TO LAP END") == 0);
+  status.plan_state = PlanState::Invalid;
+  presenter.render(snapshot, status);
+  assert(!view.model.plan_loaded && std::strcmp(view.model.plan_status, "PLAN INVALID") == 0);
+  auto invalid = [&](std::string altered) {
+    Strategy result = plan;
+    assert(!parseStrategy(altered.data(), altered.size(), course, tab5::course_data.id,
+                          result, error, sizeof(error)));
+    assert(error[0] && std::strcmp(result.plan_id, plan.plan_id) == 0);
+  };
+  std::string original_demo = json;
+  auto demo_type = original_demo.find("  \"plan_type\": \"demo\",\n");
+  assert(demo_type != std::string::npos);
+  original_demo.erase(demo_type, std::strlen("  \"plan_type\": \"demo\",\n"));
+  Strategy older_demo;
+  assert(parseStrategy(original_demo.data(), original_demo.size(), course,
+                       tab5::course_data.id, older_demo, error, sizeof(error)));
+  assert(older_demo.demo);
+  auto unnamed_type = original_demo;
+  auto name_at = unnamed_type.find("dummy-race-001");
+  assert(name_at != std::string::npos);
+  unnamed_type.replace(name_at, std::strlen("dummy-race-001"), "real-race-001");
+  invalid(unnamed_type);
+  auto replace = [&](const char *before, const char *after) {
+    std::string changed = json;
+    auto pos = changed.find(before);
+    assert(pos != std::string::npos);
+    changed.replace(pos, std::strlen(before), after);
+    invalid(changed);
+  };
+  replace("motegi_oval_2025_full_v2", "wrong_course");
+  replace("\"lap\": 7", "\"lap\": 6");
+  replace("\"route_id\": \"final_lap\"", "\"route_id\": \"regular_lap\"");
+  replace("\"off_s_m\": 1030", "\"off_s_m\": 99999");
+  replace("\"on_s_m\": 180", "\"on_s_m\": 1100");
+  replace("\"schema_version\": 1", "\"schema_version\": 2");
+  replace("\"on_s_m\": 180", "\"on_s_m\": 180, \"on_s_m\": 181");
+  invalid(json + "unexpected");
+  invalid(std::string(kMaxStrategyFileBytes + 1, ' '));
+}
 void realCourseTest() {
   Clock clock;
   Output output;
@@ -427,6 +511,24 @@ void realCourseTest() {
   assert(course.locate(settings.goal, 60).lateral_m > 20);
   auto distant = course.locate({36.6, 140.3}, 60);
   assert(!distant.on_course && (distant.x > 480 || distant.y < 0));
+  {
+    Clock probe_clock;
+    Output probe_output;
+    Store probe_store;
+    Recorder probe_recorder;
+    Telemetry probe_telemetry;
+    Application probe(probe_clock, probe_output, probe_store, probe_recorder,
+                      probe_telemetry, course, settings);
+    assert(probe.start());
+    GpsFix fix;
+    fix.valid = true;
+    fix.received_ms = probe_clock.time;
+    fix.position = course.pointAtOn(1500, CourseRoute::First);
+    probe.gps(fix);
+    auto position = probe.snapshot();
+    assert(position.route_map.on_course &&
+           std::abs(position.route_map.s_m - 1500) < 2);
+  }
   Application app(clock, output, store, recorder, telemetry, course, settings);
   auto drive = [&](Application &target, Clock &time_source, CourseRoute route, double from,
                    double to) {
@@ -550,9 +652,10 @@ int main() {
   settingsTest();
   presenterTest();
   settingsFormTest();
+  strategyTest();
   realCourseTest();
   combinedLapTest();
   controlGestureTest();
   std::cout << "PASS: engine, race, GPS/manual finish, passages, wheel, NMEA, settings, "
-               "MVP/JSON, control gestures\n";
+               "strategy, MVP/JSON, control gestures\n";
 }

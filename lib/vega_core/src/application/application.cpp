@@ -37,6 +37,7 @@ Snapshot Application::snapshot() const {
   s.wheel = wheelReading(wheel_, s.now_ms * 1000, settings_);
   s.gps = gps_;
   s.map = map_;
+  s.route_map = route_map_;
   s.gps_seen = gps_seen_;
   s.gps_fresh = gps_seen_ && gps_.valid && s.now_ms >= gps_.received_ms &&
                 s.now_ms - gps_.received_ms <= settings_.gps_stale_ms;
@@ -82,6 +83,11 @@ bool Application::manualLap() {
   if (!race_.advance(clock_.now(), true, settings_)) return false;
   timing_.reset();
   resetFinishBranch();
+  if (gps_seen_ && gps_.valid) {
+    route_map_ = course_.locateOn(gps_.position, settings_.course_corridor_m,
+                                  routeForLap(race_.lap()));
+    map_ = route_map_;
+  }
   event(Event::ManualLap);
   return true;
 }
@@ -147,7 +153,8 @@ void Application::gps(const GpsFix &fix) {
   }
   const CourseRoute active_route = routeForLap(race_.lap());
   const auto oval_position = course_.locate(fix.position, settings_.course_corridor_m);
-  map_ = course_.locateOn(fix.position, settings_.course_corridor_m, active_route);
+  route_map_ = course_.locateOn(fix.position, settings_.course_corridor_m, active_route);
+  map_ = route_map_;
   if (active_route == CourseRoute::First && oval_position.lateral_m < map_.lateral_m)
     map_ = oval_position;
   if (race_.phase() != RacePhase::Measuring) return;
@@ -161,8 +168,9 @@ void Application::gps(const GpsFix &fix) {
         race_.advance(fix.received_ms, false, settings_)) {
       timing_.reset();
       resetFinishBranch();
-      map_ = course_.locateOn(fix.position, settings_.course_corridor_m,
-                              routeForLap(race_.lap()));
+      route_map_ = course_.locateOn(fix.position, settings_.course_corridor_m,
+                                    routeForLap(race_.lap()));
+      map_ = route_map_;
       event(Event::GpsLap);
     }
     return;

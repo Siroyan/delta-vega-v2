@@ -12,6 +12,7 @@ bool prepareOutputs();
 void outputsOff();
 bool begin();
 bool snapshot(vega::Snapshot &out);
+bool strategy(vega::Strategy &out);
 vega::UiStatus status();
 void serialPoll();
 void requestLogReadback();

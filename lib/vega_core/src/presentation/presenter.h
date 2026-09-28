@@ -1,11 +1,14 @@
 #pragma once
 #include "domain/types.h"
+#include "domain/strategy.h"
 #include "ports/ports.h"
 
 namespace vega {
+enum class PlanState : uint8_t { Loading, Missing, Invalid, Ready };
 struct UiStatus {
   bool sd_ready = false, sd_error = false, mqtt_connected = false, network_configured = false;
   bool time_valid = false, ntp_holdover = false;
+  PlanState plan_state = PlanState::Loading;
   char clock[24] = "--:--:-- JST";
 };
 struct DisplayModel {
@@ -15,6 +18,10 @@ struct DisplayModel {
   char notice[100]{}, map_status[48]{}, gps_status[32]{}, link[32]{}, race_status[32]{},
       action[48]{}, detail[60]{};
   char clock[24]{}, ntp[24]{};
+  char plan_status[32]{};
+  StrategyLap plan_lap{};
+  bool plan_loaded = false;
+  uint8_t plan_lap_number = 0;
   bool power_on = false, ignition_enabled = false, lap_enabled = false, finish_mode = false,
        heartbeat = false,
        pulse = false, gps_ok = false;
@@ -30,7 +37,8 @@ class Presenter {
  public:
   explicit Presenter(IView &view) : view_(view) {}
   Presenter(IView &view, ICommandSink &commands) : view_(view), commands_(&commands) {}
-  void render(const Snapshot &snapshot, const UiStatus &status);
+  void render(const Snapshot &snapshot, const UiStatus &status,
+              const Strategy *strategy = nullptr);
   bool request(const Command &command);
   const Settings &settings() const { return settings_; }
   RacePhase phase() const { return phase_; }

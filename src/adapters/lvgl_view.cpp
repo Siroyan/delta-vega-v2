@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <lvgl.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -10,6 +11,7 @@
 
 #include "../ui/actions.h"
 #include "../ui/fonts.h"
+#include "../ui/images.h"
 #include "../ui/screens.h"
 #include "../ui/ui.h"
 #include "../tab5_lvgl.h"
@@ -141,6 +143,149 @@ struct CourseMapMarkers {
   lv_point_precise_t lap_points[2]{};
 };
 std::array<CourseMapMarkers, kCourseMapCount> course_markers{};
+constexpr size_t kPlanLinePoints = 96;
+struct PlanLine {
+  lv_obj_t *object = nullptr;
+  std::array<lv_point_precise_t, kPlanLinePoints> points{};
+};
+struct PlanMap {
+  std::array<PlanLine, vega::kMaxStrategyRunsPerLap> acceleration{};
+  std::array<PlanLine, vega::kMaxStrategyRunsPerLap + 1> coasting{};
+  std::array<lv_obj_t *, vega::kMaxStrategyRunsPerLap> on_backing{}, on_flame{},
+      off_square{};
+  uint8_t shown_lap = 0;
+  bool shown = false;
+};
+std::array<PlanMap, 2> plan_maps{};  // Main and Waiting preview.
+
+lv_point_precise_t planPixel(const vega::CoursePath &path, double s_m) {
+  const double distance = std::clamp(s_m, 0.0, path.length);
+  size_t low = 0, high = path.count - 1;
+  while (high - low > 1) {
+    const size_t middle = (low + high) / 2;
+    if (path.points[middle].s <= distance) low = middle;
+    else high = middle;
+  }
+  const auto &a = path.points[low], &b = path.points[high];
+  const double fraction = b.s > a.s ? (distance - a.s) / (b.s - a.s) : 0;
+  const double east = a.east + fraction * (b.east - a.east);
+  const double north = a.north + fraction * (b.north - a.north);
+  const auto &matrix = course_data.pixel_matrix;
+  return {static_cast<lv_value_precise_t>(std::lround(matrix[0] * east + matrix[1] * north + matrix[2])),
+          static_cast<lv_value_precise_t>(std::lround(matrix[3] * east + matrix[4] * north + matrix[5]))};
+}
+
+void drawPlanLine(PlanLine &line, const vega::CoursePath &path,
+                  double from_m, double to_m) {
+  if (!line.object || to_m - from_m < 1) {
+    visible(line.object, false);
+    return;
+  }
+  const size_t count = std::min(kPlanLinePoints,
+                                static_cast<size_t>(std::ceil((to_m - from_m) / 15)) + 2);
+  for (size_t i = 0; i < count; ++i) {
+    const double s_m = from_m + (to_m - from_m) * i / (count - 1);
+    line.points[i] = planPixel(path, s_m);
+  }
+  lv_line_set_points(line.object, line.points.data(), count);
+  visible(line.object, true);
+}
+
+void hidePlanMap(PlanMap &map) {
+  for (auto &line : map.acceleration) visible(line.object, false);
+  for (auto &line : map.coasting) visible(line.object, false);
+  for (size_t i = 0; i < vega::kMaxStrategyRunsPerLap; ++i) {
+    visible(map.on_backing[i], false);
+    visible(map.on_flame[i], false);
+    visible(map.off_square[i], false);
+  }
+  map.shown = false;
+  map.shown_lap = 0;
+}
+
+void renderPlanMap(PlanMap &map, const vega::DisplayModel &model) {
+  if (!model.plan_loaded) {
+    if (map.shown) hidePlanMap(map);
+    return;
+  }
+  if (map.shown && map.shown_lap == model.plan_lap_number) return;
+  const auto &lap = model.plan_lap;
+  const auto &path = course_data.routes[static_cast<size_t>(lap.route)];
+  double previous_off = 0;
+  for (size_t i = 0; i < vega::kMaxStrategyRunsPerLap; ++i) {
+    if (i >= lap.run_count) {
+      visible(map.acceleration[i].object, false);
+      visible(map.coasting[i].object, false);
+      visible(map.on_backing[i], false);
+      visible(map.on_flame[i], false);
+      visible(map.off_square[i], false);
+      continue;
+    }
+    const auto &run = lap.runs[i];
+    drawPlanLine(map.coasting[i], path, previous_off, run.on_s_m);
+    drawPlanLine(map.acceleration[i], path, run.on_s_m, run.off_s_m);
+    const auto on = planPixel(path, run.on_s_m);
+    const auto off = planPixel(path, run.off_s_m);
+    const int32_t on_x = on.x;
+    const int32_t on_y = on.y;
+    const int32_t off_x = off.x;
+    const int32_t off_y = off.y;
+    lv_obj_set_pos(map.on_backing[i], on_x - 22, on_y - 22);
+    lv_obj_set_pos(map.on_flame[i], on_x - 20, on_y - 20);
+    lv_obj_set_pos(map.off_square[i], off_x - 12, off_y - 12);
+    visible(map.on_backing[i], true);
+    visible(map.on_flame[i], true);
+    visible(map.off_square[i], true);
+    previous_off = run.off_s_m;
+  }
+  drawPlanLine(map.coasting[lap.run_count], path, previous_off, lap.route_length_m);
+  for (size_t i = lap.run_count + 1; i < map.coasting.size(); ++i)
+    visible(map.coasting[i].object, false);
+  map.shown = true;
+  map.shown_lap = model.plan_lap_number;
+}
+
+void createPlanMap(PlanMap &map, lv_obj_t *parent) {
+  auto make_line = [parent](PlanLine &line, uint32_t color) {
+    line.object = lv_line_create(parent);
+    lv_obj_set_pos(line.object, 0, 0);
+    lv_obj_set_size(line.object, kCourseMapSize, kCourseMapSize);
+    lv_obj_remove_flag(line.object, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_line_color(line.object, lv_color_hex(color), 0);
+    lv_obj_set_style_line_width(line.object, 8, 0);
+    lv_obj_set_style_line_rounded(line.object, true, 0);
+    visible(line.object, false);
+  };
+  for (auto &line : map.acceleration) make_line(line, 0xDB741D);
+  for (auto &line : map.coasting) make_line(line, 0x1769B2);
+  for (size_t i = 0; i < vega::kMaxStrategyRunsPerLap; ++i) {
+    auto *backing = lv_obj_create(parent);
+    lv_obj_set_size(backing, 44, 44);
+    lv_obj_set_style_pad_all(backing, 0, 0);
+    lv_obj_set_style_border_width(backing, 0, 0);
+    lv_obj_set_style_radius(backing, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(backing, lv_color_hex(0xDB741D), 0);
+    lv_obj_set_style_bg_opa(backing, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(backing, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(backing, LV_OBJ_FLAG_SCROLLABLE);
+    map.on_backing[i] = backing;
+    auto *flame = lv_image_create(parent);
+    lv_obj_set_size(flame, 40, 40);
+    lv_image_set_src(flame, &img_course_ignition_flame);
+    lv_obj_remove_flag(flame, LV_OBJ_FLAG_CLICKABLE);
+    map.on_flame[i] = flame;
+    auto *square = lv_obj_create(parent);
+    lv_obj_set_size(square, 24, 24);
+    lv_obj_set_style_pad_all(square, 0, 0);
+    lv_obj_set_style_border_width(square, 0, 0);
+    lv_obj_set_style_radius(square, 2, 0);
+    lv_obj_set_style_bg_color(square, lv_color_hex(0x1769B2), 0);
+    lv_obj_remove_flag(square, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(square, LV_OBJ_FLAG_SCROLLABLE);
+    map.off_square[i] = square;
+  }
+  hidePlanMap(map);
+}
 vega::GeoPoint displayed_start{};
 vega::GeoPoint displayed_goal{};
 vega::GeoPoint displayed_timing{};
@@ -346,7 +491,7 @@ class View final : public vega::IView {
       text(p.map_status, m.map_status);
       text(p.gps_status, m.gps_status);
       text(p.link, m.link);
-      text(p.plan_status, "PLAN NOT SET");
+      text(p.plan_status, m.plan_status);
       text(p.race_status, m.race_status);
       text(p.action, m.action);
       text(p.detail, m.detail);
@@ -403,6 +548,7 @@ class View final : public vega::IView {
         lv_obj_set_style_text_color(p.total, total_color, 0);
       ++page_index;
     }
+    for (auto &map : plan_maps) renderPlanMap(map, m);
     for (const auto &page : control_pages) checked(page.power, m.power_on);
     finish_mode = m.finish_mode;
     finish_ready = m.lap_enabled;
@@ -566,6 +712,8 @@ void viewBegin() {
     lv_obj_set_style_text_color(label, lv_color_hex(action ? 0xFFFFFF : 0x202B36), 0);
     lv_obj_center(label);
   }
+  createPlanMap(plan_maps[0], objects.course_container);
+  createPlanMap(plan_maps[1], objects.waiting_course_container);
   lv_obj_t *maps[kCourseMapCount] = {
       objects.course_container,            objects.waiting_course_container,
       objects.finished_course_container,   objects.gpsstale_course_container,
@@ -620,7 +768,9 @@ void viewUpdate() {
                                     : "SAVE NOT ACCEPTED - TRY AGAIN");
     }
   }
-  presenter.render(s, status());
+  vega::Strategy strategy_data;
+  const bool plan_loaded = strategy(strategy_data);
+  presenter.render(s, status(), plan_loaded ? &strategy_data : nullptr);
   updateCourseMarkers(s.settings);
   char start[90];
   if (s.gps_fresh) {
@@ -868,6 +1018,22 @@ bool viewDiagnostic(const char *command) {
                   static_cast<long>(std::lround(markers.lap_points[1].x)),
                   static_cast<long>(std::lround(markers.lap_points[1].y)),
                   !lv_obj_has_flag(markers.lap_line, LV_OBJ_FLAG_HIDDEN));
+  } else if (!strcmp(command, "ui-plan")) {
+    const auto &plan_map =
+        lv_screen_active() == objects.waiting ? plan_maps[1] : plan_maps[0];
+    Serial.printf("[UI PLAN] shown=%u lap=%u orange=%u blue=%u on=%d,%d off=%d,%d "
+                  "action=%s plan_status=%s\n",
+                  plan_map.shown, plan_map.shown_lap,
+                  plan_map.shown &&
+                      !lv_obj_has_flag(plan_map.acceleration[0].object, LV_OBJ_FLAG_HIDDEN),
+                  plan_map.shown &&
+                      !lv_obj_has_flag(plan_map.coasting[0].object, LV_OBJ_FLAG_HIDDEN),
+                  lv_obj_get_x(plan_map.on_flame[0]) + 20,
+                  lv_obj_get_y(plan_map.on_flame[0]) + 20,
+                  lv_obj_get_x(plan_map.off_square[0]) + 12,
+                  lv_obj_get_y(plan_map.off_square[0]) + 12,
+                  lv_label_get_text(objects.next_action_label),
+                  lv_label_get_text(objects.plan_status_label));
   } else if (!strcmp(command, "ui-settings"))
     action_open_settings(nullptr);
   else if (!strcmp(command, "ui-advanced"))

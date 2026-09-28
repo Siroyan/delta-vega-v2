@@ -95,6 +95,7 @@ struct Snapshot {
   WheelReading wheel{};
   GpsFix gps{};
   MapPosition map{};
+  MapPosition route_map{};  // Progress on the active lap route, separate from display fallback.
   bool gps_fresh = false;
   bool gps_seen = false;
   bool output_error = false;

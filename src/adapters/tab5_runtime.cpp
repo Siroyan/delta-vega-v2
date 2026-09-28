@@ -36,8 +36,10 @@ namespace tab5 {
 namespace {
 constexpr gpio_num_t kPower = GPIO_NUM_45, kIgnition = GPIO_NUM_48;
 constexpr int kReed = 16, kGpsRx = 7, kGpsTx = 6;
-QueueHandle_t commands, snapshots, records, transmissions, diagnostics;
+QueueHandle_t commands, snapshots, records, transmissions, diagnostics, strategies,
+    plan_imports;
 std::atomic<bool> urgent_off{false}, sd_ready{false}, sd_error{false}, mqtt_connected{false};
+std::atomic<vega::PlanState> plan_state{vega::PlanState::Loading};
 std::atomic<bool> readback{false};
 std::atomic<uint64_t> last_ntp_sync{0};
 std::atomic<uint32_t> debounce_us{3000};
@@ -45,6 +47,10 @@ portMUX_TYPE wheel_lock = portMUX_INITIALIZER_UNLOCKED;
 vega::WheelInput wheel_input;
 struct Diagnostic {
   char text[160];
+};
+struct PlanImport {
+  char *contents;
+  size_t length;
 };
 void diagnostic(const char *format, ...) {
   if (!diagnostics) return;
@@ -293,6 +299,44 @@ class SdFile {
   FILE *file_ = nullptr;
 };
 
+void installPlan(PlanImport request) {
+  vega::Snapshot current;
+  if (!sd_ready || !snapshot(current) || current.race.phase != vega::RacePhase::Waiting ||
+      SD_MMC.exists("/vega/strategy.json")) {
+    Serial.println("[PLAN UPLOAD] rejected: SD unavailable, timing active, or file exists");
+    free(request.contents);
+    return;
+  }
+  vega::Strategy parsed;
+  vega::Course course(course_data);
+  char error[80]{};
+  if (!vega::parseStrategy(request.contents, request.length, course, course_data.id,
+                           parsed, error, sizeof(error))) {
+    Serial.printf("[PLAN UPLOAD] rejected: %s\n", error);
+    free(request.contents);
+    return;
+  }
+  constexpr const char *temporary = "/sdcard/vega/strategy.json.tmp";
+  constexpr const char *final = "/sdcard/vega/strategy.json";
+  FILE *file = fopen(temporary, "wb");
+  bool written = file && fwrite(request.contents, 1, request.length, file) == request.length;
+  if (file) {
+    written = written && fflush(file) == 0 && fsync(fileno(file)) == 0;
+    if (fclose(file) != 0) written = false;
+  }
+  free(request.contents);
+  vega::Snapshot latest;
+  if (!snapshot(latest) || latest.race.phase != vega::RacePhase::Waiting) written = false;
+  if (!written || rename(temporary, final) != 0) {
+    remove(temporary);
+    Serial.println("[PLAN UPLOAD] rejected: SD write failed");
+    return;
+  }
+  xQueueOverwrite(strategies, &parsed);
+  plan_state = vega::PlanState::Ready;
+  Serial.printf("[PLAN UPLOAD] installed id=%s\n", parsed.plan_id);
+}
+
 void sdTask(void *) {
   SD_MMC.setPins(43, 44, 39, 40, 41, 42);
   sd_ready = SD_MMC.begin("/sdcard", false, false, SDMMC_FREQ_DEFAULT);
@@ -302,11 +346,47 @@ void sdTask(void *) {
   sd_error = !sd_ready;
   Serial.printf("[SD] mount=%s card_bytes=%llu\n", sd_ready ? "OK" : "FAILED",
                 sd_ready ? SD_MMC.cardSize() : 0ULL);
+  if (sd_ready) {
+    FILE *plan_file = fopen("/sdcard/vega/strategy.json", "rb");
+    if (!plan_file) {
+      plan_state = vega::PlanState::Missing;
+      Serial.println("[PLAN] /vega/strategy.json not found");
+    } else {
+      char error[80] = "read failed";
+      bool accepted = false;
+      char *contents = static_cast<char *>(malloc(vega::kMaxStrategyFileBytes + 1));
+      if (contents && fseek(plan_file, 0, SEEK_END) == 0) {
+        long length = ftell(plan_file);
+        if (length > 0 && length <= static_cast<long>(vega::kMaxStrategyFileBytes) &&
+            fseek(plan_file, 0, SEEK_SET) == 0 &&
+            fread(contents, 1, length, plan_file) == static_cast<size_t>(length)) {
+          vega::Strategy parsed;
+          vega::Course course(course_data);
+          accepted = vega::parseStrategy(contents, length, course, course_data.id,
+                                         parsed, error, sizeof(error));
+          if (accepted) {
+            xQueueOverwrite(strategies, &parsed);
+            plan_state = vega::PlanState::Ready;
+            Serial.printf("[PLAN] loaded id=%s laps=7\n", parsed.plan_id);
+          }
+        } else
+          snprintf(error, sizeof(error), "empty, too large, or unreadable");
+      }
+      free(contents);
+      fclose(plan_file);
+      if (!accepted) {
+        plan_state = vega::PlanState::Invalid;
+        Serial.printf("[PLAN] invalid: %s\n", error);
+      }
+    }
+  } else plan_state = vega::PlanState::Missing;
   SdFile log;
   char last_path[80]{};
   uint64_t last_flush = 0;
   bool active = false, failed_session = false;
   for (;;) {
+    PlanImport imported{};
+    if (xQueueReceive(plan_imports, &imported, 0) == pdTRUE) installPlan(imported);
     Record r{};
     if (xQueueReceive(records, &r, pdMS_TO_TICKS(50)) == pdTRUE) {
       if (r.kind == RecordKind::Begin) {
@@ -561,7 +641,11 @@ bool begin() {
   records = xQueueCreate(48, sizeof(Record));
   transmissions = xQueueCreate(1, sizeof(vega::Snapshot));
   diagnostics = xQueueCreate(16, sizeof(Diagnostic));
-  if (!commands || !snapshots || !records || !transmissions || !diagnostics) return false;
+  strategies = xQueueCreate(1, sizeof(vega::Strategy));
+  plan_imports = xQueueCreate(1, sizeof(PlanImport));
+  if (!commands || !snapshots || !records || !transmissions || !diagnostics || !strategies ||
+      !plan_imports)
+    return false;
   if (xTaskCreate(diagnosticTask, "vega_log", 3072, nullptr, 1, nullptr) != pdPASS ||
       xTaskCreate(sdTask, "vega_sd", 8192, nullptr, 1, nullptr) != pdPASS ||
       xTaskCreate(networkTask, "vega_net", 8192, nullptr, 1, nullptr) != pdPASS ||
@@ -587,10 +671,14 @@ bool submit(const Command &c) {
   return xQueueSend(commands, &c, 0) == pdTRUE;
 }
 bool snapshot(vega::Snapshot &s) { return snapshots && xQueuePeek(snapshots, &s, 0) == pdTRUE; }
+bool strategy(vega::Strategy &s) {
+  return strategies && xQueuePeek(strategies, &s, 0) == pdTRUE;
+}
 vega::UiStatus status() {
   vega::UiStatus s;
   s.sd_ready = sd_ready;
   s.sd_error = sd_error;
+  s.plan_state = plan_state.load();
   s.mqtt_connected = mqtt_connected;
   s.network_configured = network_config::ssid[0];
   auto synced = last_ntp_sync.load();
@@ -609,8 +697,35 @@ void requestLogReadback() { readback = true; }
 void serialPoll() {
   static char buffer[64];
   static size_t count = 0;
+  static char *incoming_plan = nullptr;
+  static size_t incoming_expected = 0, incoming_received = 0;
+  static uint32_t incoming_last_ms = 0;
+  if (incoming_plan && millis() - incoming_last_ms > 15000) {
+    Serial.printf("[PLAN UPLOAD] timeout received=%u expected=%u\n",
+                  static_cast<unsigned>(incoming_received),
+                  static_cast<unsigned>(incoming_expected));
+    free(incoming_plan);
+    incoming_plan = nullptr;
+    incoming_expected = incoming_received = 0;
+  }
   for (unsigned budget = 0; budget < 128 && Serial.available(); ++budget) {
     char c = Serial.read();
+    if (incoming_plan) {
+      incoming_plan[incoming_received++] = c;
+      incoming_last_ms = millis();
+      if (incoming_received == incoming_expected) {
+        PlanImport request{incoming_plan, incoming_expected};
+        if (xQueueSend(plan_imports, &request, 0) == pdTRUE)
+          Serial.println("[PLAN UPLOAD] queued");
+        else {
+          free(incoming_plan);
+          Serial.println("[PLAN UPLOAD] queue full");
+        }
+        incoming_plan = nullptr;
+        incoming_expected = incoming_received = 0;
+      }
+      continue;
+    }
     if (c == '\r') continue;
     if (c == '\n') {
       buffer[count] = 0;
@@ -629,6 +744,29 @@ void serialPoll() {
               s.gps_fresh, s.wheel.pulses, st.sd_ready, st.sd_error, st.mqtt_connected,
               st.time_valid, static_cast<unsigned long>(s.settings.total_target_s),
               static_cast<unsigned long>(s.settings.lap_target_s[0]));
+      } else if (!strcmp(buffer, "plan-status")) {
+        vega::Strategy current;
+        bool loaded = strategy(current);
+        Serial.printf("[PLAN] state=%u loaded=%u id=%s\n",
+                      static_cast<unsigned>(plan_state.load()), loaded,
+                      loaded ? current.plan_id : "-");
+      } else if (!strncmp(buffer, "plan-upload ", 12)) {
+        char *end = nullptr;
+        unsigned long length = strtoul(buffer + 12, &end, 10);
+        vega::Snapshot current;
+        if (!end || *end || length == 0 || length > vega::kMaxStrategyFileBytes ||
+            !sd_ready || !snapshot(current) ||
+            current.race.phase != vega::RacePhase::Waiting) {
+          Serial.println("[PLAN UPLOAD] rejected: invalid size, SD unavailable, timing active, or file exists");
+        } else {
+          incoming_plan = static_cast<char *>(malloc(length));
+          if (incoming_plan) {
+            incoming_expected = length;
+            incoming_received = 0;
+            incoming_last_ms = millis();
+            Serial.printf("[PLAN UPLOAD] ready bytes=%lu\n", length);
+          } else Serial.println("[PLAN UPLOAD] allocation failed");
+        }
       } else if (!strcmp(buffer, "settings")) {
         vega::Snapshot s;
         if (snapshot(s))

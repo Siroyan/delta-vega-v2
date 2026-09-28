@@ -400,9 +400,7 @@ typedef struct _objects_t {
     lv_obj_t *plandemo_coasting_segment;
     lv_obj_t *plandemo_on_marker_backing;
     lv_obj_t *plandemo_on_flame_marker;
-    lv_obj_t *plandemo_on_marker_label;
     lv_obj_t *plandemo_off_square_marker;
-    lv_obj_t *plandemo_off_marker_label;
     lv_obj_t *plandemo_position_marker_backing;
     lv_obj_t *plandemo_position_marker;
     lv_obj_t *plandemo_north_label;
@@ -460,9 +458,7 @@ typedef struct _objects_t {
     lv_obj_t *cachedplan_coasting_segment;
     lv_obj_t *cachedplan_on_marker_backing;
     lv_obj_t *cachedplan_on_flame_marker;
-    lv_obj_t *cachedplan_on_marker_label;
     lv_obj_t *cachedplan_off_square_marker;
-    lv_obj_t *cachedplan_off_marker_label;
     lv_obj_t *cachedplan_position_marker_backing;
     lv_obj_t *cachedplan_position_marker;
     lv_obj_t *cachedplan_north_label;

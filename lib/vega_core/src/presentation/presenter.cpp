@@ -13,7 +13,7 @@ void Presenter::formatTime(uint64_t ms, char *out, size_t cap) {
     std::snprintf(out, cap, "%02llu:%02llu", (unsigned long long)(seconds / 60),
                   (unsigned long long)(seconds % 60));
 }
-void Presenter::render(const Snapshot &s, const UiStatus &status) {
+void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy *strategy) {
   settings_ = s.settings;
   phase_ = s.race.phase;
   DisplayModel m;
@@ -81,6 +81,42 @@ void Presenter::render(const Snapshot &s, const UiStatus &status) {
                 m.phase == RacePhase::Waiting    ? "MANUAL START"
                 : m.phase == RacePhase::Finished ? "RESULT HELD"
                                                  : "NO OPERATION GUIDANCE");
+  std::snprintf(m.plan_status, sizeof(m.plan_status), "%s",
+                status.plan_state == PlanState::Invalid ? "PLAN INVALID"
+                : status.plan_state == PlanState::Loading ? "PLAN LOADING"
+                : status.plan_state == PlanState::Ready && strategy ? (strategy->demo ? "PLAN DEMO" : "PLAN ACTIVE")
+                                                                    : "PLAN NOT SET");
+  if (m.phase == RacePhase::Measuring && status.plan_state == PlanState::Invalid) {
+    std::snprintf(m.action, sizeof(m.action), "PLAN INVALID");
+    std::snprintf(m.detail, sizeof(m.detail), "CHECK SD STRATEGY");
+  }
+  if (status.plan_state == PlanState::Ready && strategy &&
+      m.phase != RacePhase::Finished && s.race.lap <= kLapCount) {
+    m.plan_loaded = true;
+    m.plan_lap_number = s.race.lap ? s.race.lap : 1;
+    m.plan_lap = strategy->laps[m.plan_lap_number - 1];
+    // Waiting previews the first route while START TIMING stays prominent.
+    if (m.phase == RacePhase::Measuring && s.gps_fresh && s.route_map.on_course) {
+      auto next = nextStrategyCue(m.plan_lap, s.route_map.s_m,
+                                  m.plan_lap.route_length_m);
+      const auto meters = static_cast<unsigned>(std::ceil(next.distance_m));
+      if (next.cue == StrategyCue::On)
+        std::snprintf(m.action, sizeof(m.action), "NEXT ON IN %u m", meters);
+      else if (next.cue == StrategyCue::Off)
+        std::snprintf(m.action, sizeof(m.action), "NEXT OFF IN %u m", meters);
+      else
+        std::snprintf(m.action, sizeof(m.action), "COAST TO LAP END");
+      std::snprintf(m.detail, sizeof(m.detail),
+                    strategy->demo ? "DEMO ONLY / LAP %u" : "LAP %u PLAN / DRIVER ACTION",
+                    s.race.lap);
+    } else if (m.phase == RacePhase::Measuring) {
+      std::snprintf(m.action, sizeof(m.action), "PLAN READY");
+      std::snprintf(m.detail, sizeof(m.detail), "%s",
+                    strategy->demo ? (s.gps_fresh ? "DEMO ONLY / OFF COURSE"
+                                                : "DEMO ONLY / GPS UNAVAILABLE")
+                                   : (s.gps_fresh ? "POSITION OFF COURSE" : "GPS UNAVAILABLE"));
+    }
+  }
   if (s.output_error)
     std::snprintf(m.notice, sizeof(m.notice), "OUTPUT ERROR\nCHECK ECU SIGNAL");
   else if (s.settings_error)

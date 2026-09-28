@@ -20250,10 +20250,10 @@
                   "objID": "4e9cd186-a1a8-4a91-8cc1-665e6fb4eacd",
                   "type": "LVGLContainerWidget",
                   "identifier": "plandemo_on_marker_backing",
-                  "left": 323,
-                  "top": 416,
-                  "width": 40,
-                  "height": 52,
+                  "left": 322,
+                  "top": 421,
+                  "width": 44,
+                  "height": 44,
                   "customInputs": [],
                   "customOutputs": [],
                   "style": {
@@ -20286,8 +20286,8 @@
                           "pad_right": 0,
                           "border_width": 0,
                           "bg_opa": 255,
-                          "bg_color": "#FFFFFF",
-                          "radius": 8
+                          "bg_color": "#DB741D",
+                          "radius": 100
                         }
                       }
                     }
@@ -20299,10 +20299,10 @@
                   "objID": "1bc8f6f0-f2fd-492a-9d96-fb370bacb379",
                   "type": "LVGLImageWidget",
                   "identifier": "plandemo_on_flame_marker",
-                  "left": 320,
-                  "top": 419,
-                  "width": 48,
-                  "height": 48,
+                  "left": 324,
+                  "top": 423,
+                  "width": 40,
+                  "height": 40,
                   "customInputs": [],
                   "customOutputs": [],
                   "style": {
@@ -20353,60 +20353,6 @@
                   "previewValue": 0
                 },
                 {
-                  "objID": "633a4809-0ba4-4dc1-b0af-25097446d968",
-                  "type": "LVGLLabelWidget",
-                  "identifier": "plandemo_on_marker_label",
-                  "left": 365,
-                  "top": 430,
-                  "width": 60,
-                  "height": 28,
-                  "customInputs": [],
-                  "customOutputs": [],
-                  "style": {
-                    "objID": "652c53ea-9df9-41ce-8f70-a0b47c644dcc",
-                    "useStyle": "default",
-                    "conditionalStyles": [],
-                    "childStyles": []
-                  },
-                  "timeline": [],
-                  "eventHandlers": [],
-                  "leftUnit": "px",
-                  "topUnit": "px",
-                  "widthUnit": "px",
-                  "heightUnit": "px",
-                  "children": [],
-                  "widgetFlags": "",
-                  "hiddenFlagType": "literal",
-                  "clickableFlagType": "literal",
-                  "checkedStateType": "literal",
-                  "disabledStateType": "literal",
-                  "states": "",
-                  "localStyles": {
-                    "objID": "caab3ca5-48f0-46a3-9bdf-cb74330cf036",
-                    "definition": {
-                      "MAIN": {
-                        "DEFAULT": {
-                          "pad_top": 0,
-                          "pad_bottom": 0,
-                          "pad_left": 0,
-                          "pad_right": 0,
-                          "border_width": 0,
-                          "bg_opa": 0,
-                          "text_font": "RictyDiminished_24",
-                          "text_color": "#DB741D",
-                          "text_align": "LEFT"
-                        }
-                      }
-                    }
-                  },
-                  "groupIndex": 0,
-                  "text": "ON",
-                  "textType": "literal",
-                  "longMode": "CLIP",
-                  "recolor": false,
-                  "useStaticText": true
-                },
-                {
                   "objID": "a41be542-c156-4838-b81b-84689104aec8",
                   "type": "LVGLContainerWidget",
                   "identifier": "plandemo_off_square_marker",
@@ -20454,60 +20400,6 @@
                   },
                   "groupIndex": 0,
                   "containerVersion": 1
-                },
-                {
-                  "objID": "f8e9fc9c-c9a0-49b6-bd14-0388fc840bdf",
-                  "type": "LVGLLabelWidget",
-                  "identifier": "plandemo_off_marker_label",
-                  "left": 424,
-                  "top": 310,
-                  "width": 44,
-                  "height": 28,
-                  "customInputs": [],
-                  "customOutputs": [],
-                  "style": {
-                    "objID": "1805382e-556d-45a7-bced-24b424e5d59f",
-                    "useStyle": "default",
-                    "conditionalStyles": [],
-                    "childStyles": []
-                  },
-                  "timeline": [],
-                  "eventHandlers": [],
-                  "leftUnit": "px",
-                  "topUnit": "px",
-                  "widthUnit": "px",
-                  "heightUnit": "px",
-                  "children": [],
-                  "widgetFlags": "",
-                  "hiddenFlagType": "literal",
-                  "clickableFlagType": "literal",
-                  "checkedStateType": "literal",
-                  "disabledStateType": "literal",
-                  "states": "",
-                  "localStyles": {
-                    "objID": "b2a202dc-ee74-4923-a69e-d13923169074",
-                    "definition": {
-                      "MAIN": {
-                        "DEFAULT": {
-                          "pad_top": 0,
-                          "pad_bottom": 0,
-                          "pad_left": 0,
-                          "pad_right": 0,
-                          "border_width": 0,
-                          "bg_opa": 0,
-                          "text_font": "RictyDiminished_24",
-                          "text_color": "#1769B2",
-                          "text_align": "LEFT"
-                        }
-                      }
-                    }
-                  },
-                  "groupIndex": 0,
-                  "text": "OFF",
-                  "textType": "literal",
-                  "longMode": "CLIP",
-                  "recolor": false,
-                  "useStaticText": true
                 },
                 {
                   "objID": "5c052ede-a6f4-42ac-a6b7-51ca27801d16",
@@ -23536,10 +23428,10 @@
                   "objID": "cf0ce103-ecdc-49cd-95b7-6e9801f6825b",
                   "type": "LVGLContainerWidget",
                   "identifier": "cachedplan_on_marker_backing",
-                  "left": 323,
-                  "top": 416,
-                  "width": 40,
-                  "height": 52,
+                  "left": 322,
+                  "top": 421,
+                  "width": 44,
+                  "height": 44,
                   "customInputs": [],
                   "customOutputs": [],
                   "style": {
@@ -23572,8 +23464,8 @@
                           "pad_right": 0,
                           "border_width": 0,
                           "bg_opa": 255,
-                          "bg_color": "#FFFFFF",
-                          "radius": 8
+                          "bg_color": "#DB741D",
+                          "radius": 100
                         }
                       }
                     }
@@ -23585,10 +23477,10 @@
                   "objID": "e1e1c96c-db38-4f1a-ac2f-4065f1e27d5b",
                   "type": "LVGLImageWidget",
                   "identifier": "cachedplan_on_flame_marker",
-                  "left": 320,
-                  "top": 419,
-                  "width": 48,
-                  "height": 48,
+                  "left": 324,
+                  "top": 423,
+                  "width": 40,
+                  "height": 40,
                   "customInputs": [],
                   "customOutputs": [],
                   "style": {
@@ -23639,60 +23531,6 @@
                   "previewValue": 0
                 },
                 {
-                  "objID": "21de6060-f659-4b1d-8fec-87d5b3679e4c",
-                  "type": "LVGLLabelWidget",
-                  "identifier": "cachedplan_on_marker_label",
-                  "left": 365,
-                  "top": 430,
-                  "width": 60,
-                  "height": 28,
-                  "customInputs": [],
-                  "customOutputs": [],
-                  "style": {
-                    "objID": "2ddc36e9-ed8b-417d-8da5-e0ddc8ca4057",
-                    "useStyle": "default",
-                    "conditionalStyles": [],
-                    "childStyles": []
-                  },
-                  "timeline": [],
-                  "eventHandlers": [],
-                  "leftUnit": "px",
-                  "topUnit": "px",
-                  "widthUnit": "px",
-                  "heightUnit": "px",
-                  "children": [],
-                  "widgetFlags": "",
-                  "hiddenFlagType": "literal",
-                  "clickableFlagType": "literal",
-                  "checkedStateType": "literal",
-                  "disabledStateType": "literal",
-                  "states": "",
-                  "localStyles": {
-                    "objID": "529077fb-8c82-421e-a31d-06d244e504c2",
-                    "definition": {
-                      "MAIN": {
-                        "DEFAULT": {
-                          "pad_top": 0,
-                          "pad_bottom": 0,
-                          "pad_left": 0,
-                          "pad_right": 0,
-                          "border_width": 0,
-                          "bg_opa": 0,
-                          "text_font": "RictyDiminished_24",
-                          "text_color": "#DB741D",
-                          "text_align": "LEFT"
-                        }
-                      }
-                    }
-                  },
-                  "groupIndex": 0,
-                  "text": "ON",
-                  "textType": "literal",
-                  "longMode": "CLIP",
-                  "recolor": false,
-                  "useStaticText": true
-                },
-                {
                   "objID": "5ea48980-4711-4dd2-9a05-4d4edb8d3b47",
                   "type": "LVGLContainerWidget",
                   "identifier": "cachedplan_off_square_marker",
@@ -23740,60 +23578,6 @@
                   },
                   "groupIndex": 0,
                   "containerVersion": 1
-                },
-                {
-                  "objID": "a080a5c1-f19f-419e-8e18-df9e402beb23",
-                  "type": "LVGLLabelWidget",
-                  "identifier": "cachedplan_off_marker_label",
-                  "left": 424,
-                  "top": 310,
-                  "width": 44,
-                  "height": 28,
-                  "customInputs": [],
-                  "customOutputs": [],
-                  "style": {
-                    "objID": "927c77fb-a4d3-4d19-8f8f-2e22fda73e3c",
-                    "useStyle": "default",
-                    "conditionalStyles": [],
-                    "childStyles": []
-                  },
-                  "timeline": [],
-                  "eventHandlers": [],
-                  "leftUnit": "px",
-                  "topUnit": "px",
-                  "widthUnit": "px",
-                  "heightUnit": "px",
-                  "children": [],
-                  "widgetFlags": "",
-                  "hiddenFlagType": "literal",
-                  "clickableFlagType": "literal",
-                  "checkedStateType": "literal",
-                  "disabledStateType": "literal",
-                  "states": "",
-                  "localStyles": {
-                    "objID": "ae7fe713-70d6-4aab-b731-39134459da8d",
-                    "definition": {
-                      "MAIN": {
-                        "DEFAULT": {
-                          "pad_top": 0,
-                          "pad_bottom": 0,
-                          "pad_left": 0,
-                          "pad_right": 0,
-                          "border_width": 0,
-                          "bg_opa": 0,
-                          "text_font": "RictyDiminished_24",
-                          "text_color": "#1769B2",
-                          "text_align": "LEFT"
-                        }
-                      }
-                    }
-                  },
-                  "groupIndex": 0,
-                  "text": "OFF",
-                  "textType": "literal",
-                  "longMode": "CLIP",
-                  "recolor": false,
-                  "useStaticText": true
                 },
                 {
                   "objID": "ec7fb4f3-a3c4-4b09-8431-5602c61a1270",
@@ -38047,7 +37831,7 @@
       "objID": "c9de67d8-f59e-439c-a599-a1f9d9a124d5",
       "name": "course_ignition_flame",
       "description": "Same Lucide flame path as ignition_flame; 48 px orange map marker; sources and license: assets/icons/lucide",
-      "image": "data:image/png;base64,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",
+      "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAKKADAAQAAAABAAAAKAAAAAB65masAAAEkklEQVRYCe1YWWwVVRj+L721vaUtsgiGqJREiIlIUDFGDEKIBoIvmqCEIEEfhAce3J6QROODGpWGQEhFBaKSSBMIjQKGkhjkBZVAIyJWbtlK2tt9oXS9C+P3384/nDncWTrD5cHwJ3//5fzLN+ecOWduie7S3RnwNwOGYUwEfw7+AlzmL+sORQFQBbgeLLTlDrX2bgNED4KvCDJTtkCO887OcwRAxMBnTFC6WJjn9t7lgahSR6XYVd4V8hgBILy0IwJoqLHO6Dt9QEyWQ+DpYSGE2Sdr0PweBmBk0tRW/Q71/LpDxVMM433VEUQPA/A5aTgYP06pjkuUbKmngfpfxM3yTczi46pjrHoYgPdLs5HEP6JS56FPyLiREZtnuBogS8UxVhkG4JA0K4hNEJVS7Q1Y6i8tG8ps8E6ADNQrUJLZvV5QlMy2Vjvr6j66hYab/pJhlivB3wNkger0o4cBeEgaFE6poJJHlohJlElR63frKH2946aPaDWMvQCZfbHUATc9DMCDKNwsxScu2SBqVqZ7E5T4ZjVlBntV/yswDgPkeNXppgcGGIlEUihcKcVjM5+i4hlPipmVyZZ/qXnHq5Tua1P9z8Oo8TuTgQGaHb+G7JbuZfN5guzEIJu2v0zJ9ovqwAswtqkOJ90TIJ60DMxX2mZwuVoIszgAu1p8sYcXiGqT6Z4maq5aoYNcj3ov2QJzGJ4AkfMV+F3we+APwDqdFEd0gnU0isuSmYEuSuxaq+/JrQBZZAXlUFwBInkhclYpeU8ouqglotDNA9pyqUq6+yp1/Pih6noIxmuqQ9ddASL4LS1hEUAvFh90PqHfFjvZel5UR9lfV0MjzefU8bWqoeuOANG8EMHLtQSOP4qx3eDN0M+C+abIUt+p/aK6ymt//KCOP4tajldhVI3U9LmwY5qPTQb+hu4fbqyjvpN7dXdOe+jCCdXPDz0H/LvqFN1xBhFg2/E9x6rwEXBD8mxy8OJvlNj9OnntQUnit1qj+zTbMt1m0HZvdtVW0vXTB6j86VVU9MBcihQWUarzCvWfOUgDf9daBf0ohnHLg0ac8twAWgcwJ0fLplKyLU6dP33kVMu3P1o+TY+19VIH3ZY4rgYWz5yvmqH04gr7lYhitl5qcUeAuCXaEdggwaWPLhU1tNRqNZi9ctZ1BGhG10jW+DlLKTp5hpiBJdfgWgpZPRSfpXoB3InI7I6OFBTSlBc3WYlBFa7BtUzi2tzDkVwBYup5ifdIduljy+jeRevFHLPkXK6h0B6zh+Kyq46vt4ThlOdX7k9w9lzks7Dr50+p9zh/Q/gnBjd5+UaKjLPmpBXZ8wDQ9rGoV/QEyAkA+QzEMXAR20z9Z49Q5+GPKd3VOOpw+Mt7jpdVm7kRhC8GuJy3h1rKF0BOAEj+GuXltkAa+O3Bh3T/uVoavnwKv0H4xR89M/lY4reVXwhlz/Ewg1sDcPvYuK3EMwnm/1wFJc7l1cgfocE08LfgDNgvcSzn3HKF5A0pms0CfwaOg52IxzhmVlAgvvegWwMAmIpx/i6cZMbx3RrHPhvdlKbzfyn+A4Bvh/U0/BqPAAAAAElFTkSuQmCC",
       "bpp": 32,
       "alwaysBuild": false,
       "lvglBinaryOutputFormat": 3,

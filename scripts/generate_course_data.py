@@ -67,7 +67,8 @@ for name, path in paths.items():
         % (name, name, name, path["length_m"], str(path["closed"]).lower())
     )
 lines += [
-    "  }}",
+    "  }},",
+    "  " + json.dumps(data["course_id"]),
     "};",
     "}",
 ]

@@ -21,6 +21,7 @@ struct CourseData {
   std::array<double, 6> pixel_matrix;
   // Schema 2 routes. Empty paths fall back to the legacy closed course.
   std::array<CoursePath, 4> routes{};
+  const char *id = nullptr;
 };
 class Course {
  public:
