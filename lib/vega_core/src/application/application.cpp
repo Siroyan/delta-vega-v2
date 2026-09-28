@@ -1,6 +1,20 @@
 #include "application.h"
 
+#include <algorithm>
+
 namespace vega {
+namespace {
+constexpr double kFinishBranchMinProgressM = 55;
+constexpr double kFinishBranchAdvantageM = 7;
+constexpr double kFinishBranchMaxLateralM = 18;
+constexpr double kFinishProgressFromExitM = 100;
+
+CourseRoute routeForLap(uint8_t lap) {
+  return lap <= 1 ? CourseRoute::First
+                  : lap >= kLapCount ? CourseRoute::Final : CourseRoute::Regular;
+}
+}  // namespace
+
 Application::Application(IClock &c, IEngineOutput &o, ISettingsStore &s, ISessionRecorder &r,
                          ITelemetry &t, const Course &course, Settings cfg)
     : clock_(c),
@@ -35,11 +49,17 @@ Snapshot Application::snapshot() const {
 void Application::event(Event e) {
   if (race_.phase() == RacePhase::Measuring) recorder_.event(e, snapshot());
 }
+void Application::resetFinishBranch() {
+  finish_branch_start_s_ = finish_branch_previous_s_ = 0;
+  finish_branch_previous_ms_ = 0;
+  finish_branch_matches_ = 0;
+  goal_.reset();
+}
 bool Application::start() {
   auto now = clock_.now();
   if (!race_.start(now, wheel_.pulses)) return false;
   timing_.reset();
-  goal_.reset();
+  resetFinishBranch();
   last_sample_ = now;
   auto s = snapshot();
   recorder_.begin(s.race.session, settings_, now);
@@ -55,12 +75,13 @@ bool Application::cancel() {
   recorder_.end(EndReason::Cancelled, s);
   race_.cancel();
   timing_.reset();
-  goal_.reset();
+  resetFinishBranch();
   return true;
 }
 bool Application::manualLap() {
   if (!race_.advance(clock_.now(), true, settings_)) return false;
   timing_.reset();
+  resetFinishBranch();
   event(Event::ManualLap);
   return true;
 }
@@ -98,7 +119,7 @@ bool Application::configure(const Settings &s) {
   settings_error_ = false;
   settings_accepted_ = true;
   timing_.reset();
-  goal_.reset();
+  resetFinishBranch();
   return true;
 }
 void Application::gps(const GpsFix &fix) {
@@ -111,20 +132,84 @@ void Application::gps(const GpsFix &fix) {
       now - fix.received_ms > settings_.gps_stale_ms) {
     gps_.valid = false;
     timing_.reset();
-    goal_.reset();
+    resetFinishBranch();
     return;
   }
-  map_ = course_.locate(fix.position, settings_.course_corridor_m);
+  const CourseRoute active_route = routeForLap(race_.lap());
+  const auto oval_position = course_.locate(fix.position, settings_.course_corridor_m);
+  map_ = course_.locateOn(fix.position, settings_.course_corridor_m, active_route);
+  if (active_route == CourseRoute::First && oval_position.lateral_m < map_.lateral_m)
+    map_ = oval_position;
   if (race_.phase() != RacePhase::Measuring) return;
-  auto timing_s = course_.locate(settings_.timing, settings_.course_corridor_m);
-  auto goal_s = course_.locate(settings_.goal, settings_.course_corridor_m);
-  bool crossed_timing =
-      timing_s.on_course && timing_.update(map_, fix.received_ms, timing_s.s_m,
-                                           settings_.min_lap_progress_m, course_, settings_);
-  bool crossed_goal =
-      goal_s.on_course && goal_.update(map_, fix.received_ms, goal_s.s_m, 100, course_, settings_);
-  if (crossed_timing && race_.advance(fix.received_ms, false, settings_)) event(Event::GpsLap);
-  if (crossed_goal && race_.finish(fix.received_ms, wheel_.pulses, settings_)) {
+  if (race_.lap() < kLapCount) {
+    // The editable timing coordinate always belongs to the oval. First-lap
+    // GPS can follow the approach, but the lap gate remains on the main track.
+    const auto timing_gate = course_.locate(settings_.timing, settings_.course_corridor_m);
+    if (timing_gate.on_course &&
+        timing_.update(oval_position, fix.received_ms, timing_gate.s_m,
+                       settings_.min_lap_progress_m, course_, settings_) &&
+        race_.advance(fix.received_ms, false, settings_)) {
+      timing_.reset();
+      resetFinishBranch();
+      map_ = course_.locateOn(fix.position, settings_.course_corridor_m,
+                              routeForLap(race_.lap()));
+      event(Event::GpsLap);
+    }
+    return;
+  }
+
+  if (!course_.hasRoute(CourseRoute::FinishApproach)) {
+    const auto goal_gate = course_.locate(settings_.goal, settings_.course_corridor_m);
+    if (goal_gate.on_course &&
+        goal_.update(map_, fix.received_ms, goal_gate.s_m, 100, course_, settings_) &&
+        race_.finish(fix.received_ms, wheel_.pulses, settings_)) {
+      auto s = snapshot();
+      recorder_.sample(s);
+      telemetry_.publish(s);
+      recorder_.event(Event::Finished, s);
+      recorder_.end(EndReason::Finished, s);
+    }
+    return;
+  }
+
+  // The finish branch stays only 27 m from the oval, inside the normal 60 m
+  // map corridor. Require two forward GPS samples that favor the branch before
+  // accepting its goal gate. A vehicle continuing on the oval cannot finish.
+  const auto finish_position = course_.locateOn(fix.position, settings_.course_corridor_m,
+                                                 CourseRoute::FinishApproach);
+  const auto goal_gate = course_.locateOn(settings_.goal, settings_.course_corridor_m,
+                                          CourseRoute::FinishApproach);
+  const bool on_finish_branch =
+      finish_position.s_m >= kFinishBranchMinProgressM &&
+      finish_position.lateral_m <= std::min(kFinishBranchMaxLateralM,
+                                            settings_.course_corridor_m) &&
+      finish_position.lateral_m + kFinishBranchAdvantageM < oval_position.lateral_m;
+  if (!on_finish_branch || !goal_gate.on_course) {
+    resetFinishBranch();
+    return;
+  }
+  const bool continuing = finish_branch_matches_ &&
+                          fix.received_ms >= finish_branch_previous_ms_ &&
+                          fix.received_ms - finish_branch_previous_ms_ <= settings_.gps_stale_ms &&
+                          finish_position.s_m >= finish_branch_previous_s_ &&
+                          finish_position.s_m - finish_branch_previous_s_ <= settings_.max_gps_step_m;
+  if (!continuing) {
+    resetFinishBranch();
+    finish_branch_start_s_ = finish_position.s_m;
+    finish_branch_matches_ = 1;
+  } else if (finish_position.s_m >= finish_branch_previous_s_ + 2 &&
+             finish_branch_matches_ < 2) {
+    ++finish_branch_matches_;
+  }
+  finish_branch_previous_s_ = finish_position.s_m;
+  finish_branch_previous_ms_ = fix.received_ms;
+  const double remaining_progress =
+      std::max(0.0, kFinishProgressFromExitM - finish_branch_start_s_);
+  const bool crossed_goal = goal_.update(finish_position, fix.received_ms, goal_gate.s_m,
+                                         remaining_progress, course_, settings_,
+                                         CourseRoute::FinishApproach);
+  if (finish_branch_matches_ >= 2 && crossed_goal &&
+      race_.finish(fix.received_ms, wheel_.pulses, settings_)) {
     auto s = snapshot();
     recorder_.sample(s);
     telemetry_.publish(s);

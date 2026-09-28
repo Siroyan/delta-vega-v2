@@ -5,6 +5,13 @@ namespace vega {
 struct CoursePoint {
   double east, north, s;
 };
+enum class CourseRoute : uint8_t { First, Regular, Final, FinishApproach };
+struct CoursePath {
+  const CoursePoint *points = nullptr;
+  size_t count = 0;
+  double length = 0;
+  bool closed = false;
+};
 struct CourseData {
   const CoursePoint *points;
   size_t count;
@@ -12,16 +19,24 @@ struct CourseData {
   GeoPoint origin;
   double east_per_degree, north_per_degree;
   std::array<double, 6> pixel_matrix;
+  // Schema 2 routes. Empty paths fall back to the legacy closed course.
+  std::array<CoursePath, 4> routes{};
 };
 class Course {
  public:
   explicit Course(const CourseData &data) : data_(data) {}
   MapPosition locate(GeoPoint p, double corridor) const;
+  MapPosition locateOn(GeoPoint p, double corridor, CourseRoute route) const;
   GeoPoint pointAt(double s) const;
-  double length() const { return data_.length; }
+  GeoPoint pointAtOn(double s, CourseRoute route) const;
+  double length() const { return routeLength(CourseRoute::Regular); }
+  double routeLength(CourseRoute route) const;
+  bool hasRoute(CourseRoute route) const;
   double forwardDelta(double from, double to) const;
+  double forwardDelta(double from, double to, CourseRoute route) const;
 
  private:
+  CoursePath path(CourseRoute route) const;
   CourseData data_;
 };
 class PassageDetector {
@@ -31,7 +46,8 @@ class PassageDetector {
     progress_ = 0;
   }
   bool update(const MapPosition &position, Millis now, double gate_s, double min_progress,
-              const Course &course, const Settings &settings);
+              const Course &course, const Settings &settings,
+              CourseRoute route = CourseRoute::Regular);
 
  private:
   bool initialized_ = false;

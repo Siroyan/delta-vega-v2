@@ -38,7 +38,7 @@ UI統合コミット: `8869552`（PR #1、承認済みUI・仕様・アイコン
 | `src/ui/screens.c` | EEZ生成画面。最新のEEZ編集を実機に反映する際に再生成する |
 | `src/ui/screens.h` | EEZ生成オブジェクトの参照 |
 | `eez/fonts/` | Ricty Diminishedの元フォントとライセンス |
-| `assets/motegi_oval/` | コースJSON・480×480背景PNG・編集用SVG |
+| `assets/motegi_oval_full/` | 進入路・周回路・ゴール分岐のJSON、480×480背景PNG、編集用SVG |
 | `assets/icons/lucide/` | 操作・メニュー・地図上点火アイコンの元SVG、派生SVG・PNG、ライセンス |
 | `src/app/ui_navigation.cpp` | メニュー開閉、Settingsへの遷移、元のダッシュボードへの復帰 |
 | `README.md` | ビルド手順、EEZ生成先、生成コードを直接編集しない方針 |
@@ -289,19 +289,19 @@ PULSEの最低点灯時間は表示上の処理であり、実際のパルスカ
 
 ### 8.1 採用するコースデータ
 
-2025年の茂木オーバル走行ログ`emc_zenkoku_2025.csv`の2〜6周目を使って作成した基準走行経路を採用する。
+2025年の茂木オーバル走行ログから作成した進入路・周回路・ゴール分岐を採用する。周回路は2〜6周目のログを基準とし、合流・分岐は近似データである。
 
 | 項目 | 内容 |
 |---|---|
-| コースID | `motegi_oval_2025_gps_v1` |
-| JSON | `motegi_course.json` |
-| 背景画像 | `motegi_background_480.png`、480×480 px、北が上 |
-| 編集用画像 | `motegi_background.svg` |
-| 点列 | 256点、閉路、北を上にして反時計回り |
-| 推定経路長 | 約2,412.01 m。公式距離ではない |
-| 距離の原点 | ログの周回切り替わり付近。仮設定 |
+| コースID | `motegi_oval_2025_full_v2` |
+| JSON | `motegi_course_full.json`、schema 2 |
+| 背景画像 | `motegi_course_full_480.png`、480×480 px、北が上 |
+| 編集用画像 | `motegi_course_full.svg` |
+| 経路 | 1周目はスタートから合流して周回更新地点へ。2〜6周目は閉路。7周目は分岐してゴールへ |
+| 推定経路長 | 1周目2,124.58 m、通常周2,412.01 m、最終周2,208.10 m。合計16,392.73 m。公式距離ではない |
+| 距離の原点 | 周回路はJSONの`lap_update_on_route`。設定上の計測線座標とは約11.13 m離れる |
 
-画像とJSONは同じ版の組み合わせで使用する。道路幅14 px相当の描画は見やすさのための表現で、実際の道路幅や走行可能範囲を示さない。
+画像とJSONは同じ版の組み合わせで使用する。道路幅7 px相当の描画は見やすさのための表現で、実際の道路幅や走行可能範囲を示さない。設定した周回更新地点は周回路へ投影する。ゴール通過は7周目にゴール分岐へ進んだGPS点を確認してから受理し、周回路上からは受理しない。
 
 ### 8.2 座標変換
 
@@ -383,7 +383,8 @@ EEZはレイアウト・固定スタイル・静的アセットの編集元と�
 | `eez/delta-vega-v2.eez-project` | 画面の編集元。既存 |
 | `eez/fonts/` | 元フォントとライセンス。既存 |
 | `assets/icons/lucide/` | 電源・炎・メニュー等の原本SVG、派生SVG・PNG、ライセンス、取得元 |
-| `assets/motegi_oval/` | コースJSON・背景PNG・編集用SVG・プレビュー。既存。生成ツールは別リポジトリで管理する方針 |
+| `assets/motegi_oval_full/` | 現行のコースJSON・背景PNG・編集用SVG。画像生成ツールは別リポジトリで管理する方針 |
+| `assets/motegi_oval/` | 旧周回路データ。現行ファームウェアからは参照しない |
 | `src/ui/` | EEZ生成物。既存。生成先は`../src/ui`を維持 |
 | `src/app/ui_navigation.cpp` | メニュー開閉、設定画面への遷移、元の画面への復帰。EEZ生成コードの外に実装 |
 | `lib/vega_core/src/presentation/` | Presenter・表示モデル・Viewインターフェース。実装済み。LVGLに依存しない |

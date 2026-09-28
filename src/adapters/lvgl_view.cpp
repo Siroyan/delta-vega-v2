@@ -224,8 +224,10 @@ void updateCourseMarkers(const vega::Settings &settings) {
       settings.course_corridor_m == displayed_corridor_m)
     return;
   vega::Course course(course_data);
-  const auto start = course.locate(settings.start, settings.course_corridor_m);
-  const auto goal = course.locate(settings.goal, settings.course_corridor_m);
+  const auto start = course.locateOn(settings.start, settings.course_corridor_m,
+                                      vega::CourseRoute::First);
+  const auto goal = course.locateOn(settings.goal, settings.course_corridor_m,
+                                     vega::CourseRoute::FinishApproach);
   lv_point_precise_t lap_points[2]{};
   const bool lap_line_visible = lapLinePoints(course, settings, lap_points);
   for (auto &map : course_markers) {
@@ -761,9 +763,13 @@ bool viewDiagnostic(const char *command) {
                   static_cast<unsigned long>(ignition_taps),
                   static_cast<unsigned long>(stale_control_presses));
   } else if (!strcmp(command, "ui-course-markers")) {
-    const auto &markers = course_markers[0];
-    Serial.printf("[UI MAP] start=%d,%d visible=%u goal=%d,%d visible=%u "
+    size_t page_index = 0;
+    for (size_t i = 0; i < control_pages.size(); ++i)
+      if (control_pages[i].screen == lv_screen_active()) page_index = i;
+    const auto &markers = course_markers[page_index];
+    Serial.printf("[UI MAP] screen=%s start=%d,%d visible=%u goal=%d,%d visible=%u "
                   "lap=%ld,%ld-%ld,%ld visible=%u\n",
+                  control_pages[page_index].name,
                   lv_obj_get_x(markers.start.point) + 9, lv_obj_get_y(markers.start.point) + 9,
                   !lv_obj_has_flag(markers.start.point, LV_OBJ_FLAG_HIDDEN),
                   lv_obj_get_x(markers.goal.point) + 9, lv_obj_get_y(markers.goal.point) + 9,

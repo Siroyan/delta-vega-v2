@@ -23,6 +23,7 @@ class Application {
 
  private:
   void event(Event e);
+  void resetFinishBranch();
   IClock &clock_;
   IEngineOutput &output_;
   ISettingsStore &store_;
@@ -37,6 +38,9 @@ class Application {
   bool gps_seen_ = false, output_error_ = false, settings_error_ = false;
   MapPosition map_{};
   PassageDetector timing_, goal_;
+  double finish_branch_start_s_ = 0, finish_branch_previous_s_ = 0;
+  Millis finish_branch_previous_ms_ = 0;
+  uint8_t finish_branch_matches_ = 0;
   Millis last_sample_ = 0;
   uint32_t settings_attempt_ = 0;
   bool settings_accepted_ = false;

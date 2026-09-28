@@ -370,34 +370,88 @@ void realCourseTest() {
   auto origin = course.locate(tab5::course_data.origin, settings.course_corridor_m);
   assert(std::abs(origin.x - tab5::course_data.pixel_matrix[2]) < 1e-9);
   assert(std::abs(origin.y - tab5::course_data.pixel_matrix[5]) < 1e-9);
-  auto start = course.locate(settings.start, settings.course_corridor_m);
-  assert(start.on_course && start.lateral_m > 30 && start.lateral_m < 45);
-  assert(course.locate(settings.timing, 60).on_course &&
-         course.locate(settings.goal, 60).on_course);
+  assert(course.hasRoute(CourseRoute::First) && course.hasRoute(CourseRoute::Final) &&
+         course.hasRoute(CourseRoute::FinishApproach));
+  assert(std::abs(course.routeLength(CourseRoute::First) - 2124.583905) < 1e-5);
+  assert(std::abs(course.routeLength(CourseRoute::Regular) - 2412.009998) < 1e-5);
+  assert(std::abs(course.routeLength(CourseRoute::Final) - 2208.099909) < 1e-5);
+  const auto start_marker = course.locateOn(settings.start, 1, CourseRoute::First);
+  const auto goal_marker = course.locateOn(settings.goal, 1, CourseRoute::FinishApproach);
+  assert(start_marker.on_course && goal_marker.on_course);
+  assert(std::abs(start_marker.x - 216.370351) < 0.01 &&
+         std::abs(start_marker.y - 380.377619) < 0.01);
+  assert(std::abs(goal_marker.x - 106.363411) < 0.01 &&
+         std::abs(goal_marker.y - 180.726803) < 0.01);
+  assert(course.locate(settings.start, 60).lateral_m > 30);
+  assert(course.locate(settings.goal, 60).lateral_m > 20);
   auto distant = course.locate({36.6, 140.3}, 60);
   assert(!distant.on_course && (distant.x > 480 || distant.y < 0));
   Application app(clock, output, store, recorder, telemetry, course, settings);
+  auto drive = [&](Application &target, Clock &time_source, CourseRoute route, double from,
+                   double to) {
+    auto feed = [&](double s) {
+      time_source.time += 1000;
+      GpsFix fix;
+      fix.valid = true;
+      fix.received_ms = time_source.time;
+      fix.position = course.pointAtOn(s, route);
+      target.gps(fix);
+      target.tick();
+    };
+    for (double s = from; s < to; s += 20) feed(s);
+    feed(to);
+  };
   assert(app.start());
-  uint8_t last_lap = 1;
-  unsigned advances = 0;
-  for (double position = start.s_m; position < start.s_m + 8 * course.length(); position += 20) {
-    clock.time += 1000;
-    GpsFix fix;
-    fix.valid = true;
-    fix.received_ms = clock.time;
-    fix.position = course.pointAt(position);
-    app.gps(fix);
-    app.tick();
-    auto s = app.snapshot();
-    if (s.race.lap != last_lap) {
-      assert(s.race.lap == last_lap + 1);
-      ++advances;
-      last_lap = s.race.lap;
-    }
-    if (s.race.phase == RacePhase::Finished) break;
+  drive(app, clock, CourseRoute::First, 0, course.routeLength(CourseRoute::First));
+  assert(app.snapshot().race.lap == 2);
+  for (uint8_t lap = 2; lap <= 6; ++lap) {
+    drive(app, clock, CourseRoute::Regular, 0, course.routeLength(CourseRoute::Regular));
+    assert(app.snapshot().race.lap == lap + 1);
   }
-  assert(advances == 6 && app.snapshot().race.phase == RacePhase::Finished && recorder.ends == 1);
+  // The oval comes within 27 m of the goal. Staying on it must not finish.
+  drive(app, clock, CourseRoute::Regular, 2030, 2300);
+  assert(app.snapshot().race.phase == RacePhase::Measuring && recorder.ends == 0);
+  drive(app, clock, CourseRoute::Final, 0, course.routeLength(CourseRoute::Final));
+  assert(app.snapshot().race.phase == RacePhase::Finished && recorder.ends == 1);
   assert(app.snapshot().race.total_ms > 6 * settings.min_lap_ms);
+
+  // Settings may move the lap gate beyond the original route endpoint.
+  Settings shifted_settings;
+  shifted_settings.timing = course.pointAt(100);
+  Clock shifted_clock;
+  Output shifted_output;
+  Store shifted_store;
+  Recorder shifted_recorder;
+  Telemetry shifted_telemetry;
+  Application shifted(shifted_clock, shifted_output, shifted_store, shifted_recorder,
+                      shifted_telemetry, course, shifted_settings);
+  assert(shifted.start());
+  drive(shifted, shifted_clock, CourseRoute::First, 0, course.routeLength(CourseRoute::First));
+  assert(shifted.snapshot().race.lap == 1);
+  drive(shifted, shifted_clock, CourseRoute::Regular, 0, 80);
+  assert(shifted.snapshot().race.lap == 1 && shifted.snapshot().map.on_course);
+  drive(shifted, shifted_clock, CourseRoute::Regular, 81, 120);
+  assert(shifted.snapshot().race.lap == 2);
+
+  // A finish setting moved along the branch must move the finish gate too.
+  Settings moved_goal_settings;
+  moved_goal_settings.goal = course.pointAtOn(150, CourseRoute::FinishApproach);
+  Clock moved_goal_clock;
+  Output moved_goal_output;
+  Store moved_goal_store;
+  Recorder moved_goal_recorder;
+  Telemetry moved_goal_telemetry;
+  Application moved_goal(moved_goal_clock, moved_goal_output, moved_goal_store,
+                         moved_goal_recorder, moved_goal_telemetry, course, moved_goal_settings);
+  assert(moved_goal.start());
+  for (int i = 0; i < 6; ++i) {
+    moved_goal_clock.time += 11000;
+    assert(moved_goal.manualLap());
+  }
+  const double moved_goal_route_s = course.routeLength(CourseRoute::Final) -
+                                     course.routeLength(CourseRoute::FinishApproach) + 150;
+  drive(moved_goal, moved_goal_clock, CourseRoute::Final, 0, moved_goal_route_s + 5);
+  assert(moved_goal.snapshot().race.phase == RacePhase::Finished && moved_goal_recorder.ends == 1);
 }
 void combinedLapTest() {
   Fixture f;
