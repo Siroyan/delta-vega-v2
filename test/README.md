@@ -63,3 +63,5 @@ PCテストでは、差し替え先の呼出しと中核の計算・状態遷移
 - Wi-Fi、MQTT/TLS、NTP、FreeRTOSのタスク競合・負荷、EEZ生成ボタンの実イベント、タッチ操作と画面の視認性。
 
 実機単体での確認には [`../scripts/test_device.py`](../scripts/test_device.py) を使用しました。これは**ローカルのPCテストとは別**で、接続したTab5をリセットし、実GPIOを操作し、SD記録を読み戻します。車両回路を接続した状態では実行しないでください。実機テストの結果・未検証事項と再現コマンドは [`../docs/firmware-guide.md`](../docs/firmware-guide.md#検証記録) に記載しています。
+
+正式版を`main`へ統合する前の自転車実走・車両回路・エージング評価は [`../docs/release-test-plan.md`](../docs/release-test-plan.md) に計画しています。

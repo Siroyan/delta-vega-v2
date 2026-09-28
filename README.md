@@ -23,6 +23,7 @@ TARGETと3地点を編集・保存できます。計測中は編集を禁止し�
 - [画面仕様](docs/ui-spec.md)
 - [アーキテクチャ](docs/architecture.md)
 - [設定・GPIO・保存形式・検証手順](docs/firmware-guide.md)
+- [実機試験・エージング計画（main統合前）](docs/release-test-plan.md)
 
 ```sh
 python3 scripts/test_native.py       # C++17 host tests, ASan / UBSan
