@@ -1,6 +1,6 @@
 # テストの読み方
 
-このディレクトリには、Tab5を使わずPCで実行するファームウェア中核のテストがあります。対象は [`lib/vega_core`](../lib/vega_core) の計測・制御ロジック、NMEA解析、設定、表示モデル、MQTT用JSON変換です。実行コードは [`native/core_tests.cpp`](native/core_tests.cpp)、ビルドと実行は [`../scripts/test_native.py`](../scripts/test_native.py) が担当します。
+このディレクトリには、Tab5を使わずPCで実行するファームウェア中核と操作判定のテストがあります。対象は [`lib/vega_core`](../lib/vega_core) の計測・制御ロジック、NMEA解析、設定、表示モデル、MQTT用JSON変換、および電装・点火ボタンのタッチ操作判定です。実行コードは [`native/core_tests.cpp`](native/core_tests.cpp)、ビルドと実行は [`../scripts/test_native.py`](../scripts/test_native.py) が担当します。
 
 ## 実行方法
 
@@ -12,10 +12,10 @@ python3 scripts/test_native.py
 CXX=/path/to/clang++ python3 scripts/test_native.py
 ```
 
-スクリプトは`lib/vega_core/src`配下の全`.cpp`と`test/native/core_tests.cpp`を一つの実行ファイルにまとめ、一時ディレクトリで実行します。主要なコンパイル条件は`-std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined`です。成功時は次の1行を表示します。
+スクリプトは`lib/vega_core/src`配下の全`.cpp`と`test/native/core_tests.cpp`を一つの実行ファイルにまとめ、一時ディレクトリで実行します。操作判定は[`src/control_gesture.h`](../src/control_gesture.h)をテストコードから読み込みます。主要なコンパイル条件は`-std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined`です。成功時は次の1行を表示します。
 
 ```text
-PASS: engine, race, GPS laps/finish, passages, wheel, NMEA, settings, MVP/JSON
+PASS: engine, race, GPS laps/finish, passages, wheel, NMEA, settings, MVP/JSON, control gestures
 ```
 
 判定にはC++の`assert`を使用しています。失敗すると該当行で停止し、サニタイザーが検出したメモリ破壊や未定義動作もエラーになります。スクリプトは`NDEBUG`を定義しないため、`assert`は有効です。全テストは一つのプログラム内で順番に実行され、現状は個別テストの選択・網羅率計測はありません。
@@ -52,6 +52,7 @@ PASS: engine, race, GPS laps/finish, passages, wheel, NMEA, settings, MVP/JSON
 | `settingsFormTest` | 全体・各周TARGET、3地点の緯度経度、Advancedの13項目を文字列編集 | `MM:SS`/`H:MM:SS`、8桁小数の座標/小数設定値、整数・極性0/1、構文/範囲エラー、存在しない項目番号の拒否を確認 |
 | `realCourseTest` | 組込の茂木コース座標と、経路に沿う模擬測位 | 座標から画素への変換、初期3地点のコース回廊内判定、遠方のコース外判定、6回更新後の7周目ゴールによる完走を確認 |
 | `combinedLapTest` | 周回地点の手前で手動補正し、直後に同じ地点をGPSで通過 | 手動補正直後のGPSによる二重加算と、10秒以内の再手動操作を拒否することを確認 |
+| `controlGestureTest` | 電装・点火ボタンの押下と解放、重複サンプル、ボタン外へのスライド | 同じボタン内で完結したタップだけを一度受理し、離脱・別ボタンへの移動・連続解放で指令を出さないことを確認 |
 
 ## このテストが保証しないこと
 

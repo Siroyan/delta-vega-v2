@@ -5,6 +5,7 @@
 #include <string>
 
 #include "../../src/adapters/course_data.h"
+#include "../../src/control_gesture.h"
 #include "application/application.h"
 #include "application/telemetry_json.h"
 #include "domain/nmea.h"
@@ -408,6 +409,41 @@ void combinedLapTest() {
   assert(f.app.snapshot().race.lap == 2);  // same pass must not add again
   assert(!f.app.manualLap());              // elapsed < dedup window
 }
+void controlGestureTest() {
+  constexpr uintptr_t power = 1, ignition = 2;
+  ControlGesture gesture;
+  assert(!gesture.sample(false, power));
+  assert(!gesture.sample(true, power));
+  assert(!gesture.sample(true, power));  // repeated press samples are not extra taps
+  assert(gesture.sample(false, power) == power);
+  assert(!gesture.sample(false, power));  // repeated release samples are not extra taps
+
+  assert(!gesture.sample(true, power));
+  assert(!gesture.sample(true, 0));
+  assert(!gesture.sample(true, power));
+  assert(!gesture.sample(false, power));  // leaving the control cancels the tap
+
+  assert(!gesture.sample(true, 0));
+  assert(!gesture.sample(true, ignition));
+  assert(!gesture.sample(false, ignition));  // entering a control mid-gesture is not a tap
+
+  assert(!gesture.sample(true, power));
+  assert(!gesture.sample(false, ignition));
+  assert(!gesture.sample(true, ignition));
+  assert(gesture.sample(false, ignition) == ignition);
+
+  PowerIntent power_intent;
+  assert(power_intent.nextTap() == PowerRequest::On);
+  power_intent.accepted(PowerRequest::On);
+  assert(power_intent.nextTap() == PowerRequest::Off);  // OFF can interrupt pending ON
+  power_intent.accepted(PowerRequest::Off);
+  assert(power_intent.nextTap() == PowerRequest::None);  // no ON until OFF is confirmed
+  power_intent.observe(false);
+  assert(power_intent.nextTap() == PowerRequest::On);
+  power_intent.accepted(PowerRequest::On);
+  power_intent.observe(true);
+  assert(power_intent.nextTap() == PowerRequest::Off);
+}
 int main() {
   engineTest();
   raceTest();
@@ -420,5 +456,7 @@ int main() {
   settingsFormTest();
   realCourseTest();
   combinedLapTest();
-  std::cout << "PASS: engine, race, GPS laps/finish, passages, wheel, NMEA, settings, MVP/JSON\n";
+  controlGestureTest();
+  std::cout << "PASS: engine, race, GPS laps/finish, passages, wheel, NMEA, settings, "
+               "MVP/JSON, control gestures\n";
 }

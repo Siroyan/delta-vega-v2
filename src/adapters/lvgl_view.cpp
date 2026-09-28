@@ -12,6 +12,8 @@
 #include "../ui/fonts.h"
 #include "../ui/screens.h"
 #include "../ui/ui.h"
+#include "../tab5_lvgl.h"
+#include "../control_gesture.h"
 #include "course_data.h"
 #include "domain/course.h"
 #include "presentation/settings_form.h"
@@ -20,6 +22,9 @@
 namespace tab5 {
 void finishEdit();
 void pressKey(size_t index);
+lv_obj_t *controlHit(int16_t x, int16_t y);
+void controlAction(lv_obj_t *control);
+void controlCleanup();
 namespace {
 constexpr const char *kKeypadKeys[] = {"7", "8", "9", "DEL", "4", "5", "6", "CLR",
                                       "1", "2", "3", "SET", "-", "0", ".", ":"};
@@ -99,6 +104,14 @@ vega::Settings draft{};
 size_t editing_field = 0;
 bool save_pending = false;
 bool ignition_pending = false;
+PowerIntent power_intent;
+uint32_t stale_control_presses = 0;
+uint32_t power_taps = 0, ignition_taps = 0;
+struct ControlPage {
+  const char *name;
+  lv_obj_t *screen, *power, *ignition;
+};
+std::array<ControlPage, 10> control_pages{};
 uint64_t save_started = 0;
 uint32_t pending_settings_attempt = 0;
 char message[180] = "TARGET / MM:SS - COORDINATES / DEGREES";
@@ -288,6 +301,7 @@ bool sameSettings(const vega::Settings &a, const vega::Settings &b) {
 class View final : public vega::IView {
  public:
   void show(const vega::DisplayModel &m) override {
+    power_intent.observe(m.power_on);
     PageWidgets pages[] = {
         PAGE(, main, objects.next_action_label, objects.next_action_detail_label),
         PAGE(waiting_, waiting, nullptr, nullptr),
@@ -373,6 +387,7 @@ class View final : public vega::IView {
         lv_obj_set_style_text_color(p.total, total_color, 0);
       ++page_index;
     }
+    for (const auto &page : control_pages) checked(page.power, m.power_on);
     bool editable = m.phase != vega::RacePhase::Measuring && !save_pending;
     for (size_t i = 0; i < vega::kSettingsFieldCount; ++i) enabled(fieldButton(i), editable);
     for (size_t i = 16; i <= 18; ++i) enabled(fieldButton(i), editable && !m.power_on);
@@ -404,6 +419,38 @@ bool request(CommandKind kind) {
 }  // namespace
 
 void viewBegin() {
+  control_pages = {{{"main", objects.main, objects.electrical_standby_switch,
+                     objects.ignition_switch},
+                    {"waiting", objects.waiting, objects.waiting_electrical_standby_switch,
+                     objects.waiting_ignition_switch},
+                    {"finished", objects.finished, objects.finished_electrical_standby_switch,
+                     objects.finished_ignition_switch},
+                    {"gps_stale", objects.gps_stale, objects.gpsstale_electrical_standby_switch,
+                     objects.gpsstale_ignition_switch},
+                    {"missing_data", objects.missing_data,
+                     objects.missingdata_electrical_standby_switch,
+                     objects.missingdata_ignition_switch},
+                    {"overtime", objects.overtime, objects.overtime_electrical_standby_switch,
+                     objects.overtime_ignition_switch},
+                    {"plan_demo", objects.plan_demo, objects.plandemo_electrical_standby_switch,
+                     objects.plandemo_ignition_switch},
+                    {"cached_plan", objects.cached_plan,
+                     objects.cachedplan_electrical_standby_switch,
+                     objects.cachedplan_ignition_switch},
+                    {"expired_plan", objects.expired_plan,
+                     objects.expiredplan_electrical_standby_switch,
+                     objects.expiredplan_ignition_switch},
+                    {"lap_corrected", objects.lap_corrected,
+                     objects.lapcorrected_electrical_standby_switch,
+                     objects.lapcorrected_ignition_switch}}};
+  for (const auto &page : control_pages) {
+    // The model owns CHECKED. Commands use complete touch gestures rather than
+    // LVGL's RELEASED/CLICKED, which can be lost after an unrelated indev reset.
+    lv_obj_remove_flag(page.power, LV_OBJ_FLAG_CHECKABLE);
+    lv_obj_remove_event_cb(page.power, action_electrical_changed);
+    lv_obj_remove_event_cb(page.ignition, action_ignite);
+  }
+  tab5_lvgl_set_control_handlers(controlHit, controlAction, controlCleanup);
   // lv_textarea_set_one_line() replaces the EEZ height with LV_SIZE_CONTENT.
   // Restore it so the input and SET button share the same bottom edge.
   lv_obj_set_height(objects.settings_editor_input, 76);
@@ -633,9 +680,52 @@ void ignite() {
     enabled(objects.finished_ignition_switch, false);
   }
 }
-void electrical(lv_event_t *e) {
-  request(lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED) ? CommandKind::PowerOn
-                                                                         : CommandKind::PowerOff);
+lv_obj_t *controlHit(int16_t x, int16_t y) {
+  auto *screen = lv_screen_active();
+  const ControlPage *page = nullptr;
+  for (const auto &entry : control_pages)
+    if (entry.screen == screen) page = &entry;
+  if (!page) return nullptr;
+
+  lv_point_t point{x, y};
+  auto *display = lv_display_get_default();
+  // System/top layers and EEZ overlays take precedence over dashboard controls.
+  if (lv_indev_search_obj(lv_display_get_layer_sys(display), &point) ||
+      lv_indev_search_obj(lv_display_get_layer_top(display), &point))
+    return nullptr;
+  auto *hit = lv_indev_search_obj(screen, &point);
+  if (hit == page->power && !lv_obj_has_state(hit, LV_STATE_DISABLED)) return hit;
+  if (hit == page->ignition && !lv_obj_has_state(hit, LV_STATE_DISABLED)) return hit;
+  return nullptr;
+}
+void controlAction(lv_obj_t *control) {
+  for (const auto &page : control_pages) {
+    if (lv_screen_active() != page.screen) continue;
+    if (control == page.power) {
+      const auto next = power_intent.nextTap();
+      if (next == PowerRequest::None) return;
+      if (request(next == PowerRequest::On ? CommandKind::PowerOn : CommandKind::PowerOff)) {
+        ++power_taps;
+        power_intent.accepted(next);
+      }
+      return;
+    }
+    if (control == page.ignition && !lv_obj_has_state(control, LV_STATE_DISABLED)) {
+      ++ignition_taps;
+      ignite();
+      return;
+    }
+  }
+}
+void controlCleanup() {
+  for (const auto &page : control_pages) {
+    for (auto *control : {page.power, page.ignition}) {
+      if (lv_obj_has_state(control, LV_STATE_PRESSED)) {
+        lv_obj_remove_state(control, LV_STATE_PRESSED);
+        ++stale_control_presses;
+      }
+    }
+  }
 }
 bool viewDiagnostic(const char *command) {
   if (!objects.waiting || strncmp(command, "ui-", 3)) return false;
@@ -653,6 +743,23 @@ bool viewDiagnostic(const char *command) {
         !lv_obj_has_state(objects.settings_save_button, LV_STATE_DISABLED),
         !lv_obj_has_flag(objects.settings_advanced_overlay, LV_OBJ_FLAG_HIDDEN),
         !lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN), message);
+  } else if (!strcmp(command, "ui-touch")) {
+    auto *screen = lv_screen_active();
+    const ControlPage *active = nullptr;
+    for (const auto &page : control_pages)
+      if (screen == page.screen) active = &page;
+    tab5_lvgl_report_touch_state();
+    Serial.printf("[UI TOUCH] screen=%s power_pressed=%u power_checked=%u "
+                  "ignition_pressed=%u ignition_disabled=%u power_taps=%lu ignition_taps=%lu "
+                  "stale_cleared=%lu\n",
+                  active ? active->name : "other",
+                  active && lv_obj_has_state(active->power, LV_STATE_PRESSED),
+                  active && lv_obj_has_state(active->power, LV_STATE_CHECKED),
+                  active && lv_obj_has_state(active->ignition, LV_STATE_PRESSED),
+                  active && lv_obj_has_state(active->ignition, LV_STATE_DISABLED),
+                  static_cast<unsigned long>(power_taps),
+                  static_cast<unsigned long>(ignition_taps),
+                  static_cast<unsigned long>(stale_control_presses));
   } else if (!strcmp(command, "ui-course-markers")) {
     const auto &markers = course_markers[0];
     Serial.printf("[UI MAP] start=%d,%d visible=%u goal=%d,%d visible=%u "
@@ -716,8 +823,8 @@ bool viewDiagnostic(const char *command) {
 
 extern "C" void action_start_timing(lv_event_t *) { tab5::startTiming(); }
 extern "C" void action_manual_lap(lv_event_t *) { tab5::manualLap(); }
-extern "C" void action_electrical_changed(lv_event_t *e) { tab5::electrical(e); }
-extern "C" void action_ignite(lv_event_t *) { tab5::ignite(); }
+extern "C" void action_electrical_changed(lv_event_t *) {}
+extern "C" void action_ignite(lv_event_t *) {}
 extern "C" void action_edit_setting(lv_event_t *e) {
   tab5::editField(reinterpret_cast<uintptr_t>(lv_event_get_user_data(e)));
 }
