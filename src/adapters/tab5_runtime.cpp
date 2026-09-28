@@ -23,6 +23,7 @@
 #include "course_data.h"
 #include "domain/nmea.h"
 #include "lvgl_view.h"
+#include "../tab5_lvgl.h"
 #include "presentation/settings_form.h"
 
 #if __has_include("config/network_secrets.h")
@@ -682,7 +683,9 @@ void serialPoll() {
                         known && vega::validSettings(c.settings) && submit(c));
         } else
           Serial.println("[CONFIG] use config KEY VALUE");
-      } else if (!strcmp(buffer, "log"))
+      } else if (!strcmp(buffer, "perf"))
+        tab5_lvgl_report_perf();
+      else if (!strcmp(buffer, "log"))
         requestLogReadback();
       else {
         Command command{};

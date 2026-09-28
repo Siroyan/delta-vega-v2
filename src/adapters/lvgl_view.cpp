@@ -34,6 +34,7 @@ void enabled(lv_obj_t *o, bool value) {
 }
 void visible(lv_obj_t *o, bool value) {
   if (o) {
+    if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN) == !value) return;
     if (value)
       lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
     else
@@ -41,7 +42,10 @@ void visible(lv_obj_t *o, bool value) {
   }
 }
 void led(lv_obj_t *o, bool value) {
-  if (o) lv_obj_set_style_bg_color(o, lv_color_hex(value ? 0x087F8C : 0xBCC6D0), 0);
+  if (!o) return;
+  auto color = lv_color_hex(value ? 0x087F8C : 0xBCC6D0);
+  if (!lv_color_eq(lv_obj_get_style_bg_color(o, LV_PART_MAIN), color))
+    lv_obj_set_style_bg_color(o, color, 0);
 }
 void checked(lv_obj_t *o, bool value) {
   if (!o) return;
@@ -139,6 +143,7 @@ class View final : public vega::IView {
     if (!m.ignition_enabled) ignition_pending = false;
     enabled(objects.start_button, m.phase == vega::RacePhase::Waiting);
     static lv_point_precise_t marker_points[3][5];
+    static bool marker_points_initialized[3]{};
     size_t page_index = 0;
     // Keep all live page copies consistent, including off-screen controls.
     for (auto &p : pages) {
@@ -169,25 +174,40 @@ class View final : public vega::IView {
       visible(p.marker, m.position_visible);
       visible(p.marker_backing, m.position_visible);
       if (m.position_visible) {
-        lv_obj_set_pos(p.marker, 0, 0);
-        lv_obj_set_pos(p.marker_backing, m.marker_x - lv_obj_get_width(p.marker_backing) / 2,
-                       m.marker_y - lv_obj_get_height(p.marker_backing) / 2);
+        if (lv_obj_get_x(p.marker) != 0 || lv_obj_get_y(p.marker) != 0)
+          lv_obj_set_pos(p.marker, 0, 0);
+        int32_t backing_x = m.marker_x - lv_obj_get_width(p.marker_backing) / 2;
+        int32_t backing_y = m.marker_y - lv_obj_get_height(p.marker_backing) / 2;
+        if (lv_obj_get_x(p.marker_backing) != backing_x ||
+            lv_obj_get_y(p.marker_backing) != backing_y)
+          lv_obj_set_pos(p.marker_backing, backing_x, backing_y);
         // Rotate a north-pointing arrow into the reported GPS course. Coordinates
         // stay in the course container and are never snapped onto the route.
         constexpr double shape[5][2] = {{0, -15}, {12, 12}, {0, 6}, {-12, 12}, {0, -15}};
         double angle = m.marker_heading * 3.14159265358979323846 / 180;
+        lv_point_precise_t next_points[5]{};
         for (size_t i = 0; i < 5; ++i) {
-          marker_points[page_index][i].x =
+          next_points[i].x =
               m.marker_x + shape[i][0] * std::cos(angle) - shape[i][1] * std::sin(angle);
-          marker_points[page_index][i].y =
+          next_points[i].y =
               m.marker_y + shape[i][0] * std::sin(angle) + shape[i][1] * std::cos(angle);
         }
-        lv_line_set_points(p.marker, marker_points[page_index], 5);
-        lv_obj_set_style_opa(p.marker, m.position_stale ? 100 : 255, 0);
-        lv_obj_set_style_opa(p.marker_backing, m.position_stale ? 100 : 255, 0);
+        if (!marker_points_initialized[page_index] ||
+            std::memcmp(marker_points[page_index], next_points, sizeof(next_points))) {
+          std::memcpy(marker_points[page_index], next_points, sizeof(next_points));
+          lv_line_set_points(p.marker, marker_points[page_index], 5);
+          marker_points_initialized[page_index] = true;
+        }
+        auto opacity = static_cast<lv_opa_t>(m.position_stale ? 100 : 255);
+        if (lv_obj_get_style_opa(p.marker, LV_PART_MAIN) != opacity)
+          lv_obj_set_style_opa(p.marker, opacity, 0);
+        if (lv_obj_get_style_opa(p.marker_backing, LV_PART_MAIN) != opacity)
+          lv_obj_set_style_opa(p.marker_backing, opacity, 0);
         // Preserve the established marker geometry; course position is raw GPS.
       }
-      lv_obj_set_style_text_color(p.total, lv_color_hex(m.overtime ? 0xB43832 : 0x202B36), 0);
+      auto total_color = lv_color_hex(m.overtime ? 0xB43832 : 0x202B36);
+      if (!lv_color_eq(lv_obj_get_style_text_color(p.total, LV_PART_MAIN), total_color))
+        lv_obj_set_style_text_color(p.total, total_color, 0);
       ++page_index;
     }
     bool editable = m.phase != vega::RacePhase::Measuring && !save_pending;
