@@ -71,6 +71,7 @@
 | `on` / `off` / `ignite` | 実GPIOへの指令を伴う。実車接続時は車両状態を把握して使用 |
 | `log` | 最後の計測ファイルをSDから読み戻す。記録中は拒否 |
 | `ui-status` / `ui-settings` / `ui-back` | 現在のUI状態確認・設定への遷移・復帰 |
+| `ui-inspect-field 8` | 指定した設定欄を開き、表示文字列を出力して閉じる。値は変更しない |
 | `ui-edit 0 39:16` / `ui-save` | 生成ボタン/編集イベントを通したUIテスト。項目番号0=全体、1〜7=各周、8〜13=地点緯度経度 |
 | `ui-start` / `ui-cancel` / `ui-confirm-cancel` | 生成UIの開始/取消操作経路のテスト |
 | `config KEY VALUE` | 校正用設定の永続保存。中核の設定検証・計測中ロックを通す |

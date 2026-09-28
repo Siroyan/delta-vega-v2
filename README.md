@@ -35,6 +35,9 @@ python3 scripts/build_ui.py         # macOS; --studioでEEZ Studioの実行フ�
 EEZ Studioでは`eez/delta-vega-v2.eez-project`を編集し、LVGL 9.2.2 / 1280×720 /
 EEZ Flowなしで`../src/ui`へ生成します。生成物は直接編集しません。
 `build_ui.py`はEEZ Studio 0.29 CLIが未変更の埋込フォントを削除する問題を回避します。
+Settingsの数字キーは、EEZ上のキーボード枠を実機では非表示にし、
+`src/adapters/lvgl_view.cpp`で同じ位置に通常のLVGLボタンとして描画します。
+キー配置や操作を変更する場合はこのファイルを編集してください。
 コースJSONの組込定数は`generate_course_data.py`で生成します。
 
 ## Wi-Fi / AWS / NTP

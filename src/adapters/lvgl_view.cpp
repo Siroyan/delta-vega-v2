@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "../ui/actions.h"
+#include "../ui/fonts.h"
 #include "../ui/screens.h"
 #include "../ui/ui.h"
 #include "course_data.h"
@@ -16,7 +17,10 @@
 
 namespace tab5 {
 void finishEdit();
+void pressKey(size_t index);
 namespace {
+constexpr const char *kKeypadKeys[] = {"7", "8", "9", "DEL", "4", "5", "6", "CLR",
+                                      "1", "2", "3", "DONE", "-", "0", ".", ":"};
 void text(lv_obj_t *o, const char *value) {
   if (o && strcmp(lv_label_get_text(o), value)) lv_label_set_text(o, value);
 }
@@ -214,33 +218,53 @@ bool request(CommandKind kind) {
 }  // namespace
 
 void viewBegin() {
-  // ASCII keys work with the project's font and include the time separator.
-  static const char *keys[] = {"7", "8", "9", "DEL",  "\n", "4", "5", "6", "CLR", "\n",
-                               "1", "2", "3", "DONE", "\n", "-", "0", ".", ":",   ""};
-  constexpr auto control = static_cast<lv_buttonmatrix_ctrl_t>(1 | LV_BUTTONMATRIX_CTRL_CLICK_TRIG |
-                                                               LV_BUTTONMATRIX_CTRL_NO_REPEAT);
-  static const lv_buttonmatrix_ctrl_t controls[16] = {
-      control, control, control, control, control, control, control, control,
-      control, control, control, control, control, control, control, control};
-  lv_keyboard_set_map(objects.settings_keyboard, LV_KEYBOARD_MODE_NUMBER, keys, controls);
-  lv_obj_remove_event_cb(objects.settings_keyboard, lv_keyboard_def_event_cb);
-  lv_obj_add_event_cb(
-      objects.settings_keyboard,
-      [](lv_event_t *e) {
-        auto *keyboard = lv_event_get_target_obj(e);
-        auto index = lv_keyboard_get_selected_button(keyboard);
-        if (index == LV_BUTTONMATRIX_BUTTON_NONE) return;
-        const char *key = lv_keyboard_get_button_text(keyboard, index);
-        if (!strcmp(key, "DEL"))
-          lv_textarea_delete_char(objects.settings_editor_input);
-        else if (!strcmp(key, "CLR"))
-          lv_textarea_set_text(objects.settings_editor_input, "");
-        else if (!strcmp(key, "DONE"))
-          finishEdit();
-        else
-          lv_textarea_add_text(objects.settings_editor_input, key);
-      },
-      LV_EVENT_VALUE_CHANGED, nullptr);
+  // The generated LVGL keyboard renders blank on Tab5. Keep its EEZ layout slot,
+  // but use ordinary buttons for the keys so they are drawn and hit-tested like
+  // the other controls on this screen.
+  // The Settings screen has not been laid out yet, so lv_obj_get_width/height
+  // can still return zero here. These match settings_keyboard in the EEZ file.
+  constexpr int32_t x = 24;
+  constexpr int32_t y = 358;
+  constexpr int32_t width = 1232;
+  constexpr int32_t height = 330;
+  visible(objects.settings_keyboard, false);
+  auto *keypad = lv_obj_create(objects.settings_editor_overlay);
+  lv_obj_set_pos(keypad, x, y);
+  lv_obj_set_size(keypad, width, height);
+  lv_obj_remove_flag(keypad, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_pad_all(keypad, 0, 0);
+  lv_obj_set_style_border_width(keypad, 0, 0);
+  lv_obj_set_style_shadow_width(keypad, 0, 0);
+  lv_obj_set_style_bg_color(keypad, lv_color_hex(0xE6EDF4), 0);
+  lv_obj_set_style_radius(keypad, 8, 0);
+  constexpr int32_t margin = 8;
+  constexpr int32_t gap = 8;
+  const int32_t key_width = (width - 2 * margin - 3 * gap) / 4;
+  const int32_t key_height = (height - 2 * margin - 3 * gap) / 4;
+  for (size_t i = 0; i < sizeof(kKeypadKeys) / sizeof(kKeypadKeys[0]); ++i) {
+    const bool action = i == 3 || i == 7 || i == 11;
+    const uint32_t color = i == 11 ? 0x1769B2 : action ? 0x64748B : 0xFFFFFF;
+    auto *button = lv_button_create(keypad);
+    lv_obj_set_pos(button, margin + (i % 4) * (key_width + gap),
+                   margin + (i / 4) * (key_height + gap));
+    lv_obj_set_size(button, key_width, key_height);
+    lv_obj_set_style_bg_color(button, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_color(button, lv_color_hex(action ? 0x14558F : 0xDCE5EF),
+                              LV_STATE_PRESSED);
+    lv_obj_set_style_radius(button, 8, 0);
+    lv_obj_set_style_border_width(button, 0, 0);
+    lv_obj_set_style_shadow_width(button, 0, 0);
+    lv_obj_add_event_cb(button,
+                        [](lv_event_t *e) {
+                          pressKey(reinterpret_cast<uintptr_t>(lv_event_get_user_data(e)));
+                        },
+                        LV_EVENT_CLICKED, reinterpret_cast<void *>(i));
+    auto *label = lv_label_create(button);
+    lv_label_set_text_static(label, kKeypadKeys[i]);
+    lv_obj_set_style_text_font(label, &ui_font_ricty_diminished_32, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(action ? 0xFFFFFF : 0x202B36), 0);
+    lv_obj_center(label);
+  }
   loadScreen(SCREEN_ID_WAITING);
 }
 void viewUpdate() {
@@ -298,12 +322,27 @@ void editField(size_t index) {
   char value[32];
   vega::settingText(draft, index, value, sizeof(value));
   text(objects.settings_editor_title, vega::settingTitle(index));
-  lv_textarea_set_text(objects.settings_editor_input, value);
+  // set_text filters each character using the current accepted_chars.
   lv_textarea_set_accepted_chars(objects.settings_editor_input,
                                  index < 8 ? "0123456789:" : "0123456789.-");
-  lv_keyboard_set_textarea(objects.settings_keyboard, objects.settings_editor_input);
+  lv_textarea_set_text(objects.settings_editor_input, value);
+  lv_textarea_set_cursor_pos(objects.settings_editor_input, LV_TEXTAREA_CURSOR_LAST);
   visible(objects.settings_editor_overlay, true);
   lv_obj_move_foreground(objects.settings_editor_overlay);
+}
+void pressKey(size_t index) {
+  if (index >= sizeof(kKeypadKeys) / sizeof(kKeypadKeys[0]) ||
+      lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN))
+    return;
+  const char *key = kKeypadKeys[index];
+  if (!strcmp(key, "DEL"))
+    lv_textarea_delete_char(objects.settings_editor_input);
+  else if (!strcmp(key, "CLR"))
+    lv_textarea_set_text(objects.settings_editor_input, "");
+  else if (!strcmp(key, "DONE"))
+    finishEdit();
+  else
+    lv_textarea_add_text(objects.settings_editor_input, key);
 }
 void finishEdit() {
   if (presenter.phase() == vega::RacePhase::Measuring) return;
@@ -389,6 +428,20 @@ bool viewDiagnostic(const char *command) {
     action_confirm_cancel(nullptr);
   else if (!strcmp(command, "ui-confirm-cancel"))
     lv_obj_send_event(objects.cancel_confirmation_yes, LV_EVENT_CLICKED, nullptr);
+  else if (!strncmp(command, "ui-inspect-field ", 17)) {
+    unsigned index;
+    char extra;
+    if (sscanf(command + 17, "%u%c", &index, &extra) == 1 &&
+        index < vega::kSettingsFieldCount) {
+      lv_obj_send_event(fieldButton(index), LV_EVENT_CLICKED, nullptr);
+      if (!lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN)) {
+        Serial.printf("[UI FIELD] index=%u text=%s\n", index,
+                      lv_textarea_get_text(objects.settings_editor_input));
+        discardEdit();
+      } else
+        Serial.printf("[UI FIELD] index=%u locked\n", index);
+    }
+  }
   else if (!strncmp(command, "ui-edit ", 8)) {
     unsigned index;
     char value[25];
