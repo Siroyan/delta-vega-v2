@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <lvgl.h>
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -12,6 +13,7 @@
 #include "../ui/screens.h"
 #include "../ui/ui.h"
 #include "course_data.h"
+#include "domain/course.h"
 #include "presentation/settings_form.h"
 #include "tab5_runtime.h"
 
@@ -100,6 +102,138 @@ bool ignition_pending = false;
 uint64_t save_started = 0;
 uint32_t pending_settings_attempt = 0;
 char message[180] = "TARGET / MM:SS - COORDINATES / DEGREES";
+constexpr int32_t kCourseMapSize = 480;
+constexpr size_t kCourseMapCount = 10;
+constexpr double kLapLineHalfLength = 22.0;
+constexpr double kLapLineTangentSampleM = 10.0;
+constexpr uint32_t kLapLineColor = 0x6F42C1;
+struct CourseMarker {
+  lv_obj_t *point = nullptr;
+  lv_obj_t *label = nullptr;
+};
+struct CourseMapMarkers {
+  CourseMarker start;
+  CourseMarker goal;
+  lv_obj_t *lap_line = nullptr;
+  lv_obj_t *lap_legend = nullptr;
+  lv_point_precise_t lap_points[2]{};
+};
+std::array<CourseMapMarkers, kCourseMapCount> course_markers{};
+vega::GeoPoint displayed_start{};
+vega::GeoPoint displayed_goal{};
+vega::GeoPoint displayed_timing{};
+double displayed_corridor_m = 0;
+bool course_markers_positioned = false;
+
+lv_obj_t *createCourseLegend(lv_obj_t *parent, const char *caption, uint32_t color,
+                             int32_t legend_y) {
+  auto *label = lv_label_create(parent);
+  lv_obj_set_pos(label, 370, legend_y);
+  lv_obj_set_size(label, 100, 32);
+  lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(label, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_pad_all(label, 0, 0);
+  lv_obj_set_style_radius(label, 7, 0);
+  lv_obj_set_style_bg_color(label, lv_color_hex(color), 0);
+  lv_obj_set_style_bg_opa(label, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(label, 0, 0);
+  lv_obj_set_style_shadow_width(label, 0, 0);
+  lv_obj_set_style_text_font(label, &ui_font_ricty_diminished_24, 0);
+  lv_obj_set_style_text_color(label, lv_color_white(), 0);
+  lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_pad_top(label, 3, 0);
+  lv_label_set_text_static(label, caption);
+  return label;
+}
+
+CourseMarker createCourseMarker(lv_obj_t *parent, const char *caption, uint32_t color,
+                                int32_t legend_y) {
+  CourseMarker marker;
+  marker.point = lv_obj_create(parent);
+  lv_obj_set_size(marker.point, 18, 18);
+  lv_obj_remove_flag(marker.point, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(marker.point, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_pad_all(marker.point, 0, 0);
+  lv_obj_set_style_radius(marker.point, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(marker.point, lv_color_hex(color), 0);
+  lv_obj_set_style_bg_opa(marker.point, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_color(marker.point, lv_color_white(), 0);
+  lv_obj_set_style_border_width(marker.point, 2, 0);
+  lv_obj_set_style_shadow_width(marker.point, 0, 0);
+  marker.label = createCourseLegend(parent, caption, color, legend_y);
+  return marker;
+}
+
+void positionCourseMarker(CourseMarker &marker, const vega::MapPosition &position) {
+  const bool on_map = std::isfinite(position.x) && std::isfinite(position.y) &&
+                      position.x >= 0 && position.x < kCourseMapSize && position.y >= 0 &&
+                      position.y < kCourseMapSize;
+  visible(marker.point, on_map);
+  visible(marker.label, on_map);
+  if (!on_map) return;
+  const int32_t x = static_cast<int32_t>(std::lround(position.x));
+  const int32_t y = static_cast<int32_t>(std::lround(position.y));
+  lv_obj_set_pos(marker.point, x - 9, y - 9);
+}
+
+bool lapLinePoints(const vega::Course &course, const vega::Settings &settings,
+                   lv_point_precise_t (&points)[2]) {
+  const auto timing = course.locate(settings.timing, settings.course_corridor_m);
+  if (!timing.on_course) return false;
+  const auto center = course.locate(course.pointAt(timing.s_m), settings.course_corridor_m);
+  const auto before = course.locate(course.pointAt(timing.s_m - kLapLineTangentSampleM),
+                                    settings.course_corridor_m);
+  const auto after = course.locate(course.pointAt(timing.s_m + kLapLineTangentSampleM),
+                                   settings.course_corridor_m);
+  if (!std::isfinite(center.x) || !std::isfinite(center.y) || center.x < 0 ||
+      center.x >= kCourseMapSize || center.y < 0 || center.y >= kCourseMapSize)
+    return false;
+  const double dx = after.x - before.x;
+  const double dy = after.y - before.y;
+  const double length = std::hypot(dx, dy);
+  if (!std::isfinite(length) || length < 1) return false;
+  const double normal_x = -dy / length;
+  const double normal_y = dx / length;
+  points[0].x = center.x - kLapLineHalfLength * normal_x;
+  points[0].y = center.y - kLapLineHalfLength * normal_y;
+  points[1].x = center.x + kLapLineHalfLength * normal_x;
+  points[1].y = center.y + kLapLineHalfLength * normal_y;
+  return true;
+}
+
+void updateCourseMarkers(const vega::Settings &settings) {
+  if (course_markers_positioned && settings.start.latitude == displayed_start.latitude &&
+      settings.start.longitude == displayed_start.longitude &&
+      settings.goal.latitude == displayed_goal.latitude &&
+      settings.goal.longitude == displayed_goal.longitude &&
+      settings.timing.latitude == displayed_timing.latitude &&
+      settings.timing.longitude == displayed_timing.longitude &&
+      settings.course_corridor_m == displayed_corridor_m)
+    return;
+  vega::Course course(course_data);
+  const auto start = course.locate(settings.start, settings.course_corridor_m);
+  const auto goal = course.locate(settings.goal, settings.course_corridor_m);
+  lv_point_precise_t lap_points[2]{};
+  const bool lap_line_visible = lapLinePoints(course, settings, lap_points);
+  for (auto &map : course_markers) {
+    positionCourseMarker(map.start, start);
+    positionCourseMarker(map.goal, goal);
+    visible(map.lap_line, lap_line_visible);
+    visible(map.lap_legend, lap_line_visible);
+    if (lap_line_visible) {
+      map.lap_points[0] = lap_points[0];
+      map.lap_points[1] = lap_points[1];
+      lv_line_set_points(map.lap_line, map.lap_points, 2);
+      if (lv_obj_get_x(map.lap_line) != 0 || lv_obj_get_y(map.lap_line) != 0)
+        lv_obj_set_pos(map.lap_line, 0, 0);
+    }
+  }
+  displayed_start = settings.start;
+  displayed_goal = settings.goal;
+  displayed_timing = settings.timing;
+  displayed_corridor_m = settings.course_corridor_m;
+  course_markers_positioned = true;
+}
 
 lv_obj_t *fieldButton(size_t i) {
   lv_obj_t *fields[] = {objects.settings_total_button,      objects.settings_lap1_button,
@@ -320,6 +454,42 @@ void viewBegin() {
     lv_obj_set_style_text_color(label, lv_color_hex(action ? 0xFFFFFF : 0x202B36), 0);
     lv_obj_center(label);
   }
+  lv_obj_t *maps[kCourseMapCount] = {
+      objects.course_container,            objects.waiting_course_container,
+      objects.finished_course_container,   objects.gpsstale_course_container,
+      objects.missingdata_course_container, objects.overtime_course_container,
+      objects.plandemo_course_container,   objects.cachedplan_course_container,
+      objects.expiredplan_course_container, objects.lapcorrected_course_container};
+  lv_obj_t *position_backings[kCourseMapCount] = {
+      objects.position_marker_backing,            objects.waiting_position_marker_backing,
+      objects.finished_position_marker_backing,   objects.gpsstale_position_marker_backing,
+      nullptr,                                    objects.overtime_position_marker_backing,
+      objects.plandemo_position_marker_backing,   objects.cachedplan_position_marker_backing,
+      objects.expiredplan_position_marker_backing, objects.lapcorrected_position_marker_backing};
+  lv_obj_t *position_arrows[kCourseMapCount] = {
+      objects.position_marker,            objects.waiting_position_marker,
+      objects.finished_position_marker,   objects.gpsstale_position_marker,
+      nullptr,                            objects.overtime_position_marker,
+      objects.plandemo_position_marker,   objects.cachedplan_position_marker,
+      objects.expiredplan_position_marker, objects.lapcorrected_position_marker};
+  for (size_t i = 0; i < kCourseMapCount; ++i) {
+    course_markers[i].lap_line = lv_line_create(maps[i]);
+    lv_obj_set_pos(course_markers[i].lap_line, 0, 0);
+    lv_obj_set_size(course_markers[i].lap_line, kCourseMapSize, kCourseMapSize);
+    lv_obj_remove_flag(course_markers[i].lap_line, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_line_color(course_markers[i].lap_line, lv_color_hex(kLapLineColor), 0);
+    lv_obj_set_style_line_width(course_markers[i].lap_line, 6, 0);
+    lv_obj_set_style_line_rounded(course_markers[i].lap_line, true, 0);
+    visible(course_markers[i].lap_line, false);
+    course_markers[i].start = createCourseMarker(maps[i], "START", 0x087F8C, 48);
+    course_markers[i].goal = createCourseMarker(maps[i], "GOAL", 0xB43832, 88);
+    course_markers[i].lap_legend =
+        createCourseLegend(maps[i], "LAP", kLapLineColor, 128);
+    // The live GPS arrow remains above a start/goal point when they coincide.
+    if (position_backings[i]) lv_obj_move_foreground(position_backings[i]);
+    if (position_arrows[i]) lv_obj_move_foreground(position_arrows[i]);
+  }
+  course_markers_positioned = false;
   loadScreen(SCREEN_ID_WAITING);
 }
 void viewUpdate() {
@@ -336,6 +506,7 @@ void viewUpdate() {
     }
   }
   presenter.render(s, status());
+  updateCourseMarkers(s.settings);
   char start[90];
   if (s.gps_fresh) {
     const auto &p = s.settings.start;
@@ -482,6 +653,19 @@ bool viewDiagnostic(const char *command) {
         !lv_obj_has_state(objects.settings_save_button, LV_STATE_DISABLED),
         !lv_obj_has_flag(objects.settings_advanced_overlay, LV_OBJ_FLAG_HIDDEN),
         !lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN), message);
+  } else if (!strcmp(command, "ui-course-markers")) {
+    const auto &markers = course_markers[0];
+    Serial.printf("[UI MAP] start=%d,%d visible=%u goal=%d,%d visible=%u "
+                  "lap=%ld,%ld-%ld,%ld visible=%u\n",
+                  lv_obj_get_x(markers.start.point) + 9, lv_obj_get_y(markers.start.point) + 9,
+                  !lv_obj_has_flag(markers.start.point, LV_OBJ_FLAG_HIDDEN),
+                  lv_obj_get_x(markers.goal.point) + 9, lv_obj_get_y(markers.goal.point) + 9,
+                  !lv_obj_has_flag(markers.goal.point, LV_OBJ_FLAG_HIDDEN),
+                  static_cast<long>(std::lround(markers.lap_points[0].x)),
+                  static_cast<long>(std::lround(markers.lap_points[0].y)),
+                  static_cast<long>(std::lround(markers.lap_points[1].x)),
+                  static_cast<long>(std::lround(markers.lap_points[1].y)),
+                  !lv_obj_has_flag(markers.lap_line, LV_OBJ_FLAG_HIDDEN));
   } else if (!strcmp(command, "ui-settings"))
     action_open_settings(nullptr);
   else if (!strcmp(command, "ui-advanced"))
