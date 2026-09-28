@@ -20,7 +20,7 @@ void finishEdit();
 void pressKey(size_t index);
 namespace {
 constexpr const char *kKeypadKeys[] = {"7", "8", "9", "DEL", "4", "5", "6", "CLR",
-                                      "1", "2", "3", "DONE", "-", "0", ".", ":"};
+                                      "1", "2", "3", "SET", "-", "0", ".", ":"};
 void text(lv_obj_t *o, const char *value) {
   if (o && strcmp(lv_label_get_text(o), value)) lv_label_set_text(o, value);
 }
@@ -218,15 +218,18 @@ bool request(CommandKind kind) {
 }  // namespace
 
 void viewBegin() {
+  // lv_textarea_set_one_line() replaces the EEZ height with LV_SIZE_CONTENT.
+  // Restore it so the input and SET button share the same bottom edge.
+  lv_obj_set_height(objects.settings_editor_input, 76);
   // The generated LVGL keyboard renders blank on Tab5. Keep its EEZ layout slot,
   // but use ordinary buttons for the keys so they are drawn and hit-tested like
   // the other controls on this screen.
   // The Settings screen has not been laid out yet, so lv_obj_get_width/height
   // can still return zero here. These match settings_keyboard in the EEZ file.
   constexpr int32_t x = 24;
-  constexpr int32_t y = 358;
+  constexpr int32_t y = 264;
   constexpr int32_t width = 1232;
-  constexpr int32_t height = 330;
+  constexpr int32_t height = 424;
   visible(objects.settings_keyboard, false);
   auto *keypad = lv_obj_create(objects.settings_editor_overlay);
   lv_obj_set_pos(keypad, x, y);
@@ -339,7 +342,7 @@ void pressKey(size_t index) {
     lv_textarea_delete_char(objects.settings_editor_input);
   else if (!strcmp(key, "CLR"))
     lv_textarea_set_text(objects.settings_editor_input, "");
-  else if (!strcmp(key, "DONE"))
+  else if (!strcmp(key, "SET"))
     finishEdit();
   else
     lv_textarea_add_text(objects.settings_editor_input, key);

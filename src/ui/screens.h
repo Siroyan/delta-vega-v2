@@ -646,12 +646,12 @@ typedef struct _objects_t {
     lv_obj_t *settings_cancel_button_label;
     lv_obj_t *settings_help_label;
     lv_obj_t *settings_editor_overlay;
+    lv_obj_t *settings_editor_back_button;
+    lv_obj_t *settings_editor_back_button_icon;
     lv_obj_t *settings_editor_title;
     lv_obj_t *settings_editor_input;
     lv_obj_t *settings_editor_done;
     lv_obj_t *settings_editor_done_label;
-    lv_obj_t *settings_editor_discard;
-    lv_obj_t *settings_editor_discard_label;
     lv_obj_t *settings_keyboard;
     lv_obj_t *cancel_confirmation_overlay;
     lv_obj_t *cancel_confirmation_title;
