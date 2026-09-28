@@ -22,6 +22,8 @@ extern void action_save_settings(lv_event_t * e);
 extern void action_confirm_cancel(lv_event_t * e);
 extern void action_cancel_timing(lv_event_t * e);
 extern void action_dismiss_cancel(lv_event_t * e);
+extern void action_open_advanced_settings(lv_event_t * e);
+extern void action_close_advanced_settings(lv_event_t * e);
 
 #ifdef __cplusplus
 }

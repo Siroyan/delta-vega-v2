@@ -9,7 +9,8 @@
 - 取消はメニュー/SettingsのCANCEL TIMING → 確認画面のCANCEL TIMING。KEEP TIMINGで継続。取消後は新規開始可能。完走後の再計測は提供しない。
 - 左下の青緑の電源トグルはエンジン系電装への指令。ON後1000 ms待って点火ボタンを有効にする。右下の炎ボタンはECUへの1000 ms HIGHパルス。電装ONごとに1回まで。
 - 電装OFFは準備待ち/パルスを中止する。計測とTab5は動作継続。Tab5はエンジンの実運転状態を確認できない。
-- 全体42:00・各周06:00のTARGETとスタート/周回更新/ゴールの各緯度経度をSettingsで編集できる。DONEは編集値の確定、SAVE SETTINGSは一括保存。戻る操作は未保存の編集を破棄する。
+- 全体42:00・各周06:00のTARGETとスタート/周回更新/ゴールの各緯度経度をSettingsで編集できる。`ADVANCED SETTINGS`から車輪・GPS・周回判定・ECU関連の13項目も編集できる。数値画面のSETは編集値の確定、SAVE SETTINGSは一括保存。Advancedの戻る矢印はSettingsへ戻り、Settingsの戻る矢印は未保存の編集を破棄する。
+- 電装極性（POWER HIGH）は`1`でHIGH=ON、`0`でLOW=ON。電装ON中は極性・ECU準備時間・点火パルス幅の編集を無効にし、アプリケーション側も変更を拒否する。これらの値は実車接続前に回路とECUの仕様に合わせて確認する。
 - 計測中はUIとApplicationの双方で設定変更を拒否する。全体TARGETと各周合計の一致は強制しない。大会制限39:16とは独立した値。
 - Settingsは版付きNVS blob。再起動しても設定を保持する。電装状態・始動権・進行中レースの復元は行わない。
 
@@ -19,7 +20,7 @@
 |---|---|---|
 | 車速 | 16 / FALLING / INPUT_PULLUP | M5Bus 2。リードスイッチを対GNDで接続する想定。入力回路・ノイズ耐性は実車で確認 |
 | GPS UART1 | RX 7、TX 6 / 9600 bps | M5Bus 15/16。GT-502MGG-NのNMEA / 1 Hz初期設定 |
-| 電装 | 45 / 初期HIGH=ON | M5Bus 8。極性はSettingsに集約し校正コマンドで変更可能 |
+| 電装 | 45 / 初期HIGH=ON | M5Bus 8。極性はAdvanced Settingsまたは校正コマンドで変更可能 |
 | 始動パルス | 48 / HIGH 1000 ms | M5Bus 22。ユーザー指定の暫定値 |
 | ECU準備 | 1000 ms | ユーザー指定の暫定値 |
 | 車輪 | 1.03 m、1 pulse/revolution | 旧版の定数を引き継ぐ。累積パルス差から距離を求める |
@@ -66,17 +67,18 @@
 | コマンド | 動作 |
 |---|---|
 | `status` | 計測・指令・GPIO読み取り・GPS・パルス・SD・通信・TARGET |
-| `settings` | UIで編集可能な14項目の現在値 |
+| `settings` | UIで編集可能な27項目の現在値 |
 | `start` / `cancel` / `lap` | UIと同じ中核へ計測コマンドを送る |
 | `on` / `off` / `ignite` | 実GPIOへの指令を伴う。実車接続時は車両状態を把握して使用 |
 | `log` | 最後の計測ファイルをSDから読み戻す。記録中は拒否 |
 | `ui-status` / `ui-settings` / `ui-back` | 現在のUI状態確認・設定への遷移・復帰 |
+| `ui-advanced` / `ui-advanced-back` | Advanced Settingsを開く/Settingsへ戻る |
 | `ui-inspect-field 8` | 指定した設定欄を開き、表示文字列を出力して閉じる。値は変更しない |
-| `ui-edit 0 39:16` / `ui-save` | 生成ボタン/編集イベントを通したUIテスト。項目番号0=全体、1〜7=各周、8〜13=地点緯度経度 |
+| `ui-edit 0 39:16` / `ui-save` | 生成ボタン/編集イベントを通したUIテスト。項目番号0=全体、1〜7=各周、8〜13=地点緯度経度、14〜26=Advanced Settings |
 | `ui-start` / `ui-cancel` / `ui-confirm-cancel` | 生成UIの開始/取消操作経路のテスト |
 | `config KEY VALUE` | 校正用設定の永続保存。中核の設定検証・計測中ロックを通す |
 
-校正キー: `power_active_high`（0/1）、`ecu_ready_ms`、`ignition_pulse_ms`、`wheel_circumference_m`、`pulses_per_revolution`、`pulse_debounce_us`、`speed_zero_ms`、`gps_stale_ms`、`course_corridor_m`、`max_gps_step_m`、`min_lap_progress_m`、`min_lap_ms`、`lap_duplicate_ms`。電装極性・ECU待ち・パルス幅の変更は電装OFF時だけ受理する。初期実装のSettings画面には校正項目を追加していない。
+校正キー: `power_active_high`（0/1）、`ecu_ready_ms`、`ignition_pulse_ms`、`wheel_circumference_m`、`pulses_per_revolution`、`pulse_debounce_us`、`speed_zero_ms`、`gps_stale_ms`、`course_corridor_m`、`max_gps_step_m`、`min_lap_progress_m`、`min_lap_ms`、`lap_duplicate_ms`。すべてAdvanced Settingsから編集できる。電装極性・ECU待ち・パルス幅の変更は電装OFF時だけ受理する。NVSの設定形式バージョンとSDログ連番は内部管理値で、Settingsの編集項目ではない。
 
 ## 検証記録
 

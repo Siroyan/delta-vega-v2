@@ -323,7 +323,7 @@ void settingsFormTest() {
   assert(!editSetting(s, 1, "6:60") && !editSetting(s, 1, "0:00"));
   assert(!editSetting(s, 1, "99999:00") && !editSetting(s, 1, "06:00junk"));
   assert(!editSetting(s, 1, "6::00") && !editSetting(s, 1, "6"));
-  for (size_t i = 8; i < kSettingsFieldCount; ++i) {
+  for (size_t i = 8; i < 14; ++i) {
     assert(editSetting(s, i, i % 2 == 0 ? "36.532766" : "140.226269"));
     settingText(s, i, value, sizeof(value));
     assert(std::strcmp(value, i % 2 == 0 ? "36.53276600" : "140.22626900") == 0);
@@ -333,6 +333,30 @@ void settingsFormTest() {
   assert(!editSetting(s, 8, "36..5") && !editSetting(s, 8, " 36"));
   assert(!editSetting(s, 99, "6:00"));
   assert(editSetting(s, 8, "-36.0") && s.start.latitude == -36);
+  struct AdvancedCase { size_t field; const char *input; const char *formatted; };
+  const AdvancedCase advanced[] = {
+      {14, "1.034", "1.03400000"}, {15, "2", "2"},
+      {16, "2500", "2500"}, {17, "750", "750"},
+      {18, "0", "0"}, {19, "3500", "3500"},
+      {20, "4000", "4000"}, {21, "5000", "5000"},
+      {22, "55.5", "55.50000000"}, {23, "90.25", "90.25000000"},
+      {24, "650.75", "650.75000000"}, {25, "70000", "70000"},
+      {26, "12000", "12000"}};
+  for (auto item : advanced) {
+    assert(editSetting(s, item.field, item.input));
+    settingText(s, item.field, value, sizeof(value));
+    assert(std::strcmp(value, item.formatted) == 0);
+    assert(editSetting(s, item.field, value));
+  }
+  assert(!editSetting(s, 14, "0.09") && !editSetting(s, 14, "1e2"));
+  assert(!editSetting(s, 15, "0") && !editSetting(s, 15, "2.5"));
+  assert(!editSetting(s, 16, "60001") && !editSetting(s, 17, "0"));
+  assert(!editSetting(s, 18, "2") && !editSetting(s, 18, "01"));
+  assert(!editSetting(s, 19, "99") && !editSetting(s, 20, "499"));
+  assert(!editSetting(s, 21, "30001") && !editSetting(s, 22, "0.9"));
+  assert(!editSetting(s, 23, "201") && !editSetting(s, 24, "5001"));
+  assert(!editSetting(s, 25, "3600001") && !editSetting(s, 26, "499"));
+  assert(!editSetting(s, 25, "4294967296") && !editSetting(s, 22, "1..2"));
 }
 void realCourseTest() {
   Clock clock;
