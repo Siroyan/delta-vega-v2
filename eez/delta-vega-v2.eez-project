@@ -34356,7 +34356,7 @@
                   "textarea": "settings_editor_input"
                 }
               ],
-              "widgetFlags": "HIDDEN",
+              "widgetFlags": "HIDDEN|CLICKABLE",
               "hiddenFlagType": "literal",
               "clickableFlagType": "literal",
               "checkedStateType": "literal",
@@ -34743,7 +34743,7 @@
                   "groupIndex": 0
                 }
               ],
-              "widgetFlags": "HIDDEN",
+              "widgetFlags": "HIDDEN|CLICKABLE",
               "hiddenFlagType": "literal",
               "clickableFlagType": "literal",
               "checkedStateType": "literal",
