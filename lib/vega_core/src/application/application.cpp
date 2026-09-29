@@ -34,13 +34,16 @@ Snapshot Application::snapshot() const {
   s.settings = settings_;
   s.race = race_.reading(s.now_ms, wheel_.pulses, settings_);
   s.engine = engine_.phase();
-  s.wheel = wheelReading(wheel_, s.now_ms * 1000, settings_);
+  s.wheel = wheelReading(wheel_, clock_.nowMicros(), settings_);
   s.gps = gps_;
   s.map = map_;
   s.route_map = route_map_;
   s.gps_seen = gps_seen_;
   s.gps_fresh = gps_seen_ && gps_.valid && s.now_ms >= gps_.received_ms &&
                 s.now_ms - gps_.received_ms <= settings_.gps_stale_ms;
+  s.manual_lap_ready = !manual_lap_requires_progress_ || !s.gps_fresh ||
+                       !gps_on_timing_course_ ||
+                       timing_.progress() >= settings_.min_lap_progress_m;
   s.output_error = output_error_;
   s.settings_error = settings_error_;
   s.settings_attempt = settings_attempt_;
@@ -60,6 +63,7 @@ bool Application::start() {
   auto now = clock_.now();
   if (!race_.start(now, wheel_.pulses)) return false;
   timing_.reset();
+  manual_lap_requires_progress_ = false;
   resetFinishBranch();
   last_sample_ = now;
   auto s = snapshot();
@@ -76,12 +80,15 @@ bool Application::cancel() {
   recorder_.end(EndReason::Cancelled, s);
   race_.cancel();
   timing_.reset();
+  manual_lap_requires_progress_ = false;
   resetFinishBranch();
   return true;
 }
 bool Application::manualLap() {
+  if (!snapshot().manual_lap_ready) return false;
   if (!race_.advance(clock_.now(), true, settings_)) return false;
   timing_.reset();
+  manual_lap_requires_progress_ = false;
   resetFinishBranch();
   if (gps_seen_ && gps_.valid) {
     route_map_ = course_.locateOn(gps_.position, settings_.course_corridor_m,
@@ -147,12 +154,13 @@ void Application::gps(const GpsFix &fix) {
   if (!fix.valid || !validGeo(fix.position) || fix.received_ms > now ||
       now - fix.received_ms > settings_.gps_stale_ms) {
     gps_.valid = false;
-    timing_.reset();
+    timing_.suspend();
     resetFinishBranch();
     return;
   }
   const CourseRoute active_route = routeForLap(race_.lap());
   const auto oval_position = course_.locate(fix.position, settings_.course_corridor_m);
+  gps_on_timing_course_ = oval_position.on_course;
   route_map_ = course_.locateOn(fix.position, settings_.course_corridor_m, active_route);
   map_ = route_map_;
   if (active_route == CourseRoute::First && oval_position.lateral_m < map_.lateral_m)
@@ -167,6 +175,7 @@ void Application::gps(const GpsFix &fix) {
                        settings_.min_lap_progress_m, course_, settings_) &&
         race_.advance(fix.received_ms, false, settings_)) {
       timing_.reset();
+      manual_lap_requires_progress_ = true;
       resetFinishBranch();
       route_map_ = course_.locateOn(fix.position, settings_.course_corridor_m,
                                     routeForLap(race_.lap()));

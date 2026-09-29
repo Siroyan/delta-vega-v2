@@ -44,14 +44,19 @@ class PassageDetector {
  public:
   void reset() {
     initialized_ = false;
+    has_sample_ = false;
     progress_ = 0;
+    previous_time_ = 0;
   }
+  void suspend() { initialized_ = false; }
+  double progress() const { return progress_; }
   bool update(const MapPosition &position, Millis now, double gate_s, double min_progress,
               const Course &course, const Settings &settings,
               CourseRoute route = CourseRoute::Regular);
 
  private:
   bool initialized_ = false;
+  bool has_sample_ = false;
   double previous_s_ = 0, progress_ = 0;
   Millis previous_time_ = 0;
 };

@@ -81,24 +81,29 @@ double Course::forwardDelta(double from, double to, CourseRoute route) const {
 bool PassageDetector::update(const MapPosition &p, Millis now, double gate, double min_progress,
                              const Course &course, const Settings &s, CourseRoute route) {
   if (!p.on_course) {
-    reset();
+    suspend();
     return false;
   }
+  // Keep progress over a brief GPS outage, but never count the unseen movement.
+  // A long outage starts a new passage to avoid applying an old lap to a new position.
+  constexpr Millis kMaxProgressHoldMs = 30000;
   if (!initialized_ || now < previous_time_ || now - previous_time_ > s.gps_stale_ms) {
+    if (has_sample_ && (now < previous_time_ || now - previous_time_ > kMaxProgressHoldMs))
+      progress_ = 0;
     initialized_ = true;
+    has_sample_ = true;
     previous_s_ = p.s_m;
     previous_time_ = now;
-    progress_ = 0;
     return false;
   }
   double delta = course.forwardDelta(previous_s_, p.s_m, route);
   double to_gate = course.forwardDelta(previous_s_, gate, route);
-  previous_s_ = p.s_m;
-  previous_time_ = now;
   if (std::abs(delta) > s.max_gps_step_m) {
-    progress_ = 0;
+    suspend();
     return false;
   }
+  previous_s_ = p.s_m;
+  previous_time_ = now;
   progress_ = std::max(0.0, progress_ + delta);
   if (delta > 0 && to_gate > 0 && to_gate <= delta && progress_ >= min_progress) {
     progress_ = 0;

@@ -42,7 +42,8 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
   m.ignition_enabled = s.engine == EnginePhase::Ready && !s.output_error;
   m.finish_mode = m.phase == RacePhase::Measuring && static_cast<size_t>(lap) == kLapCount;
   m.lap_enabled = m.phase == RacePhase::Measuring &&
-                  s.race.lap_ms >= s.settings.lap_duplicate_ms;
+                  (m.finish_mode || (s.race.lap_ms >= s.settings.lap_duplicate_ms &&
+                                     s.manual_lap_ready));
   m.heartbeat = (s.now_ms / 500) % 2;
   m.pulse = s.wheel.pulse_recent;
   m.gps_ok = s.gps_fresh;
@@ -121,12 +122,15 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
     std::snprintf(m.notice, sizeof(m.notice), "OUTPUT ERROR\nCHECK ECU SIGNAL");
   else if (s.settings_error)
     std::snprintf(m.notice, sizeof(m.notice), "SETTINGS SAVE FAILED");
+  else if (!s.gps_fresh && m.phase == RacePhase::Measuring &&
+           (status.sd_error || !status.sd_ready))
+    std::snprintf(m.notice, sizeof(m.notice), "GPS LOST: MANUAL LAP\nSD RECORDING ERROR");
+  else if (!s.gps_fresh && m.phase == RacePhase::Measuring)
+    std::snprintf(m.notice, sizeof(m.notice), "GPS UNAVAILABLE\nUSE MANUAL LAP");
   else if (status.sd_error || !status.sd_ready)
     std::snprintf(m.notice, sizeof(m.notice), "SD RECORDING UNAVAILABLE\nTIMING CONTINUES");
   else if (s.race.lap_approximate)
     std::snprintf(m.notice, sizeof(m.notice), "LAP CORRECTED\nMANUAL / APPROX.");
-  else if (!s.gps_fresh && m.phase == RacePhase::Measuring)
-    std::snprintf(m.notice, sizeof(m.notice), "GPS UNAVAILABLE\nUSE MANUAL LAP");
   else if (s.engine == EnginePhase::Preparing)
     std::snprintf(m.notice, sizeof(m.notice), "ECU PREPARING");
   else if (s.engine == EnginePhase::Pulsing)

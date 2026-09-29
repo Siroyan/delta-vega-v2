@@ -39,6 +39,8 @@ constexpr int kReed = 16, kGpsRx = 7, kGpsTx = 6;
 QueueHandle_t commands, snapshots, records, transmissions, diagnostics, strategies,
     plan_imports;
 std::atomic<bool> urgent_off{false}, sd_ready{false}, sd_error{false}, mqtt_connected{false};
+std::atomic<uint32_t> power_epoch{0};
+std::atomic<uint32_t> record_loss_count{0};
 std::atomic<vega::PlanState> plan_state{vega::PlanState::Loading};
 std::atomic<bool> readback{false};
 std::atomic<uint64_t> last_ntp_sync{0};
@@ -70,7 +72,12 @@ void diagnosticTask(void *) {
 
 struct Clock final : vega::IClock {
   vega::Millis now() const override { return static_cast<uint64_t>(esp_timer_get_time()) / 1000; }
+  uint64_t nowMicros() const override { return static_cast<uint64_t>(esp_timer_get_time()); }
 } clock_source;
+struct QueuedCommand {
+  Command command;
+  uint32_t power_epoch;
+};
 bool serialWriteAll(const uint8_t *bytes, size_t n) {
   size_t sent = 0;
   auto until = clock_source.now() + 2000;
@@ -173,9 +180,11 @@ struct Record {
   vega::Snapshot data;
   vega::Event event{};
   vega::EndReason reason{};
+  uint32_t losses_at_begin = 0;
 };
 void enqueueRecord(const Record &r) {
   if (xQueueSend(records, &r, 0) != pdTRUE) {
+    record_loss_count.fetch_add(1, std::memory_order_relaxed);
     sd_error = true;
     diagnostic("[SD] queue full; record lost, timing continues");
   }
@@ -187,6 +196,7 @@ struct Recorder final : vega::ISessionRecorder {
     r.data.settings = s;
     r.data.now_ms = now;
     r.data.race.session = session;
+    r.losses_at_begin = record_loss_count.load(std::memory_order_relaxed);
     enqueueRecord(r);
   }
   void sample(const vega::Snapshot &s) override {
@@ -339,11 +349,14 @@ void installPlan(PlanImport request) {
 
 void sdTask(void *) {
   SD_MMC.setPins(43, 44, 39, 40, 41, 42);
-  sd_ready = SD_MMC.begin("/sdcard", false, false, SDMMC_FREQ_DEFAULT);
-  if (sd_ready) {
-    if (!SD_MMC.exists("/vega")) sd_ready = SD_MMC.mkdir("/vega");
-  }
-  sd_error = !sd_ready;
+  auto mount = []() {
+    bool ready = SD_MMC.begin("/sdcard", false, false, SDMMC_FREQ_DEFAULT);
+    if (ready && !SD_MMC.exists("/vega")) ready = SD_MMC.mkdir("/vega");
+    sd_ready = ready;
+    return ready;
+  };
+  mount();
+  sd_error = !sd_ready || record_loss_count.load(std::memory_order_relaxed) != 0;
   Serial.printf("[SD] mount=%s card_bytes=%llu\n", sd_ready ? "OK" : "FAILED",
                 sd_ready ? SD_MMC.cardSize() : 0ULL);
   if (sd_ready) {
@@ -393,6 +406,10 @@ void sdTask(void *) {
         if (log) log.close();
         active = true;
         failed_session = false;
+        if (!sd_ready) {
+          SD_MMC.end();
+          if (mount()) Serial.println("[SD] mount recovered");
+        }
         // Persistent monotonic ID plus existence checks prevents overwriting on reboot.
         Preferences p;
         uint32_t number = 0;
@@ -430,8 +447,15 @@ void sdTask(void *) {
               static_cast<unsigned long>(s.lap_target_s[6]), s.start.latitude, s.start.longitude,
               s.timing.latitude, s.timing.longitude, s.goal.latitude, s.goal.longitude);
           if (n <= 0 || static_cast<size_t>(n) >= sizeof(meta) ||
-              log.write(reinterpret_cast<const uint8_t *>(meta), n) != static_cast<size_t>(n))
+              log.write(reinterpret_cast<const uint8_t *>(meta), n) != static_cast<size_t>(n) ||
+              !log.flush())
             failed_session = true;
+          else if (record_loss_count.load(std::memory_order_relaxed) == r.losses_at_begin) {
+            // A successfully opened new session clears errors from the prior one.
+            sd_error = false;
+            if (record_loss_count.load(std::memory_order_relaxed) != r.losses_at_begin)
+              sd_error = true;
+          }
           Serial.printf("[SD] session opened %s\n", last_path);
         }
       } else if (active && log && !failed_session) {
@@ -559,8 +583,10 @@ void networkTask(void *) {
       char payload[1100];
       auto n = vega::telemetryJson(s, payload, sizeof(payload), network_config::machine_id,
                                    network_config::memo);
-      if (n && clock_source.now() - s.now_ms < 1500)
-        esp_mqtt_client_enqueue(client, network_config::topic, payload, n, 0, 0, false);
+      if (n && clock_source.now() - s.now_ms < 1500) {
+        int message_id = esp_mqtt_client_publish(client, network_config::topic, payload, n, 0, 0);
+        if (message_id < 0) diagnostic("[MQTT] publish failed code=%d", message_id);
+      }
     }
   }
 }
@@ -580,9 +606,8 @@ void applicationTask(void *) {
   diagnostic("[APP] ready; electrical OFF; commands: status/start/cancel/lap/on/off/ignite/log");
   for (;;) {
     if (urgent_off.exchange(false)) {
-      xQueueReset(commands);  // Earlier queued ON/IGNITE must never undo an explicit OFF.
       app.power(false);
-      diagnostic("[APP] electrical OFF; pending commands cleared");
+      diagnostic("[APP] electrical OFF; old ON/IGNITE commands invalidated");
     }
     vega::WheelInput input;
     portENTER_CRITICAL(&wheel_lock);
@@ -593,9 +618,15 @@ void applicationTask(void *) {
       vega::GpsFix fix;
       if (parser.feed(static_cast<char>(gps_uart.read()), clock_source.now(), fix)) app.gps(fix);
     }
-    Command command{};
-    for (unsigned budget = 0; budget < 8 && xQueueReceive(commands, &command, 0) == pdTRUE;
+    QueuedCommand queued{};
+    for (unsigned budget = 0; budget < 8 && xQueueReceive(commands, &queued, 0) == pdTRUE;
          ++budget) {
+      const auto &command = queued.command;
+      if ((command.kind == CommandKind::PowerOn || command.kind == CommandKind::Ignite) &&
+          queued.power_epoch != power_epoch.load(std::memory_order_acquire)) {
+        diagnostic("[APP] old power command=%u skipped", static_cast<unsigned>(command.kind));
+        continue;
+      }
       bool ok = true;
       switch (command.kind) {
         case CommandKind::Start:
@@ -636,7 +667,7 @@ void applicationTask(void *) {
 
 bool begin() {
   if (!outputs_prepared && !prepareOutputs()) return false;
-  commands = xQueueCreate(12, sizeof(Command));
+  commands = xQueueCreate(12, sizeof(QueuedCommand));
   snapshots = xQueueCreate(1, sizeof(vega::Snapshot));
   records = xQueueCreate(48, sizeof(Record));
   transmissions = xQueueCreate(1, sizeof(vega::Snapshot));
@@ -665,10 +696,12 @@ void outputsOff() {
 bool submit(const Command &c) {
   if (!commands) return false;
   if (c.kind == CommandKind::PowerOff) {
-    urgent_off = true;
+    power_epoch.fetch_add(1, std::memory_order_acq_rel);
+    urgent_off.store(true, std::memory_order_release);
     return true;
   }
-  return xQueueSend(commands, &c, 0) == pdTRUE;
+  QueuedCommand queued{c, power_epoch.load(std::memory_order_acquire)};
+  return xQueueSend(commands, &queued, 0) == pdTRUE;
 }
 bool snapshot(vega::Snapshot &s) { return snapshots && xQueuePeek(snapshots, &s, 0) == pdTRUE; }
 bool strategy(vega::Strategy &s) {

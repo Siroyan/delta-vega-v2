@@ -18,7 +18,9 @@
 using namespace vega;
 struct Clock : IClock {
   Millis time = 100000;
+  uint64_t micros_offset = 0;
   Millis now() const override { return time; }
+  uint64_t nowMicros() const override { return time * 1000 + micros_offset; }
 };
 struct Output : IEngineOutput {
   bool on = false, high = false, active_high = true, fail = false;
@@ -198,8 +200,7 @@ void manualFinishTest() {
     assert(f.app.manualLap());
   }
   assert(f.app.snapshot().race.lap == 7);
-  assert(!f.app.manualFinish());  // Duplicate protection after the last lap update.
-  f.clock.time += f.settings.lap_duplicate_ms;
+  // The confirmation dialog guards manual finish; no forced delay changes its timestamp.
   const auto expected_total = f.app.snapshot().race.total_ms;
   assert(f.app.manualFinish());
   assert(f.app.snapshot().race.phase == RacePhase::Finished);
@@ -249,6 +250,74 @@ void passageTest() {
   assert(!d.update(at(3980), 0, 5, 0, f.course, f.settings));
   assert(d.update(at(20), 1000, 5, 0, f.course, f.settings));  // closing segment
 }
+void gpsOutageAndManualLapTest() {
+  for (int scenario = 0; scenario < 4; ++scenario) {
+    Fixture f;
+    assert(f.app.start());
+    f.fix(700);
+    f.travel(720, 4300);
+    if (scenario == 0) {
+      f.clock.time += 5000;  // A short gap does not erase progress.
+    } else if (scenario == 1) {
+      GpsFix invalid;
+      invalid.received_ms = ++f.clock.time;
+      f.app.gps(invalid);
+    } else if (scenario == 2) {
+      GpsFix off_course;
+      off_course.valid = true;
+      off_course.received_ms = ++f.clock.time;
+      off_course.position = {36.1, 140.1};
+      f.app.gps(off_course);
+    } else {
+      f.clock.time += 1000;
+      f.fix(2000);  // A single impossible GPS jump is discarded.
+    }
+    f.clock.time += 1000;
+    f.fix(4320);  // Rearm without inferring distance across the missing segment.
+    f.travel(4340, 4520);
+    assert(f.app.snapshot().race.lap == 2);
+  }
+  {
+    Fixture f;
+    assert(f.app.start());
+    f.fix(700);
+    f.travel(720, 4300);
+    f.clock.time += 31000;
+    f.fix(4320);
+    f.travel(4340, 4520);
+    assert(f.app.snapshot().race.lap == 1);  // A long outage discards old progress.
+  }
+  {
+    Fixture f;
+    assert(f.app.start());
+    f.fix(700);
+    f.travel(720, 4380);
+    GpsFix invalid;
+    invalid.received_ms = ++f.clock.time;
+    f.app.gps(invalid);
+    f.clock.time += 1000;
+    f.fix(4520);  // The gate passed while GPS was invalid; do not invent a crossing.
+    f.travel(4540, 4700);
+    assert(f.app.snapshot().race.lap == 1);
+  }
+  {
+    Fixture f;
+    assert(f.app.start());
+    f.fix(700);
+    f.travel(720, 4700);
+    assert(f.app.snapshot().race.lap == 2);  // GPS has already counted this lap.
+    f.clock.time += f.settings.lap_duplicate_ms;
+    f.fix(4720);
+    assert(!f.app.snapshot().manual_lap_ready);
+    assert(!f.app.manualLap());
+    View view;
+    Presenter presenter(view);
+    presenter.render(f.app.snapshot(), {});
+    assert(!view.model.lap_enabled);
+    f.clock.time += f.settings.gps_stale_ms + 1;
+    assert(f.app.snapshot().manual_lap_ready);  // Manual correction remains available without GPS.
+  }
+}
 void wheelTest() {
   Settings s;
   assert(!wheelReading({}, 1000000, s).valid);
@@ -259,6 +328,10 @@ void wheelTest() {
   RaceSession race;
   assert(race.start(0, 100));
   assert(race.reading(1000, 105, s).distance_m == 5.15);
+  Fixture f;
+  f.clock.micros_offset = 999;
+  f.app.wheel({2, 100000900, 99000900});
+  assert(f.app.snapshot().wheel.valid);  // A pulse later in the same millisecond is valid.
 }
 std::string sentence(std::string body) {
   unsigned sum = 0;
@@ -342,21 +415,21 @@ void presenterTest() {
   f.clock.time += 4000;
   presenter.render(f.app.snapshot(), status);
   assert(!view.model.gps_ok && view.model.position_stale);
+  assert(f.app.start());
+  presenter.render(f.app.snapshot(), status);
+  assert(std::strcmp(view.model.notice, "GPS LOST: MANUAL LAP\nSD RECORDING ERROR") == 0);
   char json[1024];
   assert(telemetryJson(f.app.snapshot(), json, sizeof(json), "pi", "quoted \"note\"") > 0);
   assert(std::strstr(json, "\"speed\":null") && std::strstr(json, "\"latitude\":null"));
   assert(std::strstr(json, "\"average_speed\":null"));
   assert(std::strstr(json, "\\\"note\\\""));
   assert(!telemetryJson(f.app.snapshot(), json, 8));
-  assert(f.app.start());
   for (int lap = 1; lap < 7; ++lap) {
     f.clock.time += 10000;
     assert(f.app.manualLap());
     presenter.render(f.app.snapshot(), status);
     assert(view.model.finish_mode == (lap == 6));
   }
-  assert(!view.model.lap_enabled);
-  f.clock.time += f.settings.lap_duplicate_ms;
   presenter.render(f.app.snapshot(), status);
   assert(view.model.finish_mode && view.model.lap_enabled);
 }
@@ -657,6 +730,7 @@ int main() {
   manualFinishTest();
   gpsRaceTest();
   passageTest();
+  gpsOutageAndManualLapTest();
   wheelTest();
   nmeaTest();
   settingsTest();

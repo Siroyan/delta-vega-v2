@@ -13,6 +13,7 @@ struct ICommandSink {
 struct IClock {
   virtual ~IClock() = default;
   virtual Millis now() const = 0;
+  virtual uint64_t nowMicros() const { return now() * 1000; }
 };
 struct IEngineOutput {
   virtual ~IEngineOutput() = default;
