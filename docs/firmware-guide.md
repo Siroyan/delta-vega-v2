@@ -57,7 +57,7 @@
 - SD Writerは別タスク。48件のキュー、約24秒分（イベント数で減少）。書込、flush/fsync、キューあふれを警告し、計測を継続する。同期はセッション開始時、1秒周期、終了時。エラー表示は次のセッションのファイルを正常に開き、メタデータを同期できた場合に解除する。突然の電源断で直近の未同期データが失われる可能性がある。計測復元は未実装。
 - SD未挿入時も開始・計測を継続する。開始時にマウントできなかった場合は次のセッション開始時に再試行する。通信断時の後送信は初期範囲外。
 - Wi-Fi/MQTT/NTPは別タスク。未設定なら通信を開始せず、オフラインで動作する。
-- `network_secrets.example.h`を`network_secrets.h`へコピーし、Wi-FiとPEM形式のルートCA、クライアント証明書、秘密鍵を設定する。後者はGit除外。TLSホスト名検証を無効化しない。
+- `network_secrets.example.h`を`network_secrets.h`へコピーし、Wi-FiとAWS IoTの接続先を設定する。Amazon Root CA 1は設定例に含まれる。クライアント証明書と秘密鍵はPEM全文を各`R"EOF(...)EOF"`文字列に貼り付ける。`network_secrets.h`はGit除外。TLSホスト名検証を無効化しない。
 - MQTT接続先は旧版のAWS IoT、トピックは`v0/delta_machine_alpha/telemetry/racing_data`、計測中500 ms、QoS 0、retainなし。接続済みの最新サンプルだけを送信する。
 - 旧版の10項目は保持。`speed`、`average_speed`、`latitude`、`longitude`は未取得/無効時に`null`。旧consumerのnull対応はAWS接続時に確認する。`timestamp_ms`は64 bit起動後msでUTCではない。
 - メモ初期値は旧版の大会固有文字列から`Delta Vega v2`へ変更し、機体IDとともに通信設定へ集約した。

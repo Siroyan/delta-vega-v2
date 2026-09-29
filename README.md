@@ -43,7 +43,10 @@ Settingsの数字キーは、EEZ上のキーボード枠を実機では非表示
 ## Wi-Fi / AWS / NTP
 
 `include/config/network_secrets.example.h`を`network_secrets.h`へコピーし、
-Wi-Fi情報とAWS IoTの証明書をローカルで設定して再ビルドしてください。
+Wi-Fi情報とAWS IoTの接続先を設定してください。Amazon Root CA 1は設定例に含まれます。
+`certificate.pem.crt`の全文を`client_cert`、`private.pem.key`の全文を`client_key`の
+`R"EOF(...)EOF"`の括弧内へ貼り付けて再ビルドします。`public.pem.key`は使用しません。
+証明書の`BEGIN`/`END`行と改行を残し、秘密鍵のヘッダーは元ファイルのまま使ってください。
 `network_secrets.h`はGitの追跡対象外です。未設定でも計測・表示・SD保存は動作します。
 AWSへの実接続とNTP同期の実検証は今回スキップしています。
 
