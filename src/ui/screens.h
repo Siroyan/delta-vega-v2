@@ -693,6 +693,11 @@ typedef struct _objects_t {
     lv_obj_t *settings_advanced_cancel_button;
     lv_obj_t *settings_advanced_cancel_button_label;
     lv_obj_t *settings_advanced_help_label;
+    lv_obj_t *settings_advanced_gps_source_title;
+    lv_obj_t *settings_advanced_gps_m5bus_button;
+    lv_obj_t *settings_advanced_gps_m5bus_button_label;
+    lv_obj_t *settings_advanced_gps_port_a_button;
+    lv_obj_t *settings_advanced_gps_port_a_button_label;
     lv_obj_t *settings_editor_overlay;
     lv_obj_t *settings_editor_back_button;
     lv_obj_t *settings_editor_back_button_icon;

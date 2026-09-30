@@ -12,8 +12,9 @@ struct GeoPoint {
   double latitude = 0;
   double longitude = 0;
 };
+enum class GpsSource : uint32_t { M5Bus = 0, PortA = 1 };
 struct Settings {
-  uint32_t version = 1;
+  uint32_t version = 2;
   uint32_t total_target_s = 42 * 60;
   std::array<uint32_t, kLapCount> lap_target_s{{360, 360, 360, 360, 360, 360, 360}};
   GeoPoint start{36.530654, 140.227998};
@@ -32,6 +33,7 @@ struct Settings {
   double min_lap_progress_m = 600;
   uint32_t min_lap_ms = 60000;
   uint32_t lap_duplicate_ms = 10000;
+  GpsSource gps_source = GpsSource::M5Bus;
 };
 bool validSettings(const Settings &s);
 enum class RacePhase : uint8_t { Waiting, Measuring, Finished };

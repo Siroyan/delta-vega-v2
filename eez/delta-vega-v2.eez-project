@@ -318,6 +318,30 @@
       "localVariables": [],
       "componentGroups": [],
       "userProperties": []
+    },
+    {
+      "objID": "b0b73f75-5211-444c-837c-7f70052b013f",
+      "name": "select_gps_m5bus",
+      "description": "GPS source selector; implementation: src/adapters/lvgl_view.cpp",
+      "implementationType": "native",
+      "implementation": "",
+      "components": [],
+      "connectionLines": [],
+      "localVariables": [],
+      "componentGroups": [],
+      "userProperties": []
+    },
+    {
+      "objID": "485f924c-2d74-42ed-8629-31420f80276e",
+      "name": "select_gps_port_a",
+      "description": "GPS source selector; implementation: src/adapters/lvgl_view.cpp",
+      "implementationType": "native",
+      "implementation": "",
+      "components": [],
+      "connectionLines": [],
+      "localVariables": [],
+      "componentGroups": [],
+      "userProperties": []
     }
   ],
   "userPages": [
@@ -36620,6 +36644,287 @@
                   "longMode": "CLIP",
                   "recolor": false,
                   "useStaticText": true
+                },
+                {
+                  "objID": "06a8291a-28cd-40f9-8467-6336c6292a7b",
+                  "type": "LVGLLabelWidget",
+                  "identifier": "settings_advanced_gps_source_title",
+                  "left": 640,
+                  "top": 528,
+                  "width": 280,
+                  "height": 30,
+                  "customInputs": [],
+                  "customOutputs": [],
+                  "style": {
+                    "objID": "e3e58eaf-e15c-4dbd-aa7f-f4f013565f02",
+                    "useStyle": "default",
+                    "conditionalStyles": [],
+                    "childStyles": []
+                  },
+                  "timeline": [],
+                  "eventHandlers": [],
+                  "leftUnit": "px",
+                  "topUnit": "px",
+                  "widthUnit": "px",
+                  "heightUnit": "px",
+                  "children": [],
+                  "widgetFlags": "",
+                  "hiddenFlagType": "literal",
+                  "clickableFlagType": "literal",
+                  "checkedStateType": "literal",
+                  "disabledStateType": "literal",
+                  "states": "",
+                  "localStyles": {
+                    "objID": "d2f8e60c-3c98-4d4e-9402-732dd6b240fc",
+                    "definition": {
+                      "MAIN": {
+                        "DEFAULT": {
+                          "pad_top": 0,
+                          "pad_bottom": 0,
+                          "pad_left": 0,
+                          "pad_right": 0,
+                          "border_width": 0,
+                          "bg_opa": 0,
+                          "shadow_width": 0,
+                          "text_font": "RictyDiminished_24",
+                          "text_color": "#202B36",
+                          "text_align": "LEFT"
+                        }
+                      }
+                    }
+                  },
+                  "groupIndex": 0,
+                  "text": "GPS INPUT",
+                  "textType": "literal",
+                  "longMode": "CLIP",
+                  "recolor": false,
+                  "useStaticText": true
+                },
+                {
+                  "objID": "6655d0c0-6051-4a1c-9411-7e7929876094",
+                  "type": "LVGLButtonWidget",
+                  "identifier": "settings_advanced_gps_m5bus_button",
+                  "left": 930,
+                  "top": 520,
+                  "width": 132,
+                  "height": 46,
+                  "customInputs": [],
+                  "customOutputs": [],
+                  "style": {
+                    "objID": "383fd47a-07f3-43b6-84c4-72b876d59a2f",
+                    "useStyle": "default",
+                    "conditionalStyles": [],
+                    "childStyles": []
+                  },
+                  "timeline": [],
+                  "eventHandlers": [
+                    {
+                      "objID": "93ca4156-c808-438e-96eb-8ab81beccdd9",
+                      "eventName": "CLICKED",
+                      "handlerType": "action",
+                      "action": "select_gps_m5bus",
+                      "userData": 0
+                    }
+                  ],
+                  "leftUnit": "px",
+                  "topUnit": "px",
+                  "widthUnit": "px",
+                  "heightUnit": "px",
+                  "children": [
+                    {
+                      "objID": "ca60d425-bf94-44f9-ac69-ce8c634963d4",
+                      "type": "LVGLLabelWidget",
+                      "identifier": "settings_advanced_gps_m5bus_button_label",
+                      "left": 0,
+                      "top": 9,
+                      "width": 132,
+                      "height": 28,
+                      "customInputs": [],
+                      "customOutputs": [],
+                      "style": {
+                        "objID": "c33efec2-b7ea-4c63-98e3-381ab3c6618b",
+                        "useStyle": "default",
+                        "conditionalStyles": [],
+                        "childStyles": []
+                      },
+                      "timeline": [],
+                      "eventHandlers": [],
+                      "leftUnit": "px",
+                      "topUnit": "px",
+                      "widthUnit": "px",
+                      "heightUnit": "px",
+                      "children": [],
+                      "widgetFlags": "",
+                      "hiddenFlagType": "literal",
+                      "clickableFlagType": "literal",
+                      "checkedStateType": "literal",
+                      "disabledStateType": "literal",
+                      "states": "",
+                      "localStyles": {
+                        "objID": "83ecaa6d-09fc-43da-9ebf-aa118f903c5b",
+                        "definition": {
+                          "MAIN": {
+                            "DEFAULT": {
+                              "pad_top": 0,
+                              "pad_bottom": 0,
+                              "pad_left": 0,
+                              "pad_right": 0,
+                              "border_width": 0,
+                              "bg_opa": 0,
+                              "shadow_width": 0,
+                              "text_font": "RictyDiminished_24",
+                              "text_color": "#FFFFFF",
+                              "text_align": "CENTER"
+                            }
+                          }
+                        }
+                      },
+                      "groupIndex": 0,
+                      "text": "M5BUS",
+                      "textType": "literal",
+                      "longMode": "CLIP",
+                      "recolor": false,
+                      "useStaticText": true
+                    }
+                  ],
+                  "widgetFlags": "CLICKABLE",
+                  "hiddenFlagType": "literal",
+                  "clickableFlagType": "literal",
+                  "checkedStateType": "literal",
+                  "disabledStateType": "literal",
+                  "states": "",
+                  "localStyles": {
+                    "objID": "1c5999d7-c020-47da-9888-6a474d2bcac3",
+                    "definition": {
+                      "MAIN": {
+                        "DEFAULT": {
+                          "pad_top": 0,
+                          "pad_bottom": 0,
+                          "pad_left": 0,
+                          "pad_right": 0,
+                          "border_width": 0,
+                          "bg_opa": 255,
+                          "shadow_width": 0,
+                          "bg_color": "#1769B2",
+                          "radius": 12
+                        }
+                      }
+                    }
+                  },
+                  "groupIndex": 0
+                },
+                {
+                  "objID": "b645bc11-71b6-4d4a-9835-e6d3a13569f7",
+                  "type": "LVGLButtonWidget",
+                  "identifier": "settings_advanced_gps_port_a_button",
+                  "left": 1072,
+                  "top": 520,
+                  "width": 132,
+                  "height": 46,
+                  "customInputs": [],
+                  "customOutputs": [],
+                  "style": {
+                    "objID": "cb325944-9e8e-47c6-971c-015cc0d78a8f",
+                    "useStyle": "default",
+                    "conditionalStyles": [],
+                    "childStyles": []
+                  },
+                  "timeline": [],
+                  "eventHandlers": [
+                    {
+                      "objID": "992150ea-ef01-4f47-ad9b-1bccecea64c4",
+                      "eventName": "CLICKED",
+                      "handlerType": "action",
+                      "action": "select_gps_port_a",
+                      "userData": 0
+                    }
+                  ],
+                  "leftUnit": "px",
+                  "topUnit": "px",
+                  "widthUnit": "px",
+                  "heightUnit": "px",
+                  "children": [
+                    {
+                      "objID": "bd4c95e8-1e64-4ef3-859d-35493af4807f",
+                      "type": "LVGLLabelWidget",
+                      "identifier": "settings_advanced_gps_port_a_button_label",
+                      "left": 0,
+                      "top": 9,
+                      "width": 132,
+                      "height": 28,
+                      "customInputs": [],
+                      "customOutputs": [],
+                      "style": {
+                        "objID": "7e4a9902-4fc4-4574-a16f-05004026c345",
+                        "useStyle": "default",
+                        "conditionalStyles": [],
+                        "childStyles": []
+                      },
+                      "timeline": [],
+                      "eventHandlers": [],
+                      "leftUnit": "px",
+                      "topUnit": "px",
+                      "widthUnit": "px",
+                      "heightUnit": "px",
+                      "children": [],
+                      "widgetFlags": "",
+                      "hiddenFlagType": "literal",
+                      "clickableFlagType": "literal",
+                      "checkedStateType": "literal",
+                      "disabledStateType": "literal",
+                      "states": "",
+                      "localStyles": {
+                        "objID": "408caa66-a880-43c3-a928-ea84e57ff9c8",
+                        "definition": {
+                          "MAIN": {
+                            "DEFAULT": {
+                              "pad_top": 0,
+                              "pad_bottom": 0,
+                              "pad_left": 0,
+                              "pad_right": 0,
+                              "border_width": 0,
+                              "bg_opa": 0,
+                              "shadow_width": 0,
+                              "text_font": "RictyDiminished_24",
+                              "text_color": "#FFFFFF",
+                              "text_align": "CENTER"
+                            }
+                          }
+                        }
+                      },
+                      "groupIndex": 0,
+                      "text": "PORT.A",
+                      "textType": "literal",
+                      "longMode": "CLIP",
+                      "recolor": false,
+                      "useStaticText": true
+                    }
+                  ],
+                  "widgetFlags": "CLICKABLE",
+                  "hiddenFlagType": "literal",
+                  "clickableFlagType": "literal",
+                  "checkedStateType": "literal",
+                  "disabledStateType": "literal",
+                  "states": "",
+                  "localStyles": {
+                    "objID": "5024f040-ad84-4e89-b0a7-2f28a48269dc",
+                    "definition": {
+                      "MAIN": {
+                        "DEFAULT": {
+                          "pad_top": 0,
+                          "pad_bottom": 0,
+                          "pad_left": 0,
+                          "pad_right": 0,
+                          "border_width": 0,
+                          "bg_opa": 255,
+                          "shadow_width": 0,
+                          "bg_color": "#64748B",
+                          "radius": 12
+                        }
+                      }
+                    }
+                  },
+                  "groupIndex": 0
                 }
               ],
               "widgetFlags": "HIDDEN|CLICKABLE",

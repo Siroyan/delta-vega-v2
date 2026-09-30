@@ -10,10 +10,11 @@
 - 取消はメニュー/SettingsのCANCEL TIMING → 確認画面のCANCEL TIMING。KEEP TIMINGで継続。取消後は新規開始可能。完走後の再計測は提供しない。
 - 左下の青緑の電源トグルはエンジン系電装への指令。ON後1000 ms待って点火ボタンを有効にする。右下の炎ボタンはECUへの1000 ms HIGHパルス。電装ONごとに1回まで。
 - 電装OFFは準備待ち/パルスを中止する。計測とTab5は動作継続。Tab5はエンジンの実運転状態を確認できない。
-- 全体42:00・各周06:00のTARGETとスタート/周回更新/ゴールの各緯度経度をSettingsで編集できる。`ADVANCED SETTINGS`から車輪・GPS・周回判定・ECU関連の13項目も編集できる。数値画面のSETは編集値の確定、SAVE SETTINGSは一括保存。Advancedの戻る矢印はSettingsへ戻り、Settingsの戻る矢印は未保存の編集を破棄する。
+- 全体42:00・各周06:00のTARGETとスタート/周回更新/ゴールの各緯度経度をSettingsで編集できる。`ADVANCED SETTINGS`から車輪・GPS・周回判定・ECU関連の13項目とGPS接続先を変更できる。数値画面のSETは編集値の確定、SAVE SETTINGSは一括保存。Advancedの戻る矢印はSettingsへ戻り、Settingsの戻る矢印は未保存の編集を破棄する。
 - 電装極性（POWER HIGH）は`1`でHIGH=ON、`0`でLOW=ON。電装ON中は極性・ECU準備時間・点火パルス幅の編集を無効にし、アプリケーション側も変更を拒否する。これらの値は実車接続前に回路とECUの仕様に合わせて確認する。
 - 計測中はUIとApplicationの双方で設定変更を拒否する。全体TARGETと各周合計の一致は強制しない。大会制限39:16とは独立した値。
-- Settingsは版付きNVS blob。再起動しても設定を保持する。電装状態・始動権・進行中レースの復元は行わない。
+- Settingsは版付きNVS blob。旧版の設定を読み込むとGPS接続先はM5Busとなり、既存のTARGET・座標・車両設定は維持される。次回保存時に新版形式へ移行する。再起動しても設定を保持する。電装状態・始動権・進行中レースの復元は行わない。
+- GPS接続先はAdvanced Settingsの`GPS INPUT`で`M5BUS`または`PORT.A`を選び、`SAVE SETTINGS`で確定する。切替は計測前または計測取消後のみ可能。保存成功時にUART、NMEAパーサ、直前のGPS位置・受信状態を初期化して選択先から受信し直す。GPSの測位確認には屋外の開けた場所で待つ。シリアルの`status`で`gps_source`・`gps_bytes`（受信バイト数）・`gps_rmc`（有効なチェックサムを持つRMC文の件数）・`gps`（新鮮な測位の有無）を確認できる。
 - コース地図にはSettingsで保存したスタート地点を青緑の点、ゴール地点を赤の点、周回更新地点をコースに垂直な紫の線として表示する。`START`・`GOAL`・`LAP`の文字は地図右上の凡例にまとめる。GPS未接続でも表示し、座標変更を保存すると対応する点・線が移動する。周回更新線は通過判定用の基準経路に投影した位置へ置き、回廊外や画像範囲外の場合は非表示にする。
 
 ## GPIO・暫定定数
@@ -21,7 +22,8 @@
 | 用途 | GPIO / 値 | 根拠・扱い |
 |---|---|---|
 | 車速 | 16 / FALLING / INPUT_PULLUP | M5Bus 2。リードスイッチを対GNDで接続する想定。入力回路・ノイズ耐性は実車で確認 |
-| GPS UART1 | RX 7、TX 6 / 9600 bps | M5Bus 15/16。GT-502MGG-NのNMEA / 1 Hz初期設定 |
+| GPS UART1 / M5Bus | RX 7、TX 6 / 9600 bps | 初期選択。M5Bus 15/16。GT-502MGG-NのNMEA / 1 Hz初期設定 |
+| GPS UART1 / Port.A | RX 54、TX 53 / 9600 bps | Unit GPSの白線TXをG54、黄線RXをG53へ接続。Port.Aの5 V給電を使用 |
 | 電装 | 45 / 初期HIGH=ON | M5Bus 8。極性はAdvanced Settingsまたは校正コマンドで変更可能 |
 | 始動パルス | 48 / HIGH 1000 ms | M5Bus 22。ユーザー指定の暫定値 |
 | ECU準備 | 1000 ms | ユーザー指定の暫定値 |
@@ -50,6 +52,10 @@
 参照: [Tab5](https://docs.m5stack.com/en/core/Tab5)、[M5Stack公式SDMMC実装](https://github.com/m5stack/M5Tab5-UserDemo/blob/main/platforms/tab5/components/m5stack_tab5/m5stack_tab5.c)、[Tab5公式Wi-Fi例](https://docs.m5stack.com/en/arduino/m5tab5/wifi)、[GPS製品](https://akizukidenshi.com/catalog/g/g117980/)。M5Unified/M5GFXは検証したコミットへ固定した。
 
 ## 保存・通信
+
+現在のビルドは`platformio.ini`の`VEGA_ENABLE_MQTT=1`でAWS/MQTT送信を有効にしている。起動時にmbedTLSの動的メモリ確保先をPSRAMへ変更し、TLS接続中もESP-Hosted Wi-Fiが使う内部DMAメモリを確保する。Wi-FiがIPを取得した後にMQTTを開始し、Wi-Fi切断時は停止、復旧時に再開する。USB給電の実機でMQTT接続とNTP同期、約6秒の計測と取消、AWS IoT Coreでの新着JSON受信を確認した。GPSを外したバッテリー駆動では、ボタンに触れない10分間で水色画面・再起動が起きなかった。正式版の長時間エージングは[試験計画](release-test-plan.md)に従って別途行う。
+
+2026-10-01の切り分けでは、GPSを外したバッテリー駆動中にMQTT接続試行を有効にすると、内部DMA用の最大連続空き領域が約1.5 KBまで減り、保存されたクラッシュ情報に`transport_drv_sta_tx ... (copy_buff)`が残った。MQTTだけを停止し、ボタンに触れずに再試験すると、同じバッテリー条件で10分35秒連続稼働し、内部DMA用の最大連続空き領域は約67 KBを維持した。手動Resetでもリセット理由`7`が記録されるため、この番号単独では自動再起動と判定しない。関連する[Espressifの報告](https://github.com/espressif/esp-hosted-mcu/issues/144)がある。現在の対策はTLSのメモリ確保先を変更して送信バッファ用の内部DMAメモリを残すもの。TLSが扱う秘密鍵もPSRAMに置かれるため、実車投入前にメモリ保護要件を確認する。
 
 - 走行戦略は起動時にmicroSDの`/vega/strategy.json`から読み、7周分の経路IDとON/OFF地点を検証する。Waitingで1周目をプレビューし、Mainでは現在周回の橙色のエンジン使用区間、青色の惰性区間、点火/OFF地点を地図へ重ねる。GPSが有効なら次の地点までの距離を表示する。形式とダミーは[走行戦略データREADME](../assets/strategy/README.md)。プランは表示専用で、GPIO出力を変更しない。
 - 計測開始から取消/完走までのみ、`/vega/session-0000000001.jsonl`のような個別ファイルをmicroSDへ保存する。NVSの連番と既存ファイルの確認で再起動後も上書きを防ぐ。

@@ -2,7 +2,8 @@
 
 namespace vega {
 bool validSettings(const Settings &s) {
-  if (s.version != 1 || s.total_target_s == 0 || s.total_target_s > 86400 || !validGeo(s.start) ||
+  if (s.version != 2 || (s.gps_source != GpsSource::M5Bus && s.gps_source != GpsSource::PortA) ||
+      s.total_target_s == 0 || s.total_target_s > 86400 || !validGeo(s.start) ||
       !validGeo(s.timing) || !validGeo(s.goal) || !std::isfinite(s.wheel_circumference_m) ||
       s.wheel_circumference_m < 0.1 || s.wheel_circumference_m > 10 ||
       s.pulses_per_revolution == 0 || s.pulses_per_revolution > 100 || s.ecu_ready_ms > 60000 ||

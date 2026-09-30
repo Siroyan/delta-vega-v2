@@ -434,13 +434,21 @@ void refreshFields() {
     text(lv_obj_get_child(fieldButton(i), 0), value);
   }
 }
+void refreshGpsSourceSelector() {
+  const bool port_a = draft.gps_source == vega::GpsSource::PortA;
+  lv_obj_set_style_bg_color(objects.settings_advanced_gps_m5bus_button,
+                            lv_color_hex(port_a ? 0x64748B : 0x1769B2), 0);
+  lv_obj_set_style_bg_color(objects.settings_advanced_gps_port_a_button,
+                            lv_color_hex(port_a ? 0x1769B2 : 0x64748B), 0);
+}
 void setMessage(const char *value) {
   std::snprintf(message, sizeof(message), "%s", value);
   text(objects.settings_message_label, message);
   text(objects.settings_advanced_message_label, message);
 }
 bool sameSettings(const vega::Settings &a, const vega::Settings &b) {
-  return a.version == b.version && a.total_target_s == b.total_target_s &&
+  return a.version == b.version && a.gps_source == b.gps_source &&
+         a.total_target_s == b.total_target_s &&
          a.lap_target_s == b.lap_target_s && a.start.latitude == b.start.latitude &&
          a.start.longitude == b.start.longitude && a.timing.latitude == b.timing.latitude &&
          a.timing.longitude == b.timing.longitude && a.goal.latitude == b.goal.latitude &&
@@ -558,6 +566,8 @@ class View final : public vega::IView {
     }
     bool editable = m.phase != vega::RacePhase::Measuring && !save_pending;
     for (size_t i = 0; i < vega::kSettingsFieldCount; ++i) enabled(fieldButton(i), editable);
+    enabled(objects.settings_advanced_gps_m5bus_button, editable);
+    enabled(objects.settings_advanced_gps_port_a_button, editable);
     for (size_t i = 16; i <= 18; ++i) enabled(fieldButton(i), editable && !m.power_on);
     enabled(objects.settings_save_button, editable);
     enabled(objects.settings_advanced_save_button, editable);
@@ -786,6 +796,7 @@ void viewOpenSettings() {
   draft = presenter.settings();
   save_pending = false;
   refreshFields();
+  refreshGpsSourceSelector();
   setMessage(presenter.phase() == vega::RacePhase::Measuring
                  ? "TIMING ACTIVE - SETTINGS LOCKED"
                  : "TARGET / MM:SS - COORDINATES / DEGREES");
@@ -808,6 +819,14 @@ void viewOpenAdvanced() {
   lv_obj_move_foreground(objects.settings_advanced_overlay);
 }
 void viewCloseAdvanced() { visible(objects.settings_advanced_overlay, false); }
+
+void selectGpsSource(vega::GpsSource source) {
+  if (presenter.phase() == vega::RacePhase::Measuring || save_pending) return;
+  draft.gps_source = source;
+  refreshGpsSourceSelector();
+  setMessage(source == vega::GpsSource::PortA ? "PORT.A SELECTED - SAVE SETTINGS"
+                                           : "M5BUS SELECTED - SAVE SETTINGS");
+}
 
 void editField(size_t index) {
   if (index >= vega::kSettingsFieldCount || presenter.phase() == vega::RacePhase::Measuring ||
@@ -1092,6 +1111,12 @@ extern "C" void action_edit_setting(lv_event_t *e) {
 extern "C" void action_finish_edit(lv_event_t *) { tab5::finishEdit(); }
 extern "C" void action_discard_edit(lv_event_t *) { tab5::discardEdit(); }
 extern "C" void action_save_settings(lv_event_t *) { tab5::saveSettings(); }
+extern "C" void action_select_gps_m5bus(lv_event_t *) {
+  tab5::selectGpsSource(vega::GpsSource::M5Bus);
+}
+extern "C" void action_select_gps_port_a(lv_event_t *) {
+  tab5::selectGpsSource(vega::GpsSource::PortA);
+}
 extern "C" void action_confirm_cancel(lv_event_t *) { tab5::confirmCancel(); }
 extern "C" void action_cancel_timing(lv_event_t *) { tab5::cancelTiming(); }
 extern "C" void action_dismiss_cancel(lv_event_t *) { tab5::dismissCancel(); }

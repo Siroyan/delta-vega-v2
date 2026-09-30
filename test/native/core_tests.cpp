@@ -1,4 +1,6 @@
 #include <cassert>
+#include <array>
+#include <cstddef>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -11,6 +13,7 @@
 #include "application/application.h"
 #include "application/telemetry_json.h"
 #include "domain/nmea.h"
+#include "domain/settings_codec.h"
 #include "domain/strategy.h"
 #include "presentation/presenter.h"
 #include "presentation/settings_form.h"
@@ -476,6 +479,60 @@ void settingsFormTest() {
   assert(!editSetting(s, 25, "3600001") && !editSetting(s, 26, "499"));
   assert(!editSetting(s, 25, "4294967296") && !editSetting(s, 22, "1..2"));
 }
+void gpsSourceSettingsTest() {
+  Settings old;
+  old.version = 1;
+  old.total_target_s = 2356;
+  old.lap_target_s[0] = 250;
+  old.start = {35.123456, 139.654321};
+  old.timing = {35.234567, 139.765432};
+  old.goal = {35.345678, 139.876543};
+  old.wheel_circumference_m = 1.234;
+  old.pulses_per_revolution = 2;
+  old.ecu_ready_ms = 1234;
+  old.ignition_pulse_ms = 987;
+  old.power_active_high = false;
+  old.pulse_debounce_us = 4321;
+  old.speed_zero_ms = 4567;
+  old.gps_stale_ms = 5678;
+  old.course_corridor_m = 45.5;
+  old.max_gps_step_m = 67.5;
+  old.min_lap_progress_m = 321.5;
+  old.min_lap_ms = 65000;
+  old.lap_duplicate_ms = 12000;
+  std::array<uint8_t, 160> legacy{};
+  std::memcpy(legacy.data(), &old, legacy.size());
+  Settings migrated;
+  assert(decodeSettingsBlob(legacy.data(), legacy.size(), migrated));
+  assert(migrated.version == 2 && migrated.gps_source == GpsSource::M5Bus);
+  old.version = 2;
+  for (size_t field = 0; field < kSettingsFieldCount; ++field) {
+    char before[32], after[32];
+    settingText(old, field, before, sizeof(before));
+    settingText(migrated, field, after, sizeof(after));
+    assert(std::strcmp(before, after) == 0);
+  }
+  migrated.gps_source = GpsSource::PortA;
+  Settings restored;
+  assert(decodeSettingsBlob(&migrated, sizeof(migrated), restored));
+  assert(restored.gps_source == GpsSource::PortA && restored.total_target_s == 2356);
+  migrated.gps_source = static_cast<GpsSource>(9);
+  assert(!decodeSettingsBlob(&migrated, sizeof(migrated), restored));
+  assert(restored.gps_source == GpsSource::PortA);
+
+  Fixture f;
+  f.fix(500);
+  assert(f.app.snapshot().gps_seen);
+  Settings changed = f.app.snapshot().settings;
+  changed.gps_source = GpsSource::PortA;
+  assert(f.app.configure(changed));
+  assert(!f.app.snapshot().gps_seen && !f.app.snapshot().gps_fresh);
+  assert(f.app.snapshot().settings.gps_source == GpsSource::PortA);
+  assert(f.app.start());
+  changed.gps_source = GpsSource::M5Bus;
+  assert(!f.app.configure(changed));
+  assert(f.app.snapshot().settings.gps_source == GpsSource::PortA);
+}
 void strategyTest() {
   std::ifstream input("assets/strategy/motegi_demo.json");
   assert(input);
@@ -736,6 +793,7 @@ int main() {
   settingsTest();
   presenterTest();
   settingsFormTest();
+  gpsSourceSettingsTest();
   strategyTest();
   realCourseTest();
   combinedLapTest();

@@ -59,6 +59,16 @@ void Application::resetFinishBranch() {
   finish_branch_matches_ = 0;
   goal_.reset();
 }
+void Application::resetGps() {
+  gps_ = {};
+  gps_seen_ = false;
+  gps_on_timing_course_ = false;
+  manual_lap_requires_progress_ = false;
+  map_ = {};
+  route_map_ = {};
+  timing_.reset();
+  resetFinishBranch();
+}
 bool Application::start() {
   auto now = clock_.now();
   if (!race_.start(now, wheel_.pulses)) return false;
@@ -138,11 +148,13 @@ bool Application::configure(const Settings &s) {
   }
   if (s.power_active_high != settings_.power_active_high)
     output_.configurePower(s.power_active_high);
+  const bool gps_source_changed = s.gps_source != settings_.gps_source;
   settings_ = s;
   settings_error_ = false;
   settings_accepted_ = true;
   timing_.reset();
   resetFinishBranch();
+  if (gps_source_changed) resetGps();
   return true;
 }
 void Application::gps(const GpsFix &fix) {

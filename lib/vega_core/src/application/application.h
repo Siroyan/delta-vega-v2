@@ -25,6 +25,7 @@ class Application {
  private:
   void event(Event e);
   void resetFinishBranch();
+  void resetGps();
   bool finish(Millis now, bool manual = false);
   IClock &clock_;
   IEngineOutput &output_;

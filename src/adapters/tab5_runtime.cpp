@@ -5,8 +5,10 @@
 #include <SD_MMC.h>
 #include <WiFi.h>
 #include <driver/gpio.h>
+#include <esp_heap_caps.h>
 #include <esp_sntp.h>
 #include <esp_timer.h>
+#include <mbedtls/platform.h>
 #include <mqtt_client.h>
 #include <nvs.h>
 #include <sys/stat.h>
@@ -22,6 +24,7 @@
 #include "application/telemetry_json.h"
 #include "course_data.h"
 #include "domain/nmea.h"
+#include "domain/settings_codec.h"
 #include "lvgl_view.h"
 #include "../tab5_lvgl.h"
 #include "presentation/settings_form.h"
@@ -35,12 +38,24 @@
 namespace tab5 {
 namespace {
 constexpr gpio_num_t kPower = GPIO_NUM_45, kIgnition = GPIO_NUM_48;
-constexpr int kReed = 16, kGpsRx = 7, kGpsTx = 6;
+constexpr int kReed = 16;
+constexpr int kGpsBusRx = 7, kGpsBusTx = 6;
+// Unit GPS: yellow (unit RX) to G53, white (unit TX) to G54 on Tab5 Port.A.
+constexpr int kGpsPortARx = 54, kGpsPortATx = 53;
+
+// The bundled ESP-IDF builds mbedTLS for internal RAM. A TLS handshake can
+// exhaust the DMA-capable heap needed by ESP-Hosted Wi-Fi on Tab5. Install the
+// supported mbedTLS allocator hook before any network task starts.
+void *tlsPsramCalloc(size_t count, size_t bytes) {
+  return heap_caps_calloc(count, bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+void tlsPsramFree(void *ptr) { heap_caps_free(ptr); }
 QueueHandle_t commands, snapshots, records, transmissions, diagnostics, strategies,
     plan_imports;
 std::atomic<bool> urgent_off{false}, sd_ready{false}, sd_error{false}, mqtt_connected{false};
 std::atomic<uint32_t> power_epoch{0};
 std::atomic<uint32_t> record_loss_count{0};
+std::atomic<uint32_t> gps_bytes{0}, gps_rmc{0};
 std::atomic<vega::PlanState> plan_state{vega::PlanState::Loading};
 std::atomic<bool> readback{false};
 std::atomic<uint64_t> last_ntp_sync{0};
@@ -155,11 +170,13 @@ class SettingsStore final : public vega::ISettingsStore {
     vega::Settings s;
     nvs_handle_t handle;
     if (nvs_open("vega", NVS_READONLY, &handle) == ESP_OK) {
-      vega::Settings stored;
-      size_t size = sizeof(stored);
-      if (nvs_get_blob(handle, "settings", &stored, &size) == ESP_OK && size == sizeof(stored) &&
-          vega::validSettings(stored))
-        s = stored;
+      size_t size = 0;
+      if (nvs_get_blob(handle, "settings", nullptr, &size) == ESP_OK &&
+          size <= sizeof(vega::Settings)) {
+        alignas(vega::Settings) uint8_t blob[sizeof(vega::Settings)]{};
+        if (nvs_get_blob(handle, "settings", blob, &size) == ESP_OK)
+          vega::decodeSettingsBlob(blob, size, s);
+      }
       nvs_close(handle);
     }
     return s;
@@ -548,35 +565,60 @@ void mqttEvent(void *, esp_event_base_t, int32_t id, void *) {
 }
 void ntpSynced(struct timeval *) { last_ntp_sync = clock_source.now(); }
 void networkTask(void *) {
+  constexpr vega::Millis kWifiRetryMs = 10000;
   const bool wifi_configured = network_config::ssid[0];
-  const bool mqtt_configured =
-      network_config::root_ca[0] && network_config::client_cert[0] && network_config::client_key[0];
+  const bool mqtt_configured = VEGA_ENABLE_MQTT && network_config::root_ca[0] &&
+                               network_config::client_cert[0] && network_config::client_key[0];
   esp_mqtt_client_handle_t client = nullptr;
+  bool mqtt_started = false;
+  vega::Millis last_wifi_attempt = clock_source.now();
   if (wifi_configured) {
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
     WiFi.begin(network_config::ssid, network_config::password);
     sntp_set_time_sync_notification_cb(ntpSynced);
     configTime(9 * 3600, 0, network_config::ntp_server);
-    if (mqtt_configured) {
-      esp_mqtt_client_config_t cfg{};
-      cfg.broker.address.uri = network_config::endpoint;
-      cfg.broker.verification.certificate = network_config::root_ca;
-      cfg.credentials.client_id = network_config::client_id;
-      cfg.credentials.authentication.certificate = network_config::client_cert;
-      cfg.credentials.authentication.key = network_config::client_key;
-      cfg.network.disable_auto_reconnect = false;
-      cfg.session.disable_clean_session = false;
-      cfg.outbox.limit = 4096;
-      client = esp_mqtt_client_init(&cfg);
-      if (client) {
-        esp_mqtt_client_register_event(client, MQTT_EVENT_ANY, mqttEvent, nullptr);
-        esp_mqtt_client_start(client);
-      }
-    }
+    if (mqtt_configured) Serial.println("[MQTT] waiting for Wi-Fi IP");
+    else Serial.println("[MQTT] disabled in this build");
   } else
     Serial.println("[NET] Wi-Fi not configured; MQTT/NTP offline");
   for (;;) {
+    // Arduino marks WL_CONNECTED only after the STA_GOT_IP event.
+    const bool wifi_ready = wifi_configured && WiFi.status() == WL_CONNECTED;
+    const auto now = clock_source.now();
+    if (wifi_ready)
+      last_wifi_attempt = now;
+    else if (wifi_configured && now - last_wifi_attempt >= kWifiRetryMs) {
+      last_wifi_attempt = now;
+      const auto before = WiFi.status();
+      const auto result = WiFi.begin(network_config::ssid, network_config::password);
+      diagnostic("[NET] Wi-Fi retry previous=%u begin=%u", static_cast<unsigned>(before),
+                 static_cast<unsigned>(result));
+    }
+    if (!wifi_ready && mqtt_started) {
+      mqtt_connected = false;
+      esp_mqtt_client_stop(client);
+      mqtt_started = false;
+      Serial.println("[MQTT] stopped; Wi-Fi IP unavailable");
+    } else if (wifi_ready && mqtt_configured && !mqtt_started) {
+      if (!client) {
+        esp_mqtt_client_config_t cfg{};
+        cfg.broker.address.uri = network_config::endpoint;
+        cfg.broker.verification.certificate = network_config::root_ca;
+        cfg.credentials.client_id = network_config::client_id;
+        cfg.credentials.authentication.certificate = network_config::client_cert;
+        cfg.credentials.authentication.key = network_config::client_key;
+        cfg.network.disable_auto_reconnect = false;
+        cfg.session.disable_clean_session = false;
+        cfg.outbox.limit = 4096;
+        client = esp_mqtt_client_init(&cfg);
+        if (client) esp_mqtt_client_register_event(client, MQTT_EVENT_ANY, mqttEvent, nullptr);
+      }
+      if (client && esp_mqtt_client_start(client) == ESP_OK) {
+        mqtt_started = true;
+        Serial.println("[MQTT] starting after Wi-Fi got IP");
+      }
+    }
     vega::Snapshot s{};
     if (xQueueReceive(transmissions, &s, pdMS_TO_TICKS(500)) == pdTRUE && client &&
         mqtt_connected) {
@@ -599,7 +641,17 @@ void applicationTask(void *) {
                         settings);
   HardwareSerial gps_uart(1);
   gps_uart.setRxBufferSize(2048);
-  gps_uart.begin(9600, SERIAL_8N1, kGpsRx, kGpsTx);
+  auto openGps = [&](vega::GpsSource source) {
+    gps_uart.end();
+    gps_bytes = 0;
+    gps_rmc = 0;
+    const bool port_a = source == vega::GpsSource::PortA;
+    const int rx = port_a ? kGpsPortARx : kGpsBusRx;
+    const int tx = port_a ? kGpsPortATx : kGpsBusTx;
+    gps_uart.begin(9600, SERIAL_8N1, rx, tx);
+    diagnostic("[GPS] source=%s rx=%d tx=%d baud=9600", port_a ? "PORT_A" : "M5BUS", rx, tx);
+  };
+  openGps(settings.gps_source);
   pinMode(kReed, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(kReed), reedInterrupt, FALLING);
   vega::NmeaParser parser;
@@ -616,7 +668,13 @@ void applicationTask(void *) {
     app.wheel(input);
     for (unsigned budget = 0; budget < 512 && gps_uart.available(); ++budget) {
       vega::GpsFix fix;
-      if (parser.feed(static_cast<char>(gps_uart.read()), clock_source.now(), fix)) app.gps(fix);
+      const int byte = gps_uart.read();
+      if (byte < 0) break;
+      gps_bytes.fetch_add(1, std::memory_order_relaxed);
+      if (parser.feed(static_cast<char>(byte), clock_source.now(), fix)) {
+        gps_rmc.fetch_add(1, std::memory_order_relaxed);
+        app.gps(fix);
+      }
     }
     QueuedCommand queued{};
     for (unsigned budget = 0; budget < 8 && xQueueReceive(commands, &queued, 0) == pdTRUE;
@@ -650,10 +708,19 @@ void applicationTask(void *) {
         case CommandKind::Ignite:
           ok = app.ignite();
           break;
-        case CommandKind::Configure:
+        case CommandKind::Configure: {
+          const auto old_gps_source = app.snapshot().settings.gps_source;
           ok = app.configure(command.settings);
-          if (ok) debounce_us = command.settings.pulse_debounce_us;
+          if (ok) {
+            debounce_us = command.settings.pulse_debounce_us;
+            if (command.settings.gps_source != old_gps_source) {
+              gps_uart.flush();
+              openGps(command.settings.gps_source);
+              parser = vega::NmeaParser{};
+            }
+          }
           break;
+        }
       }
       diagnostic("[APP] command=%u accepted=%u", static_cast<unsigned>(command.kind), ok);
     }
@@ -667,6 +734,11 @@ void applicationTask(void *) {
 
 bool begin() {
   if (!outputs_prepared && !prepareOutputs()) return false;
+  if (VEGA_ENABLE_MQTT &&
+      mbedtls_platform_set_calloc_free(tlsPsramCalloc, tlsPsramFree) != 0) {
+    Serial.println("[MQTT] unable to route TLS allocations to PSRAM");
+    return false;
+  }
   commands = xQueueCreate(12, sizeof(QueuedCommand));
   snapshots = xQueueCreate(1, sizeof(vega::Snapshot));
   records = xQueueCreate(48, sizeof(Record));
@@ -770,11 +842,16 @@ void serialPoll() {
         if (snapshot(s))
           Serial.printf(
               "[STATUS] phase=%u lap=%u total_ms=%llu power_phase=%u power_pin=%d ignition_pin=%d "
-              "gps=%u pulses=%llu sd_ready=%u sd_error=%u mqtt=%u ntp=%u total_target_s=%lu "
+              "gps=%u gps_source=%s gps_bytes=%lu gps_rmc=%lu pulses=%llu "
+              "sd_ready=%u sd_error=%u wifi=%u mqtt=%u ntp=%u total_target_s=%lu "
               "lap1_target_s=%lu\n",
               static_cast<unsigned>(s.race.phase), s.race.lap, s.race.total_ms,
               static_cast<unsigned>(s.engine), gpio_get_level(kPower), gpio_get_level(kIgnition),
-              s.gps_fresh, s.wheel.pulses, st.sd_ready, st.sd_error, st.mqtt_connected,
+              s.gps_fresh, s.settings.gps_source == vega::GpsSource::PortA ? "PORT_A" : "M5BUS",
+              static_cast<unsigned long>(gps_bytes.load(std::memory_order_relaxed)),
+              static_cast<unsigned long>(gps_rmc.load(std::memory_order_relaxed)),
+              s.wheel.pulses, st.sd_ready, st.sd_error,
+              WiFi.status() == WL_CONNECTED, st.mqtt_connected,
               st.time_valid, static_cast<unsigned long>(s.settings.total_target_s),
               static_cast<unsigned long>(s.settings.lap_target_s[0]));
       } else if (!strcmp(buffer, "plan-status")) {
