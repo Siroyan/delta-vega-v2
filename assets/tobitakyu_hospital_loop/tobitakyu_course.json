@@ -1,0 +1,706 @@
+{
+  "schema_version": 2,
+  "course_id": "tobitakyu_hospital_loop_test_v2",
+  "description": "Provisional OpenStreetMap road-centreline loop around Sakakibara Heart Institute via National Route 20, Tobitakyu; field calibration pending.",
+  "coordinate_system": {
+    "input": "WGS84 latitude/longitude degrees",
+    "local": "east/north meters; first-order tangent approximation",
+    "origin_lat_deg": 35.665,
+    "origin_lon_deg": 139.5195,
+    "east_m_per_lon_deg": 90339.24805257267,
+    "north_m_per_lat_deg": 111195.0
+  },
+  "render": {
+    "width_px": 480,
+    "height_px": 480,
+    "background": "tobitakyu_course_480.png",
+    "svg": "tobitakyu_course.svg",
+    "preview": "tobitakyu_course_preview.png",
+    "local_to_pixel_matrix_2x3": [
+      [
+        1.2735443114613707,
+        0,
+        146.25641630626538
+      ],
+      [
+        0,
+        -1.2735443114613707,
+        344.99803923910633
+      ]
+    ],
+    "display_stroke_width_px": 9,
+    "stroke_represents_real_road_width": false,
+    "background_rgb": "#ffffff",
+    "stroke_rgb": "#8095a6"
+  },
+  "landmarks": {
+    "start": {
+      "latitude": 35.666947,
+      "longitude": 139.518721,
+      "east_m": -70.374274,
+      "north_m": 216.496665,
+      "x_px": 56.63166,
+      "y_px": 69.279943
+    },
+    "start_on_road": {
+      "latitude": 35.6669373,
+      "longitude": 139.5186966,
+      "east_m": -72.578552,
+      "north_m": 215.418074,
+      "x_px": 53.824414,
+      "y_px": 70.653577
+    },
+    "lap_update": {
+      "latitude": 35.6665666,
+      "longitude": 139.5186953,
+      "east_m": -72.695993,
+      "north_m": 174.198087,
+      "x_px": 53.674848,
+      "y_px": 123.149056
+    },
+    "goal": {
+      "latitude": 35.6669552,
+      "longitude": 139.5219829,
+      "east_m": 224.303319,
+      "north_m": 217.408464,
+      "x_px": 431.916632,
+      "y_px": 68.118727
+    }
+  },
+  "segments": {
+    "hospital_loop": {
+      "from": "lap_update",
+      "to": "lap_update",
+      "closed": false,
+      "length_m": 1022.031613,
+      "points": [
+        {
+          "s_m": 0,
+          "east_m": -72.695993,
+          "north_m": 174.198087
+        },
+        {
+          "s_m": 29.689561,
+          "east_m": -72.524348,
+          "north_m": 203.887152
+        },
+        {
+          "s_m": 31.71333,
+          "east_m": -72.515314,
+          "north_m": 205.910901
+        },
+        {
+          "s_m": 41.220713,
+          "east_m": -72.578552,
+          "north_m": 215.418074
+        },
+        {
+          "s_m": 49.649629,
+          "east_m": -64.1499,
+          "north_m": 215.484791
+        },
+        {
+          "s_m": 86.111786,
+          "east_m": -27.68898,
+          "north_m": 215.785017
+        },
+        {
+          "s_m": 228.831289,
+          "east_m": 115.028965,
+          "north_m": 216.452187
+        },
+        {
+          "s_m": 330.24965,
+          "east_m": 216.443804,
+          "north_m": 217.297269
+        },
+        {
+          "s_m": 338.109951,
+          "east_m": 224.303319,
+          "north_m": 217.408464
+        },
+        {
+          "s_m": 347.27249,
+          "east_m": 224.267183,
+          "north_m": 208.245996
+        },
+        {
+          "s_m": 448.641186,
+          "east_m": 225.08927,
+          "north_m": 106.880634
+        },
+        {
+          "s_m": 456.069363,
+          "east_m": 225.161542,
+          "north_m": 99.452808
+        },
+        {
+          "s_m": 578.649575,
+          "east_m": 226.724411,
+          "north_m": -23.11744
+        },
+        {
+          "s_m": 587.945482,
+          "east_m": 226.715377,
+          "north_m": -32.413342
+        },
+        {
+          "s_m": 591.116715,
+          "east_m": 226.597936,
+          "north_m": -35.5824
+        },
+        {
+          "s_m": 598.225568,
+          "east_m": 224.908592,
+          "north_m": -42.487609
+        },
+        {
+          "s_m": 608.556287,
+          "east_m": 222.433297,
+          "north_m": -52.517398
+        },
+        {
+          "s_m": 622.787462,
+          "east_m": 209.7587,
+          "north_m": -46.04585
+        },
+        {
+          "s_m": 641.831825,
+          "east_m": 192.675548,
+          "north_m": -37.628388
+        },
+        {
+          "s_m": 669.478309,
+          "east_m": 167.931628,
+          "north_m": -25.296863
+        },
+        {
+          "s_m": 710.181166,
+          "east_m": 131.66042,
+          "north_m": -6.827373
+        },
+        {
+          "s_m": 728.52021,
+          "east_m": 115.390322,
+          "north_m": 1.634567
+        },
+        {
+          "s_m": 767.560694,
+          "east_m": 80.582609,
+          "north_m": 19.314571
+        },
+        {
+          "s_m": 788.865513,
+          "east_m": 61.322282,
+          "north_m": 28.421442
+        },
+        {
+          "s_m": 819.325464,
+          "east_m": 34.184371,
+          "north_m": 42.2541
+        },
+        {
+          "s_m": 860.176931,
+          "east_m": -2.448194,
+          "north_m": 60.334407
+        },
+        {
+          "s_m": 931.388911,
+          "east_m": -65.486921,
+          "north_m": 93.459398
+        },
+        {
+          "s_m": 934.815575,
+          "east_m": -68.52232,
+          "north_m": 95.049486
+        },
+        {
+          "s_m": 946.947395,
+          "east_m": -79.507572,
+          "north_m": 100.197815
+        },
+        {
+          "s_m": 952.873168,
+          "east_m": -77.312328,
+          "north_m": 105.701967
+        },
+        {
+          "s_m": 963.479484,
+          "east_m": -73.644555,
+          "north_m": 115.653919
+        },
+        {
+          "s_m": 1015.081715,
+          "east_m": -72.750196,
+          "north_m": 167.248399
+        },
+        {
+          "s_m": 1022.031613,
+          "east_m": -72.695993,
+          "north_m": 174.198087
+        }
+      ]
+    }
+  },
+  "routes": {
+    "first_lap": {
+      "from": "start",
+      "to": "lap_update",
+      "closed": false,
+      "length_m": 983.264917,
+      "points": [
+        {
+          "s_m": 0,
+          "east_m": -70.374274,
+          "north_m": 216.496665
+        },
+        {
+          "s_m": 2.454017,
+          "east_m": -72.578552,
+          "north_m": 215.418074
+        },
+        {
+          "s_m": 10.882933,
+          "east_m": -64.1499,
+          "north_m": 215.484791
+        },
+        {
+          "s_m": 47.345089,
+          "east_m": -27.68898,
+          "north_m": 215.785017
+        },
+        {
+          "s_m": 190.064593,
+          "east_m": 115.028965,
+          "north_m": 216.452187
+        },
+        {
+          "s_m": 291.482954,
+          "east_m": 216.443804,
+          "north_m": 217.297269
+        },
+        {
+          "s_m": 299.343255,
+          "east_m": 224.303319,
+          "north_m": 217.408464
+        },
+        {
+          "s_m": 308.505794,
+          "east_m": 224.267183,
+          "north_m": 208.245996
+        },
+        {
+          "s_m": 409.87449,
+          "east_m": 225.08927,
+          "north_m": 106.880634
+        },
+        {
+          "s_m": 417.302667,
+          "east_m": 225.161542,
+          "north_m": 99.452808
+        },
+        {
+          "s_m": 539.882879,
+          "east_m": 226.724411,
+          "north_m": -23.11744
+        },
+        {
+          "s_m": 549.178786,
+          "east_m": 226.715377,
+          "north_m": -32.413342
+        },
+        {
+          "s_m": 552.350019,
+          "east_m": 226.597936,
+          "north_m": -35.5824
+        },
+        {
+          "s_m": 559.458872,
+          "east_m": 224.908592,
+          "north_m": -42.487609
+        },
+        {
+          "s_m": 569.789591,
+          "east_m": 222.433297,
+          "north_m": -52.517398
+        },
+        {
+          "s_m": 584.020766,
+          "east_m": 209.7587,
+          "north_m": -46.04585
+        },
+        {
+          "s_m": 603.065129,
+          "east_m": 192.675548,
+          "north_m": -37.628388
+        },
+        {
+          "s_m": 630.711613,
+          "east_m": 167.931628,
+          "north_m": -25.296863
+        },
+        {
+          "s_m": 671.41447,
+          "east_m": 131.66042,
+          "north_m": -6.827373
+        },
+        {
+          "s_m": 689.753514,
+          "east_m": 115.390322,
+          "north_m": 1.634567
+        },
+        {
+          "s_m": 728.793998,
+          "east_m": 80.582609,
+          "north_m": 19.314571
+        },
+        {
+          "s_m": 750.098817,
+          "east_m": 61.322282,
+          "north_m": 28.421442
+        },
+        {
+          "s_m": 780.558768,
+          "east_m": 34.184371,
+          "north_m": 42.2541
+        },
+        {
+          "s_m": 821.410234,
+          "east_m": -2.448194,
+          "north_m": 60.334407
+        },
+        {
+          "s_m": 892.622215,
+          "east_m": -65.486921,
+          "north_m": 93.459398
+        },
+        {
+          "s_m": 896.048879,
+          "east_m": -68.52232,
+          "north_m": 95.049486
+        },
+        {
+          "s_m": 908.180699,
+          "east_m": -79.507572,
+          "north_m": 100.197815
+        },
+        {
+          "s_m": 914.106472,
+          "east_m": -77.312328,
+          "north_m": 105.701967
+        },
+        {
+          "s_m": 924.712787,
+          "east_m": -73.644555,
+          "north_m": 115.653919
+        },
+        {
+          "s_m": 976.315018,
+          "east_m": -72.750196,
+          "north_m": 167.248399
+        },
+        {
+          "s_m": 983.264917,
+          "east_m": -72.695993,
+          "north_m": 174.198087
+        }
+      ]
+    },
+    "regular_lap": {
+      "from": "lap_update",
+      "to": "lap_update",
+      "closed": false,
+      "length_m": 1022.031613,
+      "points": [
+        {
+          "s_m": 0,
+          "east_m": -72.695993,
+          "north_m": 174.198087
+        },
+        {
+          "s_m": 29.689561,
+          "east_m": -72.524348,
+          "north_m": 203.887152
+        },
+        {
+          "s_m": 31.71333,
+          "east_m": -72.515314,
+          "north_m": 205.910901
+        },
+        {
+          "s_m": 41.220713,
+          "east_m": -72.578552,
+          "north_m": 215.418074
+        },
+        {
+          "s_m": 49.649629,
+          "east_m": -64.1499,
+          "north_m": 215.484791
+        },
+        {
+          "s_m": 86.111786,
+          "east_m": -27.68898,
+          "north_m": 215.785017
+        },
+        {
+          "s_m": 228.831289,
+          "east_m": 115.028965,
+          "north_m": 216.452187
+        },
+        {
+          "s_m": 330.24965,
+          "east_m": 216.443804,
+          "north_m": 217.297269
+        },
+        {
+          "s_m": 338.109951,
+          "east_m": 224.303319,
+          "north_m": 217.408464
+        },
+        {
+          "s_m": 347.27249,
+          "east_m": 224.267183,
+          "north_m": 208.245996
+        },
+        {
+          "s_m": 448.641186,
+          "east_m": 225.08927,
+          "north_m": 106.880634
+        },
+        {
+          "s_m": 456.069363,
+          "east_m": 225.161542,
+          "north_m": 99.452808
+        },
+        {
+          "s_m": 578.649575,
+          "east_m": 226.724411,
+          "north_m": -23.11744
+        },
+        {
+          "s_m": 587.945482,
+          "east_m": 226.715377,
+          "north_m": -32.413342
+        },
+        {
+          "s_m": 591.116715,
+          "east_m": 226.597936,
+          "north_m": -35.5824
+        },
+        {
+          "s_m": 598.225568,
+          "east_m": 224.908592,
+          "north_m": -42.487609
+        },
+        {
+          "s_m": 608.556287,
+          "east_m": 222.433297,
+          "north_m": -52.517398
+        },
+        {
+          "s_m": 622.787462,
+          "east_m": 209.7587,
+          "north_m": -46.04585
+        },
+        {
+          "s_m": 641.831825,
+          "east_m": 192.675548,
+          "north_m": -37.628388
+        },
+        {
+          "s_m": 669.478309,
+          "east_m": 167.931628,
+          "north_m": -25.296863
+        },
+        {
+          "s_m": 710.181166,
+          "east_m": 131.66042,
+          "north_m": -6.827373
+        },
+        {
+          "s_m": 728.52021,
+          "east_m": 115.390322,
+          "north_m": 1.634567
+        },
+        {
+          "s_m": 767.560694,
+          "east_m": 80.582609,
+          "north_m": 19.314571
+        },
+        {
+          "s_m": 788.865513,
+          "east_m": 61.322282,
+          "north_m": 28.421442
+        },
+        {
+          "s_m": 819.325464,
+          "east_m": 34.184371,
+          "north_m": 42.2541
+        },
+        {
+          "s_m": 860.176931,
+          "east_m": -2.448194,
+          "north_m": 60.334407
+        },
+        {
+          "s_m": 931.388911,
+          "east_m": -65.486921,
+          "north_m": 93.459398
+        },
+        {
+          "s_m": 934.815575,
+          "east_m": -68.52232,
+          "north_m": 95.049486
+        },
+        {
+          "s_m": 946.947395,
+          "east_m": -79.507572,
+          "north_m": 100.197815
+        },
+        {
+          "s_m": 952.873168,
+          "east_m": -77.312328,
+          "north_m": 105.701967
+        },
+        {
+          "s_m": 963.479484,
+          "east_m": -73.644555,
+          "north_m": 115.653919
+        },
+        {
+          "s_m": 1015.081715,
+          "east_m": -72.750196,
+          "north_m": 167.248399
+        },
+        {
+          "s_m": 1022.031613,
+          "east_m": -72.695993,
+          "north_m": 174.198087
+        }
+      ]
+    },
+    "final_lap": {
+      "from": "lap_update",
+      "to": "goal",
+      "closed": false,
+      "length_m": 338.109951,
+      "points": [
+        {
+          "s_m": 0,
+          "east_m": -72.695993,
+          "north_m": 174.198087
+        },
+        {
+          "s_m": 29.689561,
+          "east_m": -72.524348,
+          "north_m": 203.887152
+        },
+        {
+          "s_m": 31.71333,
+          "east_m": -72.515314,
+          "north_m": 205.910901
+        },
+        {
+          "s_m": 41.220713,
+          "east_m": -72.578552,
+          "north_m": 215.418074
+        },
+        {
+          "s_m": 49.649629,
+          "east_m": -64.1499,
+          "north_m": 215.484791
+        },
+        {
+          "s_m": 86.111786,
+          "east_m": -27.68898,
+          "north_m": 215.785017
+        },
+        {
+          "s_m": 228.831289,
+          "east_m": 115.028965,
+          "north_m": 216.452187
+        },
+        {
+          "s_m": 330.24965,
+          "east_m": 216.443804,
+          "north_m": 217.297269
+        },
+        {
+          "s_m": 338.109951,
+          "east_m": 224.303319,
+          "north_m": 217.408464
+        }
+      ]
+    }
+  },
+  "race_sequence": [
+    {
+      "lap": 1,
+      "route_id": "first_lap"
+    },
+    {
+      "lap": 2,
+      "route_id": "regular_lap"
+    },
+    {
+      "lap": 3,
+      "route_id": "regular_lap"
+    },
+    {
+      "lap": 4,
+      "route_id": "regular_lap"
+    },
+    {
+      "lap": 5,
+      "route_id": "regular_lap"
+    },
+    {
+      "lap": 6,
+      "route_id": "regular_lap"
+    },
+    {
+      "lap": 7,
+      "route_id": "final_lap"
+    }
+  ],
+  "race_length_m": 6431.532933,
+  "source": {
+    "provider": "OpenStreetMap contributors",
+    "license": "ODbL 1.0",
+    "api_url": "https://api.openstreetmap.org/api/0.6/map?bbox=139.5140,35.6620,139.5240,35.6720",
+    "downloaded_utc": "2026-09-30T18:11:58.029996+00:00",
+    "road_way_ids": [
+      "72420057",
+      "72420059",
+      "174456481",
+      "287963109",
+      "381596414",
+      "381596424",
+      "446996156",
+      "446996159",
+      "463261888"
+    ],
+    "start_coordinate": "user supplied",
+    "geometry_note": "Public road-centreline geometry and travel direction from OSM; verify local bicycle access, junctions and GPS offsets before field use."
+  },
+  "lap_update": {
+    "requested_to_route_offset_m": 0.0,
+    "distance_origin": "lap_update",
+    "timing_gate_endpoints": [
+      {
+        "latitude": 35.666565758,
+        "longitude": 139.518828129
+      },
+      {
+        "latitude": 35.666567442,
+        "longitude": 139.518562471
+      }
+    ],
+    "note": "On the west approach to the specified start, about 42 m before the northern junction in travel direction. Line is illustrative; firmware detects projected crossing."
+  },
+  "distance_conventions": {
+    "segments": "s_m begins at the lap-update point and follows the selected road direction.",
+    "routes": "First lap starts at the supplied coordinate; regular route explicitly returns to the lap point; final route ends at the goal on the northeastern road.",
+    "finish_detection": "No separate finish branch; firmware uses regular-course goal gate on lap 7."
+  }
+}
