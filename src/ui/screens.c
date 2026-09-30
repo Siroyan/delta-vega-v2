@@ -1096,7 +1096,7 @@ void create_screen_main() {
             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0x202b36), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text_static(obj, "GPS NOT AVAILABLE");
+            lv_label_set_text_static(obj, "");
         }
         {
             // start_position_label
@@ -1702,7 +1702,7 @@ void create_screen_waiting() {
                     lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_32, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_text_color(obj, lv_color_hex(0xb66a13), LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    lv_label_set_text_static(obj, "GPS NOT AVAILABLE");
+                    lv_label_set_text_static(obj, "");
                 }
                 {
                     // waiting_position_marker_backing
@@ -2207,7 +2207,7 @@ void create_screen_waiting() {
             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0x202b36), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text_static(obj, "GPS NOT AVAILABLE");
+            lv_label_set_text_static(obj, "");
         }
         {
             // waiting_start_position_label
@@ -3312,7 +3312,7 @@ void create_screen_finished() {
             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0x202b36), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text_static(obj, "GPS NOT AVAILABLE");
+            lv_label_set_text_static(obj, "");
         }
         {
             // finished_start_position_label
@@ -3958,7 +3958,7 @@ void create_screen_gps_stale() {
                     lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_32, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_text_color(obj, lv_color_hex(0xb66a13), LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    lv_label_set_text_static(obj, "POSITION NOT UPDATED");
+                    lv_label_set_text_static(obj, "");
                 }
             }
         }
@@ -4958,7 +4958,7 @@ void create_screen_missing_data() {
                     lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_32, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_text_color(obj, lv_color_hex(0xb66a13), LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    lv_label_set_text_static(obj, "GPS NOT AVAILABLE");
+                    lv_label_set_text_static(obj, "");
                 }
             }
         }

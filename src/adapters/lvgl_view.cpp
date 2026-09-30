@@ -74,7 +74,7 @@ void checked(lv_obj_t *o, bool value) {
 }
 struct PageWidgets {
   lv_obj_t *screen, *speed, *average, *lap, *total, *lap_time, *total_target, *lap_target;
-  lv_obj_t *notice, *map_status, *gps_status, *link, *plan_status, *race_status, *action, *detail,
+  lv_obj_t *notice, *gps_status, *link, *plan_status, *race_status, *action, *detail,
       *clock, *ntp;
   lv_obj_t *power, *ignition, *lap_button, *lap_title, *lap_action, *heartbeat, *pulse, *gps,
       *marker, *marker_backing, *cancel_button;
@@ -89,7 +89,6 @@ struct PageWidgets {
    objects.prefix##total_target_label,                    \
    objects.prefix##lap_target_label,                      \
    objects.prefix##notice_label,                          \
-   objects.prefix##live_map_status_label,                 \
    objects.prefix##gps_status_label,                      \
    objects.prefix##communication_status_label,            \
    objects.prefix##plan_status_label,                     \
@@ -299,10 +298,11 @@ double displayed_corridor_m = 0;
 bool course_markers_positioned = false;
 
 lv_obj_t *createCourseLegend(lv_obj_t *parent, const char *caption, uint32_t color,
-                             int32_t legend_y) {
+                             int32_t legend_x) {
   auto *label = lv_label_create(parent);
-  lv_obj_set_pos(label, 370, legend_y);
-  lv_obj_set_size(label, 100, 32);
+  // A shared footer stays below the mapped routes on every course artwork.
+  lv_obj_set_pos(label, legend_x, 454);
+  lv_obj_set_size(label, 100, 26);
   lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(label, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_pad_all(label, 0, 0);
@@ -314,13 +314,13 @@ lv_obj_t *createCourseLegend(lv_obj_t *parent, const char *caption, uint32_t col
   lv_obj_set_style_text_font(label, &ui_font_ricty_diminished_24, 0);
   lv_obj_set_style_text_color(label, lv_color_white(), 0);
   lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_pad_top(label, 3, 0);
+  lv_obj_set_style_pad_top(label, 1, 0);
   lv_label_set_text_static(label, caption);
   return label;
 }
 
 CourseMarker createCourseMarker(lv_obj_t *parent, const char *caption, uint32_t color,
-                                int32_t legend_y) {
+                                int32_t legend_x) {
   CourseMarker marker;
   marker.point = lv_obj_create(parent);
   lv_obj_set_size(marker.point, 18, 18);
@@ -333,7 +333,7 @@ CourseMarker createCourseMarker(lv_obj_t *parent, const char *caption, uint32_t 
   lv_obj_set_style_border_color(marker.point, lv_color_white(), 0);
   lv_obj_set_style_border_width(marker.point, 2, 0);
   lv_obj_set_style_shadow_width(marker.point, 0, 0);
-  marker.label = createCourseLegend(parent, caption, color, legend_y);
+  marker.label = createCourseLegend(parent, caption, color, legend_x);
   return marker;
 }
 
@@ -502,7 +502,6 @@ class View final : public vega::IView {
       text(p.total_target, m.total_target);
       text(p.lap_target, m.lap_target);
       text(p.notice, m.notice);
-      text(p.map_status, m.map_status);
       text(p.gps_status, m.gps_status);
       text(p.link, m.link);
       text(p.plan_status, m.plan_status);
@@ -775,10 +774,10 @@ void viewBegin() {
     lv_obj_set_style_line_width(course_markers[i].lap_line, 6, 0);
     lv_obj_set_style_line_rounded(course_markers[i].lap_line, true, 0);
     visible(course_markers[i].lap_line, false);
-    course_markers[i].start = createCourseMarker(maps[i], "START", 0x087F8C, 48);
-    course_markers[i].goal = createCourseMarker(maps[i], "GOAL", 0xB43832, 88);
+    course_markers[i].start = createCourseMarker(maps[i], "START", 0x087F8C, 10);
+    course_markers[i].goal = createCourseMarker(maps[i], "GOAL", 0xB43832, 120);
     course_markers[i].lap_legend =
-        createCourseLegend(maps[i], "LAP", kLapLineColor, 128);
+        createCourseLegend(maps[i], "LAP", kLapLineColor, 230);
     // The live GPS arrow remains above a start/goal point when they coincide.
     if (position_backings[i]) lv_obj_move_foreground(position_backings[i]);
     if (position_arrows[i]) lv_obj_move_foreground(position_arrows[i]);

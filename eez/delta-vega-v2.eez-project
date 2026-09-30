@@ -3413,7 +3413,7 @@
                 }
               },
               "groupIndex": 0,
-              "text": "GPS NOT AVAILABLE",
+              "text": "",
               "textType": "literal",
               "longMode": "CLIP",
               "recolor": false,
@@ -5154,7 +5154,7 @@
                     }
                   },
                   "groupIndex": 0,
-                  "text": "GPS NOT AVAILABLE",
+                  "text": "",
                   "textType": "literal",
                   "longMode": "CLIP",
                   "recolor": false,
@@ -6590,7 +6590,7 @@
                 }
               },
               "groupIndex": 0,
-              "text": "GPS NOT AVAILABLE",
+              "text": "",
               "textType": "literal",
               "longMode": "CLIP",
               "recolor": false,
@@ -9758,7 +9758,7 @@
                 }
               },
               "groupIndex": 0,
-              "text": "GPS NOT AVAILABLE",
+              "text": "",
               "textType": "literal",
               "longMode": "CLIP",
               "recolor": false,
@@ -11599,7 +11599,7 @@
                     }
                   },
                   "groupIndex": 0,
-                  "text": "POSITION NOT UPDATED",
+                  "text": "",
                   "textType": "literal",
                   "longMode": "CLIP",
                   "recolor": false,
@@ -14474,7 +14474,7 @@
                     }
                   },
                   "groupIndex": 0,
-                  "text": "GPS NOT AVAILABLE",
+                  "text": "",
                   "textType": "literal",
                   "longMode": "CLIP",
                   "recolor": false,
