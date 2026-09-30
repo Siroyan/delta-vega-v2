@@ -22,7 +22,7 @@
 
 #include "application/application.h"
 #include "application/telemetry_json.h"
-#include "course_data.h"
+#include "selected_course.h"
 #include "domain/nmea.h"
 #include "domain/settings_codec.h"
 #include "lvgl_view.h"
@@ -168,25 +168,58 @@ class SettingsStore final : public vega::ISettingsStore {
  public:
   vega::Settings load() {
     vega::Settings s;
+#if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 1
+    if (loadFrom("vega-test", s)) return s;
+    loadFrom("vega", s);  // Carry over GPS input and vehicle calibration.
+    s.start = {35.564980, 139.463466};
+    s.timing = {35.5647900, 139.4640418};
+    s.goal = {35.5633809, 139.4629657};
+    s.course_corridor_m = 30;
+    s.total_target_s = 70 * 60;
+    s.lap_target_s.fill(10 * 60);
+#elif defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 2
+    if (loadFrom("vega-tobi2", s)) return s;
+    loadFrom("vega", s);  // Carry over GPS input and vehicle calibration.
+    s.start = {35.666947, 139.518721};
+    s.timing = {35.6665666, 139.5186953};
+    s.goal = {35.6669552, 139.5219829};
+    s.course_corridor_m = 30;
+    s.total_target_s = 140 * 60;
+    s.lap_target_s.fill(20 * 60);
+#else
+    loadFrom("vega", s);
+#endif
+    return s;
+  }
+  bool save(const vega::Settings &s) override {
+    Preferences p;
+#if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 1
+    if (!p.begin("vega-test", false)) return false;
+#elif defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 2
+    if (!p.begin("vega-tobi2", false)) return false;
+#else
+    if (!p.begin("vega", false)) return false;
+#endif
+    bool ok = p.putBytes("settings", &s, sizeof(s)) == sizeof(s);
+    p.end();
+    return ok;
+  }
+
+ private:
+  static bool loadFrom(const char *name, vega::Settings &s) {
     nvs_handle_t handle;
-    if (nvs_open("vega", NVS_READONLY, &handle) == ESP_OK) {
+    bool loaded = false;
+    if (nvs_open(name, NVS_READONLY, &handle) == ESP_OK) {
       size_t size = 0;
       if (nvs_get_blob(handle, "settings", nullptr, &size) == ESP_OK &&
           size <= sizeof(vega::Settings)) {
         alignas(vega::Settings) uint8_t blob[sizeof(vega::Settings)]{};
         if (nvs_get_blob(handle, "settings", blob, &size) == ESP_OK)
-          vega::decodeSettingsBlob(blob, size, s);
+          loaded = vega::decodeSettingsBlob(blob, size, s);
       }
       nvs_close(handle);
     }
-    return s;
-  }
-  bool save(const vega::Settings &s) override {
-    Preferences p;
-    if (!p.begin("vega", false)) return false;
-    bool ok = p.putBytes("settings", &s, sizeof(s)) == sizeof(s);
-    p.end();
-    return ok;
+    return loaded;
   }
 } settings_store;
 
@@ -376,6 +409,10 @@ void sdTask(void *) {
   sd_error = !sd_ready || record_loss_count.load(std::memory_order_relaxed) != 0;
   Serial.printf("[SD] mount=%s card_bytes=%llu\n", sd_ready ? "OK" : "FAILED",
                 sd_ready ? SD_MMC.cardSize() : 0ULL);
+#if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE
+  plan_state = vega::PlanState::Missing;
+  Serial.println("[PLAN] test course; Motegi strategy ignored");
+#else
   if (sd_ready) {
     FILE *plan_file = fopen("/sdcard/vega/strategy.json", "rb");
     if (!plan_file) {
@@ -410,6 +447,7 @@ void sdTask(void *) {
       }
     }
   } else plan_state = vega::PlanState::Missing;
+#endif
   SdFile log;
   char last_path[80]{};
   uint64_t last_flush = 0;
@@ -636,6 +674,11 @@ void networkTask(void *) {
 void applicationTask(void *) {
   vega::Course course(course_data);
   auto settings = settings_store.load();
+  Serial.printf("[COURSE] id=%s length_m=%.1f start=%.6f,%.6f lap=%.6f,%.6f "
+                "goal=%.6f,%.6f\n", course_data.id, course.length(),
+                settings.start.latitude, settings.start.longitude,
+                settings.timing.latitude, settings.timing.longitude,
+                settings.goal.latitude, settings.goal.longitude);
   debounce_us = settings.pulse_debounce_us;
   vega::Application app(clock_source, engine_output, settings_store, recorder, telemetry, course,
                         settings);

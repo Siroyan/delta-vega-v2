@@ -16,10 +16,16 @@
 #include "../ui/ui.h"
 #include "../tab5_lvgl.h"
 #include "../control_gesture.h"
-#include "course_data.h"
+#include "selected_course.h"
 #include "domain/course.h"
 #include "presentation/settings_form.h"
 #include "tab5_runtime.h"
+
+#if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 1
+extern "C" const lv_image_dsc_t img_tamagawagakuen_course_480;
+#elif defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 2
+extern "C" const lv_image_dsc_t img_tobitakyu_course_480;
+#endif
 
 namespace tab5 {
 void finishEdit();
@@ -597,6 +603,24 @@ bool request(CommandKind kind) {
 }  // namespace
 
 void viewBegin() {
+#if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE
+  // EEZ keeps the production artwork. Replace only the runtime images in the
+  // test build so every course page uses the same coordinates and background.
+  lv_obj_t *backgrounds[] = {
+      objects.course_background,            objects.waiting_course_background,
+      objects.finished_course_background,   objects.gpsstale_course_background,
+      objects.missingdata_course_background, objects.overtime_course_background,
+      objects.plandemo_course_background,   objects.cachedplan_course_background,
+      objects.expiredplan_course_background, objects.lapcorrected_course_background};
+  for (auto *background : backgrounds) {
+    if (!background) continue;
+#if VEGA_TEST_COURSE == 1
+    lv_image_set_src(background, &img_tamagawagakuen_course_480);
+#elif VEGA_TEST_COURSE == 2
+    lv_image_set_src(background, &img_tobitakyu_course_480);
+#endif
+  }
+#endif
   control_pages = {{{"main", objects.main, objects.electrical_standby_switch,
                      objects.ignition_switch},
                     {"waiting", objects.waiting, objects.waiting_electrical_standby_switch,
