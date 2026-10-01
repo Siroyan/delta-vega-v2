@@ -55,7 +55,6 @@ QueueHandle_t commands, snapshots, records, transmissions, diagnostics, strategi
 std::atomic<bool> urgent_off{false}, sd_ready{false}, sd_error{false}, mqtt_connected{false};
 std::atomic<uint32_t> power_epoch{0};
 std::atomic<uint32_t> record_loss_count{0};
-std::atomic<uint32_t> debug_drop_count{0};
 enum class SdFailure : uint8_t { None, QueueFull, Open, Metadata, Write, Flush, EndFlush, ReadbackFlush };
 std::atomic<SdFailure> sd_last_failure{SdFailure::None};
 const char *sdFailureText(SdFailure reason) {
@@ -286,19 +285,13 @@ class SettingsStore final : public vega::ISettingsStore {
 } settings_store;
 
 // SD I/O happens exclusively in the writer task. Queue overflow is surfaced as a warning.
-enum class RecordKind : uint8_t { Begin, Sample, Event, End, GpsRaw, UiMarker };
+enum class RecordKind : uint8_t { Begin, Sample, Event, End };
 struct Record {
   RecordKind kind;
   vega::Snapshot data;
   vega::Event event{};
   vega::EndReason reason{};
   uint32_t losses_at_begin = 0;
-  uint32_t debug_drops = 0;
-  char nmea[160]{};
-  uint32_t parser_rejected_total = 0;
-  bool parser_emitted = false, fix_valid = false;
-  bool screen_main = false, model_visible = false, widget_visible = false, gps_fresh = false;
-  int32_t map_x = 0, map_y = 0, backing_x = 0, backing_y = 0;
 };
 void enqueueRecord(const Record &r) {
   if (xQueueSend(records, &r, 0) != pdTRUE) {
@@ -308,26 +301,8 @@ void enqueueRecord(const Record &r) {
     diagnostic("[SD] queue full; record lost, timing continues");
   }
 }
-void enqueueDebugRecord(const Record &r) {
-  // Reserve room for the safety-relevant session samples and events.
-  if (!records || uxQueueSpacesAvailable(records) <= 8 ||
-      xQueueSend(records, &r, 0) != pdTRUE)
-    debug_drop_count.fetch_add(1, std::memory_order_relaxed);
-}
-bool escapeNmea(const char *source, char *out, size_t cap) {
-  size_t used = 0;
-  for (; *source; ++source) {
-    const char c = *source;
-    if (c < 32 || c > 126 || used + (c == '"' || c == '\\' ? 2 : 1) >= cap) return false;
-    if (c == '"' || c == '\\') out[used++] = '\\';
-    out[used++] = c;
-  }
-  out[used] = '\0';
-  return true;
-}
 struct Recorder final : vega::ISessionRecorder {
   void begin(uint32_t session, const vega::Settings &s, vega::Millis now) override {
-    debug_drop_count.store(0, std::memory_order_relaxed);
     Record r{};
     r.kind = RecordKind::Begin;
     r.data.settings = s;
@@ -354,7 +329,6 @@ struct Recorder final : vega::ISessionRecorder {
     r.kind = RecordKind::End;
     r.data = s;
     r.reason = e;
-    r.debug_drops = debug_drop_count.load(std::memory_order_relaxed);
     enqueueRecord(r);
   }
 } recorder;
@@ -610,42 +584,15 @@ void sdTask(void *) {
         if (r.kind == RecordKind::Sample)
           n = vega::sessionSampleJson(r.data, line, sizeof(line), network_config::machine_id,
                                       network_config::memo);
-        else if (r.kind == RecordKind::GpsRaw) {
-          char escaped[sizeof(r.nmea) * 2]{};
-          if (escapeNmea(r.nmea, escaped, sizeof(escaped))) {
-            const int count = snprintf(line, sizeof(line),
-                "{\"type\":\"gps_raw\",\"timestamp_ms\":%llu,\"nmea\":\"%s\","
-                "\"parser_emitted\":%s,\"fix_valid\":%s,\"parser_rejected_total\":%lu}",
-                r.data.now_ms, escaped, r.parser_emitted ? "true" : "false",
-                r.fix_valid ? "true" : "false",
-                static_cast<unsigned long>(r.parser_rejected_total));
-            if (count > 0 && static_cast<size_t>(count) < sizeof(line)) n = count;
-          }
-        } else if (r.kind == RecordKind::UiMarker) {
-          const int count = snprintf(line, sizeof(line),
-              "{\"type\":\"ui_marker\",\"timestamp_ms\":%llu,\"screen_main\":%s,"
-              "\"model_visible\":%s,\"widget_visible\":%s,\"gps_fresh\":%s,"
-              "\"map_x\":%ld,\"map_y\":%ld,\"backing_x\":%ld,\"backing_y\":%ld}",
-              r.data.now_ms, r.screen_main ? "true" : "false",
-              r.model_visible ? "true" : "false", r.widget_visible ? "true" : "false",
-              r.gps_fresh ? "true" : "false", static_cast<long>(r.map_x),
-              static_cast<long>(r.map_y), static_cast<long>(r.backing_x),
-              static_cast<long>(r.backing_y));
-          if (count > 0 && static_cast<size_t>(count) < sizeof(line)) n = count;
-        } else {
+        else {
           const char *e =
               r.kind == RecordKind::End
                   ? (r.reason == vega::EndReason::Finished ? "end_finished" : "end_cancelled")
                   : eventName(r.event);
-          char debug_suffix[48]{};
-          if (r.kind == RecordKind::End)
-            snprintf(debug_suffix, sizeof(debug_suffix), ",\"diagnostic_dropped\":%lu",
-                     static_cast<unsigned long>(r.debug_drops));
           int count = snprintf(line, sizeof(line),
                                "{\"type\":\"event\",\"event\":\"%s\",\"timestamp_ms\":%llu,\"total_"
-                               "time_ms\":%llu,\"lap_number\":%u%s}",
-                               e, r.data.now_ms, r.data.race.total_ms, r.data.race.lap,
-                               debug_suffix);
+                               "time_ms\":%llu,\"lap_number\":%u}",
+                               e, r.data.now_ms, r.data.race.total_ms, r.data.race.lap);
           if (count > 0 && static_cast<size_t>(count) < sizeof(line)) n = count;
         }
         const size_t written = n ? log.write(reinterpret_cast<const uint8_t *>(line), n) : 0;
@@ -837,9 +784,6 @@ void applicationTask(void *) {
   uint8_t gps_config_step = 2;
   vega::Millis gps_config_sent_ms = 0, gps_rate_window_ms = 0;
   uint32_t gps_rate_window_rmc = 0;
-  char raw_nmea[160]{};
-  size_t raw_length = 0;
-  bool raw_collecting = false;
   uint8_t casic_frame[64]{};
   size_t casic_used = 0;
   bool nav_query_pending = false;
@@ -847,8 +791,6 @@ void applicationTask(void *) {
   vega::Millis nav_query_deadline = 0;
   auto openGps = [&](vega::GpsSource source) {
     gps_uart.end();
-    raw_length = 0;
-    raw_collecting = false;
     casic_used = 0;
     nav_query_pending = false;
     walk_ack_pending = false;
@@ -945,39 +887,9 @@ void applicationTask(void *) {
           continue;
         }
       }
-      const bool emitted = parser.feed(c, received_ms, fix);
-      if (emitted) {
+      if (parser.feed(c, received_ms, fix)) {
         gps_rmc.fetch_add(1, std::memory_order_relaxed);
         app.gps(fix);
-      }
-      if (c == '$') {
-        raw_length = 0;
-        raw_nmea[raw_length++] = c;
-        raw_collecting = true;
-      } else if (raw_collecting && c == '\n') {
-        raw_nmea[raw_length] = '\0';
-        const bool diagnostic_sentence =
-            raw_length >= 6 &&
-            (!strncmp(raw_nmea + 3, "RMC", 3) || !strncmp(raw_nmea + 3, "GGA", 3));
-        if (diagnostic_sentence && app.snapshot().race.phase == vega::RacePhase::Measuring) {
-          Record r{};
-          r.kind = RecordKind::GpsRaw;
-          r.data.now_ms = received_ms;
-          memcpy(r.nmea, raw_nmea, raw_length + 1);
-          r.parser_emitted = emitted;
-          r.fix_valid = emitted && fix.valid;
-          r.parser_rejected_total = parser.rejected();
-          enqueueDebugRecord(r);
-        }
-        raw_length = 0;
-        raw_collecting = false;
-      } else if (raw_collecting && c != '\r') {
-        if (c >= 32 && c <= 126 && raw_length + 1 < sizeof(raw_nmea))
-          raw_nmea[raw_length++] = c;
-        else {
-          raw_length = 0;
-          raw_collecting = false;
-        }
       }
     }
     const auto gps_now = clock_source.now();
@@ -1149,25 +1061,6 @@ void requestLogReadback(uint32_t session) {
   readback_session = session;
   readback = true;
 }
-void recordUiMarker(bool screen_main, bool model_visible, bool widget_visible, bool gps_fresh,
-                    int32_t map_x, int32_t map_y, int32_t backing_x, int32_t backing_y) {
-  static vega::Millis last_recorded_ms = 0;
-  const auto now = clock_source.now();
-  if (last_recorded_ms && now - last_recorded_ms < 500) return;
-  last_recorded_ms = now;
-  Record r{};
-  r.kind = RecordKind::UiMarker;
-  r.data.now_ms = now;
-  r.screen_main = screen_main;
-  r.model_visible = model_visible;
-  r.widget_visible = widget_visible;
-  r.gps_fresh = gps_fresh;
-  r.map_x = map_x;
-  r.map_y = map_y;
-  r.backing_x = backing_x;
-  r.backing_y = backing_y;
-  enqueueDebugRecord(r);
-}
 void serialPoll() {
   static char buffer[64];
   static size_t count = 0;
@@ -1213,7 +1106,7 @@ void serialPoll() {
               "[STATUS] phase=%u lap=%u total_ms=%llu power_phase=%u power_pin=%d ignition_pin=%d "
               "gps=%u gps_source=%s gps_bytes=%lu gps_rmc=%lu gps_rmc_hz=%lu.%lu pulses=%llu "
               "sd_ready=%u sd_error=%u sd_last_failure=%s sd_record_lost=%lu "
-              "sd_debug_dropped=%lu wifi=%u mqtt=%u ntp=%u total_target_s=%lu "
+              "wifi=%u mqtt=%u ntp=%u total_target_s=%lu "
               "lap1_target_s=%lu\n",
               static_cast<unsigned>(s.race.phase), s.race.lap, s.race.total_ms,
               static_cast<unsigned>(s.engine), gpio_get_level(kPower), gpio_get_level(kIgnition),
@@ -1225,7 +1118,6 @@ void serialPoll() {
               s.wheel.pulses, st.sd_ready, st.sd_error,
               sdFailureText(sd_last_failure.load(std::memory_order_relaxed)),
               static_cast<unsigned long>(record_loss_count.load(std::memory_order_relaxed)),
-              static_cast<unsigned long>(debug_drop_count.load(std::memory_order_relaxed)),
               WiFi.status() == WL_CONNECTED, st.mqtt_connected,
               st.time_valid, static_cast<unsigned long>(s.settings.total_target_s),
               static_cast<unsigned long>(s.settings.lap_target_s[0]));

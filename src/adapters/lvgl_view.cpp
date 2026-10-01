@@ -567,12 +567,6 @@ class View final : public vega::IView {
       ++page_index;
     }
     for (auto &map : plan_maps) renderPlanMap(map, m);
-    if (m.phase == vega::RacePhase::Measuring) {
-      recordUiMarker(lv_screen_active() == objects.main, m.position_visible,
-                     !lv_obj_has_flag(objects.position_marker, LV_OBJ_FLAG_HIDDEN), m.gps_ok,
-                     m.marker_x, m.marker_y, lv_obj_get_x(objects.position_marker_backing),
-                     lv_obj_get_y(objects.position_marker_backing));
-    }
     for (const auto &page : control_pages) checked(page.power, m.power_on);
     finish_mode = m.finish_mode;
     finish_ready = m.lap_enabled;
