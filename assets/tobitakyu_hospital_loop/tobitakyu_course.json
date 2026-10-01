@@ -633,6 +633,7 @@
       ]
     }
   },
+  "lap_count": 4,
   "race_sequence": [
     {
       "lap": 1,
@@ -648,22 +649,10 @@
     },
     {
       "lap": 4,
-      "route_id": "regular_lap"
-    },
-    {
-      "lap": 5,
-      "route_id": "regular_lap"
-    },
-    {
-      "lap": 6,
-      "route_id": "regular_lap"
-    },
-    {
-      "lap": 7,
       "route_id": "final_lap"
     }
   ],
-  "race_length_m": 6431.532933,
+  "race_length_m": 3365.438094,
   "source": {
     "provider": "OpenStreetMap contributors",
     "license": "ODbL 1.0",
@@ -701,6 +690,6 @@
   "distance_conventions": {
     "segments": "s_m begins at the lap-update point and follows the selected road direction.",
     "routes": "First lap starts at the supplied coordinate; regular route explicitly returns to the lap point; final route ends at the goal on the northeastern road.",
-    "finish_detection": "No separate finish branch; firmware uses regular-course goal gate on lap 7."
+    "finish_detection": "No separate finish branch; firmware uses regular-course goal gate on lap 4."
   }
 }

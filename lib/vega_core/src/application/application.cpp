@@ -9,9 +9,9 @@ constexpr double kFinishBranchAdvantageM = 7;
 constexpr double kFinishBranchMaxLateralM = 18;
 constexpr double kFinishProgressFromExitM = 100;
 
-CourseRoute routeForLap(uint8_t lap) {
+CourseRoute routeForLap(uint8_t lap, uint8_t lap_count) {
   return lap <= 1 ? CourseRoute::First
-                  : lap >= kLapCount ? CourseRoute::Final : CourseRoute::Regular;
+                  : lap >= lap_count ? CourseRoute::Final : CourseRoute::Regular;
 }
 }  // namespace
 
@@ -23,7 +23,8 @@ Application::Application(IClock &c, IEngineOutput &o, ISettingsStore &s, ISessio
       recorder_(r),
       telemetry_(t),
       course_(course),
-      settings_(validSettings(cfg) ? cfg : Settings{}) {
+      settings_(validSettings(cfg) ? cfg : Settings{}),
+      race_(course.lapCount()) {
   output_.stopPulse();
   output_.configurePower(settings_.power_active_high);
   output_.setPower(false);
@@ -102,7 +103,7 @@ bool Application::manualLap() {
   resetFinishBranch();
   if (gps_seen_ && gps_.valid) {
     route_map_ = course_.locateOn(gps_.position, settings_.course_corridor_m,
-                                  routeForLap(race_.lap()));
+                                  routeForLap(race_.lap(), race_.lapCount()));
     map_ = route_map_;
   }
   event(Event::ManualLap);
@@ -170,7 +171,7 @@ void Application::gps(const GpsFix &fix) {
     resetFinishBranch();
     return;
   }
-  const CourseRoute active_route = routeForLap(race_.lap());
+  const CourseRoute active_route = routeForLap(race_.lap(), race_.lapCount());
   const auto oval_position = course_.locate(fix.position, settings_.course_corridor_m);
   gps_on_timing_course_ = oval_position.on_course;
   route_map_ = course_.locateOn(fix.position, settings_.course_corridor_m, active_route);
@@ -178,7 +179,7 @@ void Application::gps(const GpsFix &fix) {
   if (active_route == CourseRoute::First && oval_position.lateral_m < map_.lateral_m)
     map_ = oval_position;
   if (race_.phase() != RacePhase::Measuring) return;
-  if (race_.lap() < kLapCount) {
+  if (race_.lap() < race_.lapCount()) {
     // The editable timing coordinate always belongs to the oval. First-lap
     // GPS can follow the approach, but the lap gate remains on the main track.
     const auto timing_gate = course_.locate(settings_.timing, settings_.course_corridor_m);
@@ -190,7 +191,7 @@ void Application::gps(const GpsFix &fix) {
       manual_lap_requires_progress_ = true;
       resetFinishBranch();
       route_map_ = course_.locateOn(fix.position, settings_.course_corridor_m,
-                                    routeForLap(race_.lap()));
+                                    routeForLap(race_.lap(), race_.lapCount()));
       map_ = route_map_;
       event(Event::GpsLap);
     }

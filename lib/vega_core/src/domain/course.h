@@ -22,6 +22,7 @@ struct CourseData {
   // Schema 2 routes. Empty paths fall back to the legacy closed course.
   std::array<CoursePath, 4> routes{};
   const char *id = nullptr;
+  uint8_t lap_count = kLapCount;
 };
 class Course {
  public:
@@ -33,6 +34,9 @@ class Course {
   double length() const { return routeLength(CourseRoute::Regular); }
   double routeLength(CourseRoute route) const;
   bool hasRoute(CourseRoute route) const;
+  uint8_t lapCount() const {
+    return data_.lap_count >= 2 && data_.lap_count <= kLapCount ? data_.lap_count : kLapCount;
+  }
   double forwardDelta(double from, double to) const;
   double forwardDelta(double from, double to, CourseRoute route) const;
 

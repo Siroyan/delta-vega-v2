@@ -19,7 +19,7 @@ bool RaceSession::cancel() {
   return true;
 }
 bool RaceSession::advance(Millis now, bool manual, const Settings &s) {
-  if (phase_ != RacePhase::Measuring || lap_ >= kLapCount || now < last_update_ ||
+  if (phase_ != RacePhase::Measuring || lap_ >= lap_count_ || now < last_update_ ||
       now - last_update_ < s.lap_duplicate_ms || (!manual && sinceLap(now) < s.min_lap_ms))
     return false;
   ++lap_;
@@ -28,7 +28,7 @@ bool RaceSession::advance(Millis now, bool manual, const Settings &s) {
   return true;
 }
 bool RaceSession::finish(Millis now, uint64_t pulses, const Settings &s) {
-  if (phase_ != RacePhase::Measuring || lap_ != kLapCount || now < last_update_)
+  if (phase_ != RacePhase::Measuring || lap_ != lap_count_ || now < last_update_)
     return false;
   result_ = reading(now, pulses, s);
   phase_ = result_.phase = RacePhase::Finished;

@@ -15,9 +15,14 @@ output = args.output if args.output.is_absolute() else ROOT / args.output
 data = json.loads(source.read_text())
 if data["schema_version"] != 2:
     raise ValueError("Expected the full course schema (version 2)")
-expected_sequence = ["first_lap"] + ["regular_lap"] * 5 + ["final_lap"]
-if [entry["route_id"] for entry in data["race_sequence"]] != expected_sequence:
-    raise ValueError("The seven-lap race sequence does not match the firmware route model")
+lap_count = data.get("lap_count", 7)
+if not isinstance(lap_count, int) or isinstance(lap_count, bool) or not 2 <= lap_count <= 7:
+    raise ValueError("lap_count must be an integer from 2 to 7")
+expected_sequence = ["first_lap"] + ["regular_lap"] * (lap_count - 2) + ["final_lap"]
+if (len(data["race_sequence"]) != lap_count or
+        [entry["lap"] for entry in data["race_sequence"]] != list(range(1, lap_count + 1)) or
+        [entry["route_id"] for entry in data["race_sequence"]] != expected_sequence):
+    raise ValueError("The race sequence does not match lap_count and the firmware route model")
 if (data["render"]["width_px"], data["render"]["height_px"]) != (480, 480):
     raise ValueError("The EEZ course image must be 480 x 480 pixels")
 for asset_name in (data["render"]["background"], data["render"]["svg"]):
@@ -54,6 +59,11 @@ for name, path in paths.items():
         lines.append("  {%s, %s, %s}," % (p["east_m"], p["north_m"], p["s_m"]))
     lines.append("};")
 regular = paths["regular"]
+expected_length = (paths["first"]["length_m"] +
+                   (lap_count - 2) * regular["length_m"] +
+                   paths["final"]["length_m"])
+if abs(data["race_length_m"] - expected_length) > 0.01:
+    raise ValueError("race_length_m does not match the race sequence")
 lines += [
     "inline const vega::CourseData course_data{",
     "  regular_points, sizeof(regular_points)/sizeof(regular_points[0]), %s,"
@@ -79,7 +89,8 @@ for name in ("first", "regular", "final", "finish_approach"):
         lines.append("    {},")
 lines += [
     "  }},",
-    "  " + json.dumps(data["course_id"]),
+    "  " + json.dumps(data["course_id"]) + ",",
+    f"  {lap_count}",
     "};",
     "}",
 ]

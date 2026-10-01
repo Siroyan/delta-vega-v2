@@ -4,6 +4,8 @@
 namespace vega {
 class RaceSession {
  public:
+  explicit RaceSession(uint8_t lap_count = kLapCount)
+      : lap_count_(lap_count >= 2 && lap_count <= kLapCount ? lap_count : kLapCount) {}
   bool start(Millis now, uint64_t pulses);
   bool cancel();
   bool advance(Millis now, bool manual, const Settings &s);
@@ -11,9 +13,11 @@ class RaceSession {
   RaceReading reading(Millis now, uint64_t pulses, const Settings &s) const;
   RacePhase phase() const { return phase_; }
   uint8_t lap() const { return lap_; }
+  uint8_t lapCount() const { return lap_count_; }
   Millis sinceLap(Millis now) const { return now >= lap_start_ ? now - lap_start_ : 0; }
 
  private:
+  uint8_t lap_count_;
   RacePhase phase_ = RacePhase::Waiting;
   Millis start_ = 0, lap_start_ = 0, last_update_ = 0;
   uint64_t start_pulses_ = 0;
