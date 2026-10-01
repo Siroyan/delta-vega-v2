@@ -1,0 +1,25 @@
+{
+  "files": [
+    "actions.h",
+    "fonts.h",
+    "images.c",
+    "images.h",
+    "screens.c",
+    "screens.h",
+    "structs.h",
+    "styles.c",
+    "styles.h",
+    "ui.c",
+    "ui.h",
+    "ui_image_arrow_left_dark.c",
+    "ui_image_course_ignition_flame.c",
+    "ui_image_electrical_power_off.c",
+    "ui_image_electrical_power_on.c",
+    "ui_image_ignition_flame.c",
+    "ui_image_menu_dark.c",
+    "ui_image_motegi_background_480.c",
+    "ui_image_settings_dark.c",
+    "ui_image_x_dark.c",
+    "vars.h"
+  ]
+}
