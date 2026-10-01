@@ -18,6 +18,7 @@ struct DisplayModel {
   char notice[100]{}, map_status[48]{}, gps_status[32]{}, link[32]{}, race_status[32]{},
       action[48]{}, detail[60]{};
   char clock[24]{}, ntp[24]{};
+  char gps_latitude[32]{}, gps_longitude[32]{};
   char plan_status[32]{};
   StrategyLap plan_lap{};
   bool plan_loaded = false;
@@ -35,8 +36,10 @@ struct IView {
 };
 class Presenter {
  public:
-  explicit Presenter(IView &view) : view_(view) {}
-  Presenter(IView &view, ICommandSink &commands) : view_(view), commands_(&commands) {}
+  explicit Presenter(IView &view, uint8_t lap_count = kLapCount)
+      : view_(view), lap_count_(lap_count) {}
+  Presenter(IView &view, ICommandSink &commands, uint8_t lap_count = kLapCount)
+      : view_(view), commands_(&commands), lap_count_(lap_count) {}
   void render(const Snapshot &snapshot, const UiStatus &status,
               const Strategy *strategy = nullptr);
   bool request(const Command &command);
@@ -47,6 +50,7 @@ class Presenter {
  private:
   IView &view_;
   ICommandSink *commands_ = nullptr;
+  uint8_t lap_count_ = kLapCount;
   Settings settings_{};
   RacePhase phase_ = RacePhase::Waiting;
 };

@@ -63,8 +63,14 @@ struct GpsFix {
   double speed_kmh = 0;
   double hdop = 0;
   uint8_t satellites = 0;
+  uint8_t gga_fix_quality = 0;
+  uint32_t utc_ms_of_day = 0;
+  Millis quality_received_ms = 0;
   bool valid = false;
   bool has_heading = false;
+  bool speed_valid = false;
+  bool quality_valid = false;
+  bool utc_valid = false;
 };
 struct WheelReading {
   double speed_kmh = 0;

@@ -111,6 +111,7 @@ struct PageWidgets {
 
 ScreensEnum live_screen = SCREEN_ID_WAITING;
 bool initialized = false;
+lv_obj_t *gps_coordinate_labels[2][2]{};  // [Main, Waiting][latitude, longitude]
 vega::Settings draft{};
 size_t editing_field = 0;
 bool save_pending = false;
@@ -471,6 +472,10 @@ bool sameSettings(const vega::Settings &a, const vega::Settings &b) {
 class View final : public vega::IView {
  public:
   void show(const vega::DisplayModel &m) override {
+    for (auto &page : gps_coordinate_labels) {
+      text(page[0], m.gps_latitude);
+      text(page[1], m.gps_longitude);
+    }
     power_intent.observe(m.power_on);
     PageWidgets pages[] = {
         PAGE(, main, objects.next_action_label, objects.next_action_detail_label),
@@ -562,6 +567,12 @@ class View final : public vega::IView {
       ++page_index;
     }
     for (auto &map : plan_maps) renderPlanMap(map, m);
+    if (m.phase == vega::RacePhase::Measuring) {
+      recordUiMarker(lv_screen_active() == objects.main, m.position_visible,
+                     !lv_obj_has_flag(objects.position_marker, LV_OBJ_FLAG_HIDDEN), m.gps_ok,
+                     m.marker_x, m.marker_y, lv_obj_get_x(objects.position_marker_backing),
+                     lv_obj_get_y(objects.position_marker_backing));
+    }
     for (const auto &page : control_pages) checked(page.power, m.power_on);
     finish_mode = m.finish_mode;
     finish_ready = m.lap_enabled;
@@ -588,7 +599,7 @@ class View final : public vega::IView {
 struct Sink final : vega::ICommandSink {
   bool submit(const vega::Command &c) override { return tab5::submit(c); }
 } sink;
-vega::Presenter presenter(view, sink);
+vega::Presenter presenter(view, sink, vega::Course(course_data).lapCount());
 
 bool request(CommandKind kind) {
   Command command{};
@@ -602,7 +613,31 @@ bool request(CommandKind kind) {
 }  // namespace
 
 void viewBegin() {
+  // Both live pages have the same free space between race status and clock.
+  auto createGpsCoordinateLabel = [](lv_obj_t *screen, int y, const char *initial) {
+    lv_obj_t *label = lv_label_create(screen);
+    lv_obj_set_pos(label, 780, y);
+    lv_obj_set_size(label, 210, 24);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
+    lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_text_font(label, &ui_font_ricty_diminished_24, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(0x596775), 0);
+    lv_label_set_text_static(label, initial);
+    return label;
+  };
+  lv_obj_t *live_screens[] = {objects.main, objects.waiting};
+  for (size_t i = 0; i < 2; ++i) {
+    gps_coordinate_labels[i][0] = createGpsCoordinateLabel(live_screens[i], 16, "LAT --");
+    gps_coordinate_labels[i][1] = createGpsCoordinateLabel(live_screens[i], 48, "LON --");
+  }
 #if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE
+  // The Settings layout has seven slots for the production course. Hide the
+  // unused targets without changing the persisted Settings structure.
+  lv_obj_t *unused_lap_fields[] = {
+      objects.settings_lap5_title, objects.settings_lap5_button,
+      objects.settings_lap6_title, objects.settings_lap6_button,
+      objects.settings_lap7_title, objects.settings_lap7_button};
+  for (auto *field : unused_lap_fields) visible(field, false);
   // EEZ keeps the production artwork. Replace only the runtime images in the
   // test build so every course page uses the same coordinates and background.
   lv_obj_t *backgrounds[] = {

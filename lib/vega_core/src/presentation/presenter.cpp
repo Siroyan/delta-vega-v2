@@ -27,9 +27,9 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
   else
     std::snprintf(m.average, sizeof(m.average), "--.-");
   if (s.race.lap)
-    std::snprintf(m.lap, sizeof(m.lap), "%u / 7", s.race.lap);
+    std::snprintf(m.lap, sizeof(m.lap), "%u / %u", s.race.lap, lap_count_);
   else
-    std::snprintf(m.lap, sizeof(m.lap), "- / 7");
+    std::snprintf(m.lap, sizeof(m.lap), "- / %u", lap_count_);
   formatTime(s.race.total_ms, m.total, sizeof(m.total));
   formatTime(s.race.lap_ms, m.lap_time, sizeof(m.lap_time));
   char time[24];
@@ -40,7 +40,7 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
   std::snprintf(m.lap_target, sizeof(m.lap_target), "TARGET %s", time);
   m.power_on = s.engine != EnginePhase::Off;
   m.ignition_enabled = s.engine == EnginePhase::Ready && !s.output_error;
-  m.finish_mode = m.phase == RacePhase::Measuring && static_cast<size_t>(lap) == kLapCount;
+  m.finish_mode = m.phase == RacePhase::Measuring && lap == lap_count_;
   m.lap_enabled = m.phase == RacePhase::Measuring &&
                   (m.finish_mode || (s.race.lap_ms >= s.settings.lap_duplicate_ms &&
                                      s.manual_lap_ready));
@@ -58,6 +58,13 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
                 s.gps_fresh  ? "GPS FIX"
                 : s.gps_seen ? "GPS STALE"
                              : "GPS NO DATA");
+  if (s.gps_seen && s.gps.valid && validGeo(s.gps.position)) {
+    std::snprintf(m.gps_latitude, sizeof(m.gps_latitude), "LAT %.8f", s.gps.position.latitude);
+    std::snprintf(m.gps_longitude, sizeof(m.gps_longitude), "LON %.8f", s.gps.position.longitude);
+  } else {
+    std::snprintf(m.gps_latitude, sizeof(m.gps_latitude), "LAT --");
+    std::snprintf(m.gps_longitude, sizeof(m.gps_longitude), "LON --");
+  }
   std::snprintf(m.map_status, sizeof(m.map_status), "%s",
                 s.gps_fresh ? (s.map.on_course ? "" : "POSITION OFF COURSE")
                             : (s.gps_seen ? "POSITION NOT UPDATED" : "GPS NOT AVAILABLE"));

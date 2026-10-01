@@ -16,7 +16,10 @@ class NmeaParser {
   size_t length_ = 0;
   bool collecting_ = false;
   uint8_t satellites_ = 0;
+  uint8_t gga_fix_quality_ = 0;
   double hdop_ = 0;
+  Millis quality_received_ms_ = 0;
+  bool quality_valid_ = false;
   uint32_t rejected_ = 0;
 };
 }  // namespace vega

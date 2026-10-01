@@ -55,9 +55,28 @@ QueueHandle_t commands, snapshots, records, transmissions, diagnostics, strategi
 std::atomic<bool> urgent_off{false}, sd_ready{false}, sd_error{false}, mqtt_connected{false};
 std::atomic<uint32_t> power_epoch{0};
 std::atomic<uint32_t> record_loss_count{0};
+std::atomic<uint32_t> debug_drop_count{0};
+enum class SdFailure : uint8_t { None, QueueFull, Open, Metadata, Write, Flush, EndFlush, ReadbackFlush };
+std::atomic<SdFailure> sd_last_failure{SdFailure::None};
+const char *sdFailureText(SdFailure reason) {
+  switch (reason) {
+    case SdFailure::QueueFull: return "queue_full";
+    case SdFailure::Open: return "open";
+    case SdFailure::Metadata: return "metadata";
+    case SdFailure::Write: return "write";
+    case SdFailure::Flush: return "flush";
+    case SdFailure::EndFlush: return "end_flush";
+    case SdFailure::ReadbackFlush: return "readback_flush";
+    default: return "none";
+  }
+}
 std::atomic<uint32_t> gps_bytes{0}, gps_rmc{0};
+std::atomic<uint32_t> gps_rmc_hz_x10{0};
+std::atomic<bool> gps_nav_query_requested{false};
+std::atomic<bool> gps_walk_requested{false};
 std::atomic<vega::PlanState> plan_state{vega::PlanState::Loading};
 std::atomic<bool> readback{false};
+std::atomic<uint32_t> readback_session{0};
 std::atomic<uint64_t> last_ntp_sync{0};
 std::atomic<uint32_t> debounce_us{3000};
 portMUX_TYPE wheel_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -83,6 +102,41 @@ void diagnosticTask(void *) {
   for (;;)
     if (xQueueReceive(diagnostics, &message, portMAX_DELAY) == pdTRUE)
       Serial.printf("%s\n", message.text);
+}
+
+// AT6558/CASIC NMEA command. Configure only the known Port.A Unit GPS;
+// the M5Bus receiver uses a different, as yet unconfirmed command set.
+bool sendCasic(HardwareSerial &uart, const char *payload) {
+  uint8_t checksum = 0;
+  for (const char *p = payload; *p; ++p) checksum ^= static_cast<uint8_t>(*p);
+  char sentence[96];
+  const int length = snprintf(sentence, sizeof(sentence), "$%s*%02X\r\n", payload, checksum);
+  return length > 0 && static_cast<size_t>(length) < sizeof(sentence) &&
+         uart.write(reinterpret_cast<const uint8_t *>(sentence), length) ==
+             static_cast<size_t>(length);
+}
+
+// CASIC CFG-NAVX poll: header, empty payload, class 0x06, id 0x07,
+// 32-bit little-endian additive checksum (0x07060000).
+bool requestCasicNavx(HardwareSerial &uart) {
+  constexpr uint8_t query[] = {0xBA, 0xCE, 0, 0, 0x06, 0x07, 0, 0, 0x06, 0x07};
+  return uart.write(query, sizeof(query)) == sizeof(query);
+}
+
+// Apply only dynModel=2 (walking) in receiver RAM. The mask leaves all other
+// navigation parameters unchanged, and no CASIC save command is sent.
+bool requestCasicWalking(HardwareSerial &uart) {
+  uint8_t frame[54] = {0xBA, 0xCE, 44, 0, 0x06, 0x07};
+  frame[6] = 1;   // mask bit 0: apply dynamic model
+  frame[10] = 2;  // walking mode
+  const uint32_t checksum = 0x0706002C + 1 + 2;
+  for (size_t i = 0; i < 4; ++i) frame[50 + i] = uint8_t(checksum >> (8 * i));
+  return uart.write(frame, sizeof(frame)) == sizeof(frame);
+}
+
+uint32_t casicWord(const uint8_t *bytes) {
+  return uint32_t(bytes[0]) | (uint32_t(bytes[1]) << 8) |
+         (uint32_t(bytes[2]) << 16) | (uint32_t(bytes[3]) << 24);
 }
 
 struct Clock final : vega::IClock {
@@ -169,22 +223,30 @@ class SettingsStore final : public vega::ISettingsStore {
   vega::Settings load() {
     vega::Settings s;
 #if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 1
-    if (loadFrom("vega-test", s)) return s;
+    if (loadFrom("vega-test4", s)) return s;
+    if (loadFrom("vega-test", s)) {
+      if (s.total_target_s == 70 * 60) s.total_target_s = 40 * 60;
+      return s;
+    }
     loadFrom("vega", s);  // Carry over GPS input and vehicle calibration.
     s.start = {35.564980, 139.463466};
     s.timing = {35.5647900, 139.4640418};
     s.goal = {35.5633809, 139.4629657};
     s.course_corridor_m = 30;
-    s.total_target_s = 70 * 60;
+    s.total_target_s = 40 * 60;
     s.lap_target_s.fill(10 * 60);
 #elif defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 2
-    if (loadFrom("vega-tobi2", s)) return s;
+    if (loadFrom("vega-tobi4", s)) return s;
+    if (loadFrom("vega-tobi2", s)) {
+      if (s.total_target_s == 140 * 60) s.total_target_s = 80 * 60;
+      return s;
+    }
     loadFrom("vega", s);  // Carry over GPS input and vehicle calibration.
     s.start = {35.666947, 139.518721};
     s.timing = {35.6665666, 139.5186953};
     s.goal = {35.6669552, 139.5219829};
     s.course_corridor_m = 30;
-    s.total_target_s = 140 * 60;
+    s.total_target_s = 80 * 60;
     s.lap_target_s.fill(20 * 60);
 #else
     loadFrom("vega", s);
@@ -194,9 +256,9 @@ class SettingsStore final : public vega::ISettingsStore {
   bool save(const vega::Settings &s) override {
     Preferences p;
 #if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 1
-    if (!p.begin("vega-test", false)) return false;
+    if (!p.begin("vega-test4", false)) return false;
 #elif defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 2
-    if (!p.begin("vega-tobi2", false)) return false;
+    if (!p.begin("vega-tobi4", false)) return false;
 #else
     if (!p.begin("vega", false)) return false;
 #endif
@@ -224,23 +286,48 @@ class SettingsStore final : public vega::ISettingsStore {
 } settings_store;
 
 // SD I/O happens exclusively in the writer task. Queue overflow is surfaced as a warning.
-enum class RecordKind : uint8_t { Begin, Sample, Event, End };
+enum class RecordKind : uint8_t { Begin, Sample, Event, End, GpsRaw, UiMarker };
 struct Record {
   RecordKind kind;
   vega::Snapshot data;
   vega::Event event{};
   vega::EndReason reason{};
   uint32_t losses_at_begin = 0;
+  uint32_t debug_drops = 0;
+  char nmea[160]{};
+  uint32_t parser_rejected_total = 0;
+  bool parser_emitted = false, fix_valid = false;
+  bool screen_main = false, model_visible = false, widget_visible = false, gps_fresh = false;
+  int32_t map_x = 0, map_y = 0, backing_x = 0, backing_y = 0;
 };
 void enqueueRecord(const Record &r) {
   if (xQueueSend(records, &r, 0) != pdTRUE) {
     record_loss_count.fetch_add(1, std::memory_order_relaxed);
     sd_error = true;
+    sd_last_failure = SdFailure::QueueFull;
     diagnostic("[SD] queue full; record lost, timing continues");
   }
 }
+void enqueueDebugRecord(const Record &r) {
+  // Reserve room for the safety-relevant session samples and events.
+  if (!records || uxQueueSpacesAvailable(records) <= 8 ||
+      xQueueSend(records, &r, 0) != pdTRUE)
+    debug_drop_count.fetch_add(1, std::memory_order_relaxed);
+}
+bool escapeNmea(const char *source, char *out, size_t cap) {
+  size_t used = 0;
+  for (; *source; ++source) {
+    const char c = *source;
+    if (c < 32 || c > 126 || used + (c == '"' || c == '\\' ? 2 : 1) >= cap) return false;
+    if (c == '"' || c == '\\') out[used++] = '\\';
+    out[used++] = c;
+  }
+  out[used] = '\0';
+  return true;
+}
 struct Recorder final : vega::ISessionRecorder {
   void begin(uint32_t session, const vega::Settings &s, vega::Millis now) override {
+    debug_drop_count.store(0, std::memory_order_relaxed);
     Record r{};
     r.kind = RecordKind::Begin;
     r.data.settings = s;
@@ -267,6 +354,7 @@ struct Recorder final : vega::ISessionRecorder {
     r.kind = RecordKind::End;
     r.data = s;
     r.reason = e;
+    r.debug_drops = debug_drop_count.load(std::memory_order_relaxed);
     enqueueRecord(r);
   }
 } recorder;
@@ -481,14 +569,15 @@ void sdTask(void *) {
         if (!log) {
           failed_session = true;
           sd_error = true;
+          sd_last_failure = SdFailure::Open;
           Serial.println("[SD] cannot open session");
         } else {
-          // Metadata is a distinct line; sample lines preserve the MQTT schema.
+          // Metadata is a distinct line; SD samples extend the MQTT fields with GPS diagnostics.
           char meta[1100];
           const auto &s = r.data.settings;
           int n = snprintf(
               meta, sizeof(meta),
-              "{\"type\":\"session\",\"schema_version\":1,\"boot_session\":%lu,\"started_uptime_"
+              "{\"type\":\"session\",\"schema_version\":3,\"boot_session\":%lu,\"started_uptime_"
               "ms\":%llu,\"total_target_s\":%lu,\"lap_target_s\":[%lu,%lu,%lu,%lu,%lu,%lu,%lu],"
               "\"start\":[%.8f,%.8f],\"timing\":[%.8f,%.8f],\"goal\":[%.8f,%.8f]}\n",
               static_cast<unsigned long>(r.data.race.session), r.data.now_ms,
@@ -503,9 +592,11 @@ void sdTask(void *) {
               s.timing.latitude, s.timing.longitude, s.goal.latitude, s.goal.longitude);
           if (n <= 0 || static_cast<size_t>(n) >= sizeof(meta) ||
               log.write(reinterpret_cast<const uint8_t *>(meta), n) != static_cast<size_t>(n) ||
-              !log.flush())
+              !log.flush()) {
             failed_session = true;
-          else if (record_loss_count.load(std::memory_order_relaxed) == r.losses_at_begin) {
+            sd_last_failure = SdFailure::Metadata;
+            Serial.println("[SD] metadata write or flush failed");
+          } else if (record_loss_count.load(std::memory_order_relaxed) == r.losses_at_begin) {
             // A successfully opened new session clears errors from the prior one.
             sd_error = false;
             if (record_loss_count.load(std::memory_order_relaxed) != r.losses_at_begin)
@@ -517,22 +608,55 @@ void sdTask(void *) {
         char line[1100]{};
         size_t n = 0;
         if (r.kind == RecordKind::Sample)
-          n = vega::telemetryJson(r.data, line, sizeof(line), network_config::machine_id,
-                                  network_config::memo);
-        else {
+          n = vega::sessionSampleJson(r.data, line, sizeof(line), network_config::machine_id,
+                                      network_config::memo);
+        else if (r.kind == RecordKind::GpsRaw) {
+          char escaped[sizeof(r.nmea) * 2]{};
+          if (escapeNmea(r.nmea, escaped, sizeof(escaped))) {
+            const int count = snprintf(line, sizeof(line),
+                "{\"type\":\"gps_raw\",\"timestamp_ms\":%llu,\"nmea\":\"%s\","
+                "\"parser_emitted\":%s,\"fix_valid\":%s,\"parser_rejected_total\":%lu}",
+                r.data.now_ms, escaped, r.parser_emitted ? "true" : "false",
+                r.fix_valid ? "true" : "false",
+                static_cast<unsigned long>(r.parser_rejected_total));
+            if (count > 0 && static_cast<size_t>(count) < sizeof(line)) n = count;
+          }
+        } else if (r.kind == RecordKind::UiMarker) {
+          const int count = snprintf(line, sizeof(line),
+              "{\"type\":\"ui_marker\",\"timestamp_ms\":%llu,\"screen_main\":%s,"
+              "\"model_visible\":%s,\"widget_visible\":%s,\"gps_fresh\":%s,"
+              "\"map_x\":%ld,\"map_y\":%ld,\"backing_x\":%ld,\"backing_y\":%ld}",
+              r.data.now_ms, r.screen_main ? "true" : "false",
+              r.model_visible ? "true" : "false", r.widget_visible ? "true" : "false",
+              r.gps_fresh ? "true" : "false", static_cast<long>(r.map_x),
+              static_cast<long>(r.map_y), static_cast<long>(r.backing_x),
+              static_cast<long>(r.backing_y));
+          if (count > 0 && static_cast<size_t>(count) < sizeof(line)) n = count;
+        } else {
           const char *e =
               r.kind == RecordKind::End
                   ? (r.reason == vega::EndReason::Finished ? "end_finished" : "end_cancelled")
                   : eventName(r.event);
+          char debug_suffix[48]{};
+          if (r.kind == RecordKind::End)
+            snprintf(debug_suffix, sizeof(debug_suffix), ",\"diagnostic_dropped\":%lu",
+                     static_cast<unsigned long>(r.debug_drops));
           int count = snprintf(line, sizeof(line),
                                "{\"type\":\"event\",\"event\":\"%s\",\"timestamp_ms\":%llu,\"total_"
-                               "time_ms\":%llu,\"lap_number\":%u}",
-                               e, r.data.now_ms, r.data.race.total_ms, r.data.race.lap);
+                               "time_ms\":%llu,\"lap_number\":%u%s}",
+                               e, r.data.now_ms, r.data.race.total_ms, r.data.race.lap,
+                               debug_suffix);
           if (count > 0 && static_cast<size_t>(count) < sizeof(line)) n = count;
         }
-        if (!n || log.write(reinterpret_cast<const uint8_t *>(line), n) != n ||
-            log.write('\n') != 1)
+        const size_t written = n ? log.write(reinterpret_cast<const uint8_t *>(line), n) : 0;
+        const size_t newline = written == n && n ? log.write('\n') : 0;
+        if (!n || written != n || newline != 1) {
           failed_session = true;
+          sd_last_failure = SdFailure::Write;
+          Serial.printf("[SD] write failed kind=%u bytes=%u/%u newline=%u\n",
+                        static_cast<unsigned>(r.kind), static_cast<unsigned>(written),
+                        static_cast<unsigned>(n), static_cast<unsigned>(newline));
+        }
       }
       if (failed_session) {
         sd_error = true;
@@ -543,6 +667,8 @@ void sdTask(void *) {
           if (!log.flush()) {
             failed_session = true;
             sd_error = true;
+            sd_last_failure = SdFailure::EndFlush;
+            Serial.println("[SD] end flush failed");
           }
           log.close();
         }
@@ -555,12 +681,14 @@ void sdTask(void *) {
       if (!log.flush()) {
         failed_session = true;
         sd_error = true;
+        sd_last_failure = SdFailure::Flush;
         log.close();
         Serial.println("[SD] flush failed; timing continues");
       }
       last_flush = now;
     }
     if (readback.exchange(false)) {
+      const uint32_t requested_session = readback_session.exchange(0);
       if (active) {
         Serial.println("[SD READBACK] cancel or finish timing before reading logs");
         continue;
@@ -568,15 +696,37 @@ void sdTask(void *) {
       if (log && !log.flush()) {
         sd_error = true;
         failed_session = true;
+        sd_last_failure = SdFailure::ReadbackFlush;
         log.close();
       }
-      SdFile file = sd_ready && last_path[0] ? SdFile(last_path, "r") : SdFile();
+      char requested_path[80]{};
+      if (requested_session)
+        snprintf(requested_path, sizeof(requested_path), "/vega/session-%010lu.jsonl",
+                 static_cast<unsigned long>(requested_session));
+      else if (sd_ready && (!last_path[0] || !SD_MMC.exists(last_path))) {
+        // USB serial access can reboot Tab5; recover the most recent file from
+        // the persisted session counter so `log` still works after a field run.
+        Preferences p;
+        uint32_t number = 0;
+        if (p.begin("vega-log", true)) {
+          number = p.getUInt("next", 0);
+          p.end();
+        }
+        for (unsigned attempts = 0; number && attempts < 100; --number, ++attempts) {
+          snprintf(last_path, sizeof(last_path), "/vega/session-%010lu.jsonl",
+                   static_cast<unsigned long>(number));
+          if (SD_MMC.exists(last_path)) break;
+          last_path[0] = '\0';
+        }
+      }
+      const char *path = requested_session ? requested_path : last_path;
+      SdFile file = sd_ready && path[0] ? SdFile(path, "r") : SdFile();
       if (!file)
         Serial.println("[SD READBACK] no readable session");
       else {
         char header[140];
         int count = snprintf(header, sizeof(header), "[SD READBACK BEGIN] %s bytes=%llu\n",
-                             last_path, static_cast<uint64_t>(file.size()));
+                             path, static_cast<uint64_t>(file.size()));
         serialWriteAll(reinterpret_cast<const uint8_t *>(header), count);
         uint8_t bytes[256];
         size_t n;
@@ -684,14 +834,41 @@ void applicationTask(void *) {
                         settings);
   HardwareSerial gps_uart(1);
   gps_uart.setRxBufferSize(2048);
+  uint8_t gps_config_step = 2;
+  vega::Millis gps_config_sent_ms = 0, gps_rate_window_ms = 0;
+  uint32_t gps_rate_window_rmc = 0;
+  char raw_nmea[160]{};
+  size_t raw_length = 0;
+  bool raw_collecting = false;
+  uint8_t casic_frame[64]{};
+  size_t casic_used = 0;
+  bool nav_query_pending = false;
+  bool walk_ack_pending = false;
+  vega::Millis nav_query_deadline = 0;
   auto openGps = [&](vega::GpsSource source) {
     gps_uart.end();
+    raw_length = 0;
+    raw_collecting = false;
+    casic_used = 0;
+    nav_query_pending = false;
+    walk_ack_pending = false;
+    gps_nav_query_requested = false;
+    gps_walk_requested = false;
     gps_bytes = 0;
     gps_rmc = 0;
+    gps_rmc_hz_x10 = 0;
     const bool port_a = source == vega::GpsSource::PortA;
+#if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE
+    // The walking test course needs the receiver to track pedestrian speed.
+    // Apply in RAM on each UART open; production course mode remains unchanged.
+    if (port_a) gps_walk_requested = true;
+#endif
     const int rx = port_a ? kGpsPortARx : kGpsBusRx;
     const int tx = port_a ? kGpsPortATx : kGpsBusTx;
     gps_uart.begin(9600, SERIAL_8N1, rx, tx);
+    gps_config_step = port_a ? 0 : 2;
+    gps_rate_window_ms = clock_source.now();
+    gps_rate_window_rmc = 0;
     diagnostic("[GPS] source=%s rx=%d tx=%d baud=9600", port_a ? "PORT_A" : "M5BUS", rx, tx);
   };
   openGps(settings.gps_source);
@@ -713,11 +890,138 @@ void applicationTask(void *) {
       vega::GpsFix fix;
       const int byte = gps_uart.read();
       if (byte < 0) break;
+      const char c = static_cast<char>(byte);
+      const auto received_ms = clock_source.now();
       gps_bytes.fetch_add(1, std::memory_order_relaxed);
-      if (parser.feed(static_cast<char>(byte), clock_source.now(), fix)) {
+      // A CFG-NAVX response shares the UART with NMEA. Consume only framed
+      // binary packets while a query is pending; leave NMEA untouched.
+      if (nav_query_pending && (casic_used || byte == 0xBA)) {
+        if (casic_used == 0) {
+          casic_frame[casic_used++] = static_cast<uint8_t>(byte);
+          continue;
+        }
+        if (casic_used == 1 && byte != 0xCE) {
+          casic_used = 0;
+        } else {
+          casic_frame[casic_used++] = static_cast<uint8_t>(byte);
+          if (casic_used >= 6) {
+            const size_t length = size_t(casic_frame[2]) | (size_t(casic_frame[3]) << 8);
+            if (length % 4 || length + 10 > sizeof(casic_frame)) {
+              casic_used = 0;
+            } else if (casic_used == length + 10) {
+              const uint8_t cls = casic_frame[4], id = casic_frame[5];
+              uint32_t checksum = (uint32_t(id) << 24) | (uint32_t(cls) << 16) | length;
+              for (size_t i = 0; i < length; i += 4)
+                checksum += casicWord(casic_frame + 6 + i);
+              if (checksum == casicWord(casic_frame + 6 + length)) {
+                if (cls == 0x06 && id == 0x07 && length == 44) {
+                  char packet_hex[sizeof(casic_frame) * 2 + 1]{};
+                  for (size_t i = 0; i < length + 10; ++i)
+                    snprintf(packet_hex + 2 * i, 3, "%02X", casic_frame[i]);
+                  diagnostic("[GPS NAV] packet=%s", packet_hex);
+                  float static_hold_mps;
+                  memcpy(&static_hold_mps, casic_frame + 6 + 40, sizeof(static_hold_mps));
+                  diagnostic("[GPS NAV] mode=%u fix_mode=%u static_hold_mps=%.3f mask=0x%08lX",
+                             casic_frame[6 + 4], casic_frame[6 + 5], static_hold_mps,
+                             static_cast<unsigned long>(casicWord(casic_frame + 6)));
+                  nav_query_pending = false;
+                } else if (cls == 0x05) {
+                  diagnostic("[GPS NAV] ack_id=%u for_class=%u for_id=%u", id,
+                             casic_frame[6], casic_frame[7]);
+                  if (walk_ack_pending && casic_frame[6] == 0x06 && casic_frame[7] == 0x07) {
+                    walk_ack_pending = false;
+                    nav_query_pending = false;
+                    if (id == 0x01) gps_nav_query_requested = true;
+                  } else if (id == 0x00) {
+                    nav_query_pending = false;
+                  }
+                }
+              } else {
+                diagnostic("[GPS NAV] bad CASIC checksum class=%u id=%u", cls, id);
+              }
+              casic_used = 0;
+            }
+          }
+          continue;
+        }
+      }
+      const bool emitted = parser.feed(c, received_ms, fix);
+      if (emitted) {
         gps_rmc.fetch_add(1, std::memory_order_relaxed);
         app.gps(fix);
       }
+      if (c == '$') {
+        raw_length = 0;
+        raw_nmea[raw_length++] = c;
+        raw_collecting = true;
+      } else if (raw_collecting && c == '\n') {
+        raw_nmea[raw_length] = '\0';
+        const bool diagnostic_sentence =
+            raw_length >= 6 &&
+            (!strncmp(raw_nmea + 3, "RMC", 3) || !strncmp(raw_nmea + 3, "GGA", 3));
+        if (diagnostic_sentence && app.snapshot().race.phase == vega::RacePhase::Measuring) {
+          Record r{};
+          r.kind = RecordKind::GpsRaw;
+          r.data.now_ms = received_ms;
+          memcpy(r.nmea, raw_nmea, raw_length + 1);
+          r.parser_emitted = emitted;
+          r.fix_valid = emitted && fix.valid;
+          r.parser_rejected_total = parser.rejected();
+          enqueueDebugRecord(r);
+        }
+        raw_length = 0;
+        raw_collecting = false;
+      } else if (raw_collecting && c != '\r') {
+        if (c >= 32 && c <= 126 && raw_length + 1 < sizeof(raw_nmea))
+          raw_nmea[raw_length++] = c;
+        else {
+          raw_length = 0;
+          raw_collecting = false;
+        }
+      }
+    }
+    const auto gps_now = clock_source.now();
+    if (gps_config_step == 0 && gps_rmc.load(std::memory_order_relaxed) > 0) {
+      // At 9600 bps, output RMC on every 200 ms fix and GGA once per second;
+      // suppress unused sentences before increasing the fix rate.
+      if (sendCasic(gps_uart, "PCAS03,5,0,0,0,1,0,0,0,0,0,,,0,0,,,,0")) {
+        gps_config_step = 1;
+        gps_config_sent_ms = gps_now;
+      }
+    } else if (gps_config_step == 1 && gps_now - gps_config_sent_ms >= 250) {
+      if (sendCasic(gps_uart, "PCAS02,200")) {
+        gps_config_step = 2;
+        diagnostic("[GPS] PORT_A requested RMC 5 Hz / GGA 1 Hz");
+      }
+    }
+    if (nav_query_pending && gps_now >= nav_query_deadline) {
+      nav_query_pending = false;
+      walk_ack_pending = false;
+      casic_used = 0;
+      diagnostic("[GPS NAV] response timeout");
+    }
+    if (app.snapshot().settings.gps_source == vega::GpsSource::PortA && gps_config_step == 2 &&
+        !nav_query_pending && gps_walk_requested.exchange(false)) {
+      walk_ack_pending = requestCasicWalking(gps_uart);
+      nav_query_pending = walk_ack_pending;
+      nav_query_deadline = gps_now + 3000;
+      casic_used = 0;
+      diagnostic("[GPS NAV] walking mode request %s (RAM only)",
+                 walk_ack_pending ? "sent" : "failed");
+    }
+    if (app.snapshot().settings.gps_source == vega::GpsSource::PortA && gps_config_step == 2 &&
+        !nav_query_pending && gps_nav_query_requested.exchange(false)) {
+      nav_query_pending = requestCasicNavx(gps_uart);
+      nav_query_deadline = gps_now + 3000;
+      casic_used = 0;
+      diagnostic("[GPS NAV] query %s", nav_query_pending ? "sent" : "failed");
+    }
+    if (gps_now - gps_rate_window_ms >= 5000) {
+      const uint32_t count = gps_rmc.load(std::memory_order_relaxed);
+      gps_rmc_hz_x10 = static_cast<uint32_t>(
+          uint64_t(count - gps_rate_window_rmc) * 10000 / (gps_now - gps_rate_window_ms));
+      gps_rate_window_rmc = count;
+      gps_rate_window_ms = gps_now;
     }
     QueuedCommand queued{};
     for (unsigned budget = 0; budget < 8 && xQueueReceive(commands, &queued, 0) == pdTRUE;
@@ -841,7 +1145,29 @@ vega::UiStatus status() {
   }
   return s;
 }
-void requestLogReadback() { readback = true; }
+void requestLogReadback(uint32_t session) {
+  readback_session = session;
+  readback = true;
+}
+void recordUiMarker(bool screen_main, bool model_visible, bool widget_visible, bool gps_fresh,
+                    int32_t map_x, int32_t map_y, int32_t backing_x, int32_t backing_y) {
+  static vega::Millis last_recorded_ms = 0;
+  const auto now = clock_source.now();
+  if (last_recorded_ms && now - last_recorded_ms < 500) return;
+  last_recorded_ms = now;
+  Record r{};
+  r.kind = RecordKind::UiMarker;
+  r.data.now_ms = now;
+  r.screen_main = screen_main;
+  r.model_visible = model_visible;
+  r.widget_visible = widget_visible;
+  r.gps_fresh = gps_fresh;
+  r.map_x = map_x;
+  r.map_y = map_y;
+  r.backing_x = backing_x;
+  r.backing_y = backing_y;
+  enqueueDebugRecord(r);
+}
 void serialPoll() {
   static char buffer[64];
   static size_t count = 0;
@@ -885,15 +1211,21 @@ void serialPoll() {
         if (snapshot(s))
           Serial.printf(
               "[STATUS] phase=%u lap=%u total_ms=%llu power_phase=%u power_pin=%d ignition_pin=%d "
-              "gps=%u gps_source=%s gps_bytes=%lu gps_rmc=%lu pulses=%llu "
-              "sd_ready=%u sd_error=%u wifi=%u mqtt=%u ntp=%u total_target_s=%lu "
+              "gps=%u gps_source=%s gps_bytes=%lu gps_rmc=%lu gps_rmc_hz=%lu.%lu pulses=%llu "
+              "sd_ready=%u sd_error=%u sd_last_failure=%s sd_record_lost=%lu "
+              "sd_debug_dropped=%lu wifi=%u mqtt=%u ntp=%u total_target_s=%lu "
               "lap1_target_s=%lu\n",
               static_cast<unsigned>(s.race.phase), s.race.lap, s.race.total_ms,
               static_cast<unsigned>(s.engine), gpio_get_level(kPower), gpio_get_level(kIgnition),
               s.gps_fresh, s.settings.gps_source == vega::GpsSource::PortA ? "PORT_A" : "M5BUS",
               static_cast<unsigned long>(gps_bytes.load(std::memory_order_relaxed)),
               static_cast<unsigned long>(gps_rmc.load(std::memory_order_relaxed)),
+              static_cast<unsigned long>(gps_rmc_hz_x10.load(std::memory_order_relaxed) / 10),
+              static_cast<unsigned long>(gps_rmc_hz_x10.load(std::memory_order_relaxed) % 10),
               s.wheel.pulses, st.sd_ready, st.sd_error,
+              sdFailureText(sd_last_failure.load(std::memory_order_relaxed)),
+              static_cast<unsigned long>(record_loss_count.load(std::memory_order_relaxed)),
+              static_cast<unsigned long>(debug_drop_count.load(std::memory_order_relaxed)),
               WiFi.status() == WL_CONNECTED, st.mqtt_connected,
               st.time_valid, static_cast<unsigned long>(s.settings.total_target_s),
               static_cast<unsigned long>(s.settings.lap_target_s[0]));
@@ -930,6 +1262,24 @@ void serialPoll() {
                           vega::settingTitle(i), value);
             vTaskDelay(1);
           }
+      } else if (!strcmp(buffer, "gps-nav")) {
+        vega::Snapshot s;
+        if (snapshot(s) && s.settings.gps_source == vega::GpsSource::PortA &&
+            s.race.phase == vega::RacePhase::Waiting) {
+          gps_nav_query_requested = true;
+          Serial.println("[GPS NAV] query queued");
+        } else {
+          Serial.println("[GPS NAV] available only with Port.A GPS before timing");
+        }
+      } else if (!strcmp(buffer, "gps-walk")) {
+        vega::Snapshot s;
+        if (snapshot(s) && s.settings.gps_source == vega::GpsSource::PortA &&
+            s.race.phase == vega::RacePhase::Waiting) {
+          gps_walk_requested = true;
+          Serial.println("[GPS NAV] walking mode queued (RAM only)");
+        } else {
+          Serial.println("[GPS NAV] available only with Port.A GPS before timing");
+        }
       } else if (!strncmp(buffer, "config ", 7)) {
         char key[32], value[24];
         vega::Snapshot s;
@@ -983,6 +1333,14 @@ void serialPoll() {
         tab5_lvgl_report_perf();
       else if (!strcmp(buffer, "log"))
         requestLogReadback();
+      else if (!strncmp(buffer, "log-read ", 9)) {
+        char *end = nullptr;
+        const unsigned long long session = strtoull(buffer + 9, &end, 10);
+        if (end != buffer + 9 && *end == '\0' && session > 0 && session <= UINT32_MAX)
+          requestLogReadback(static_cast<uint32_t>(session));
+        else
+          Serial.println("[SD READBACK] use log-read SESSION_NUMBER");
+      }
       else {
         Command command{};
         bool known = true;

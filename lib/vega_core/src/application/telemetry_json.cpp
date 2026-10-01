@@ -49,4 +49,43 @@ size_t telemetryJson(const Snapshot &s, char *out, size_t cap, const char *machi
                              (unsigned long long)s.now_ms, id, note);
   return length > 0 && size_t(length) < cap ? size_t(length) : 0;
 }
+size_t sessionSampleJson(const Snapshot &s, char *out, size_t cap, const char *machine,
+                         const char *memo) {
+  const size_t base = telemetryJson(s, out, cap, machine, memo);
+  if (!base || out[base - 1] != '}') return 0;
+  char speed[32], hdop[32], satellites[16], quality[16], utc[24], age[24], quality_age[24];
+  value(s.gps.speed_kmh, s.gps_seen && s.gps.speed_valid, speed, sizeof(speed), 3);
+  value(s.gps.hdop, s.gps_seen && s.gps.quality_valid, hdop, sizeof(hdop), 2);
+  if (s.gps_seen && s.gps.quality_valid) {
+    std::snprintf(satellites, sizeof(satellites), "%u", s.gps.satellites);
+    std::snprintf(quality, sizeof(quality), "%u", s.gps.gga_fix_quality);
+  } else {
+    std::snprintf(satellites, sizeof(satellites), "null");
+    std::snprintf(quality, sizeof(quality), "null");
+  }
+  if (s.gps_seen && s.gps.utc_valid)
+    std::snprintf(utc, sizeof(utc), "%u", s.gps.utc_ms_of_day);
+  else
+    std::snprintf(utc, sizeof(utc), "null");
+  if (s.gps_seen && s.now_ms >= s.gps.received_ms)
+    std::snprintf(age, sizeof(age), "%llu", (unsigned long long)(s.now_ms - s.gps.received_ms));
+  else
+    std::snprintf(age, sizeof(age), "null");
+  if (s.gps_seen && s.gps.quality_valid && s.now_ms >= s.gps.quality_received_ms)
+    std::snprintf(quality_age, sizeof(quality_age), "%llu",
+                  (unsigned long long)(s.now_ms - s.gps.quality_received_ms));
+  else
+    std::snprintf(quality_age, sizeof(quality_age), "null");
+  const int length = std::snprintf(
+      out + base - 1, cap - base + 1,
+      ",\"gps_seen\":%s,\"gps_fix_valid\":%s,\"gps_fresh\":%s,"
+      "\"gps_speed_kmh\":%s,\"gps_satellites\":%s,\"gps_hdop\":%s,"
+      "\"gps_gga_fix_quality\":%s,\"gps_utc_ms_of_day\":%s,"
+      "\"gps_age_ms\":%s,\"gps_quality_age_ms\":%s}",
+      s.gps_seen ? "true" : "false", s.gps_seen && s.gps.valid ? "true" : "false",
+      s.gps_fresh ? "true" : "false", speed, satellites, hdop, quality, utc, age,
+      quality_age);
+  if (length <= 0 || size_t(length) >= cap - base + 1) return 0;
+  return base - 1 + size_t(length);
+}
 }  // namespace vega

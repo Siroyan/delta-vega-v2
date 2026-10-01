@@ -217,6 +217,69 @@ void manualFinishTest() {
   assert(f.app.snapshot().race.total_ms == expected_total);
   assert(!f.app.cancel() && !f.app.start());
 }
+void fourLapCourseTest() {
+  CourseData four_lap_data = course_data;
+  four_lap_data.lap_count = 4;
+  Course course(four_lap_data);
+  assert(course.lapCount() == 4);
+  Clock clock;
+  Output output;
+  Store store;
+  Recorder recorder;
+  Telemetry telemetry;
+  Settings settings = Fixture::makeSettings();
+  Application app(clock, output, store, recorder, telemetry, course, settings);
+  View view;
+  Presenter presenter(view, course.lapCount());
+  UiStatus status;
+  presenter.render(app.snapshot(), status);
+  assert(std::strcmp(view.model.lap, "- / 4") == 0);
+  assert(app.start());
+  assert(!app.manualFinish());
+  for (int lap = 2; lap <= 4; ++lap) {
+    clock.time += 10000;
+    assert(app.manualLap());
+    presenter.render(app.snapshot(), status);
+    assert(view.model.finish_mode == (lap == 4));
+    assert(std::strcmp(view.model.lap, lap == 4 ? "4 / 4" :
+                       lap == 3 ? "3 / 4" : "2 / 4") == 0);
+    if (lap < 4) assert(!app.manualFinish());
+  }
+  assert(!app.manualLap());
+  assert(app.manualFinish());
+  assert(app.snapshot().race.phase == RacePhase::Finished);
+  assert(recorder.manual_finish_events == 1);
+
+  // Automatic GPS completion must also use the course's fourth lap.
+  Clock gps_clock;
+  Output gps_output;
+  Store gps_store;
+  Recorder gps_recorder;
+  Telemetry gps_telemetry;
+  Application gps_app(gps_clock, gps_output, gps_store, gps_recorder,
+                      gps_telemetry, course, settings);
+  auto fix = [&](double distance) {
+    GpsFix g;
+    g.valid = true;
+    g.position = course.pointAt(distance);
+    g.received_ms = gps_clock.time;
+    gps_app.gps(g);
+  };
+  auto travel = [&](double from, double to) {
+    for (double distance = from; distance <= to; distance += 20) {
+      gps_clock.time += 1000;
+      fix(distance);
+    }
+  };
+  assert(gps_app.start());
+  fix(700);
+  for (int lap = 0; lap < 3; ++lap) travel(720 + lap * 4000, 4700 + lap * 4000);
+  assert(gps_app.snapshot().race.lap == 4);
+  assert(gps_app.snapshot().race.phase == RacePhase::Measuring);
+  travel(12720, 15600);
+  assert(gps_app.snapshot().race.phase == RacePhase::Finished);
+  assert(gps_recorder.finished_events == 1);
+}
 void gpsRaceTest() {
   Fixture f;
   assert(f.app.start());
@@ -347,12 +410,17 @@ void nmeaTest() {
   NmeaParser parser;
   GpsFix fix;
   bool emitted = false;
+  for (auto c : sentence("GNGGA,123455.80,3631.96596,N,14013.57614,E,1,12,0.8,0.0,M,0.0,M,,"))
+    assert(!parser.feed(c, 800, fix));
   auto input = sentence("GNRMC,123456.00,A,3631.96596,N,14013.57614,E,10.0,120.0,280926,,,A");
   for (auto c : input) emitted = parser.feed(c, 1000, fix) || emitted;
   assert(emitted && fix.valid);
   assert(std::abs(fix.position.latitude - 36.532766) < 1e-8);
   assert(std::abs(fix.position.longitude - 140.226269) < 1e-8);
   assert(std::abs(fix.speed_kmh - 18.52) < 1e-8);
+  assert(fix.speed_valid && fix.utc_valid && fix.utc_ms_of_day == 45296000);
+  assert(fix.quality_valid && fix.quality_received_ms == 800);
+  assert(fix.gga_fix_quality == 1 && fix.satellites == 12 && fix.hdop == 0.8);
   assert(fix.has_heading);
   input[5] = 'X';
   emitted = false;
@@ -364,6 +432,48 @@ void nmeaTest() {
   assert(emitted && !fix.valid);
   for (auto c : std::string("$") + std::string(300, 'A') + "\n") parser.feed(c, 4000, fix);
   assert(parser.rejected() >= 2);
+}
+void gpsDiagnosticsTest() {
+  Snapshot s;
+  s.now_ms = 1500;
+  char json[1024];
+  assert(sessionSampleJson(s, json, sizeof(json)) > 0);
+  assert(std::strstr(json, "\"gps_satellites\":null"));
+  assert(std::strstr(json, "\"gps_utc_ms_of_day\":null"));
+  assert(std::strstr(json, "\"gps_seen\":false"));
+  s.gps_seen = true;
+  s.gps_fresh = true;
+  s.gps.valid = true;
+  s.gps.received_ms = 1400;
+  s.gps.position = {35.666947, 139.518721};
+  s.gps.speed_valid = true;
+  s.gps.speed_kmh = 3.704;
+  s.gps.quality_valid = true;
+  s.gps.quality_received_ms = 1000;
+  s.gps.gga_fix_quality = 1;
+  s.gps.satellites = 9;
+  s.gps.hdop = 1.2;
+  s.gps.utc_valid = true;
+  s.gps.utc_ms_of_day = 45296200;
+  assert(sessionSampleJson(s, json, sizeof(json)) > 0);
+  assert(std::strstr(json, "\"gps_speed_kmh\":3.704"));
+  assert(std::strstr(json, "\"gps_satellites\":9"));
+  assert(std::strstr(json, "\"gps_hdop\":1.20"));
+  assert(std::strstr(json, "\"gps_gga_fix_quality\":1"));
+  assert(std::strstr(json, "\"gps_utc_ms_of_day\":45296200"));
+  assert(std::strstr(json, "\"gps_age_ms\":100"));
+  assert(std::strstr(json, "\"gps_quality_age_ms\":500"));
+  assert(!sessionSampleJson(s, json, 8));
+  View view;
+  Presenter presenter(view);
+  UiStatus status;
+  presenter.render(s, status);
+  assert(std::strcmp(view.model.gps_latitude, "LAT 35.66694700") == 0);
+  assert(std::strcmp(view.model.gps_longitude, "LON 139.51872100") == 0);
+  s.gps.valid = false;
+  presenter.render(s, status);
+  assert(std::strcmp(view.model.gps_latitude, "LAT --") == 0);
+  assert(std::strcmp(view.model.gps_longitude, "LON --") == 0);
 }
 void settingsTest() {
   Fixture f;
@@ -785,11 +895,13 @@ int main() {
   engineTest();
   raceTest();
   manualFinishTest();
+  fourLapCourseTest();
   gpsRaceTest();
   passageTest();
   gpsOutageAndManualLapTest();
   wheelTest();
   nmeaTest();
+  gpsDiagnosticsTest();
   settingsTest();
   presenterTest();
   settingsFormTest();
