@@ -11,6 +11,7 @@ void tab5_lvgl_set_control_handlers(ControlHitTest hit_test, ControlAction actio
 
 // Call after M5.begin(). Returns false if the display or draw buffer is unavailable.
 bool tab5_lvgl_begin();
+void tab5_lvgl_set_brightness(uint8_t brightness);
 
 // Call regularly from the Arduino loop before ui_tick().
 void tab5_lvgl_update();

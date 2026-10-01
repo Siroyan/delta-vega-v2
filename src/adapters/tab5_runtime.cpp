@@ -1107,7 +1107,7 @@ void serialPoll() {
               "gps=%u gps_source=%s gps_bytes=%lu gps_rmc=%lu gps_rmc_hz=%lu.%lu pulses=%llu "
               "sd_ready=%u sd_error=%u sd_last_failure=%s sd_record_lost=%lu "
               "wifi=%u mqtt=%u ntp=%u total_target_s=%lu "
-              "lap1_target_s=%lu\n",
+              "lap1_target_s=%lu brightness=%lu\n",
               static_cast<unsigned>(s.race.phase), s.race.lap, s.race.total_ms,
               static_cast<unsigned>(s.engine), gpio_get_level(kPower), gpio_get_level(kIgnition),
               s.gps_fresh, s.settings.gps_source == vega::GpsSource::PortA ? "PORT_A" : "M5BUS",
@@ -1120,7 +1120,8 @@ void serialPoll() {
               static_cast<unsigned long>(record_loss_count.load(std::memory_order_relaxed)),
               WiFi.status() == WL_CONNECTED, st.mqtt_connected,
               st.time_valid, static_cast<unsigned long>(s.settings.total_target_s),
-              static_cast<unsigned long>(s.settings.lap_target_s[0]));
+              static_cast<unsigned long>(s.settings.lap_target_s[0]),
+              static_cast<unsigned long>(s.settings.display_brightness));
       } else if (!strcmp(buffer, "plan-status")) {
         vega::Strategy current;
         bool loaded = strategy(current);

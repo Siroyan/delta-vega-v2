@@ -181,6 +181,11 @@ bool tab5_lvgl_begin() {
   return true;
 }
 
+void tab5_lvgl_set_brightness(uint8_t brightness) {
+  // Display access stays on the UI loop, alongside LVGL drawing.
+  if (M5.Display.getBrightness() != brightness) M5.Display.setBrightness(brightness);
+}
+
 void tab5_lvgl_update() {
   const int64_t lvgl_started = esp_timer_get_time();
   lv_timer_handler();

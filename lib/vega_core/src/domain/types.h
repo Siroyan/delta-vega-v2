@@ -8,13 +8,16 @@ namespace vega {
 
 using Millis = uint64_t;
 constexpr size_t kLapCount = 7;
+constexpr uint32_t kMinDisplayBrightness = 64;
+constexpr uint32_t kMaxDisplayBrightness = 255;
+constexpr uint32_t kDefaultDisplayBrightness = 127;
 struct GeoPoint {
   double latitude = 0;
   double longitude = 0;
 };
 enum class GpsSource : uint32_t { M5Bus = 0, PortA = 1 };
 struct Settings {
-  uint32_t version = 2;
+  uint32_t version = 3;
   uint32_t total_target_s = 42 * 60;
   std::array<uint32_t, kLapCount> lap_target_s{{360, 360, 360, 360, 360, 360, 360}};
   GeoPoint start{36.530654, 140.227998};
@@ -34,6 +37,7 @@ struct Settings {
   uint32_t min_lap_ms = 60000;
   uint32_t lap_duplicate_ms = 10000;
   GpsSource gps_source = GpsSource::M5Bus;
+  uint32_t display_brightness = kDefaultDisplayBrightness;
 };
 bool validSettings(const Settings &s);
 enum class RacePhase : uint8_t { Waiting, Measuring, Finished };
@@ -100,6 +104,7 @@ struct Snapshot {
   Settings settings{};
   RaceReading race{};
   EnginePhase engine = EnginePhase::Off;
+  uint16_t ecu_prepare_permille = 0;
   WheelReading wheel{};
   GpsFix gps{};
   MapPosition map{};

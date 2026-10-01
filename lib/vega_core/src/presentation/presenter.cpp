@@ -39,6 +39,9 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
   formatTime(uint64_t(s.settings.lap_target_s[lap - 1]) * 1000, time, sizeof(time));
   std::snprintf(m.lap_target, sizeof(m.lap_target), "TARGET %s", time);
   m.power_on = s.engine != EnginePhase::Off;
+  m.ignition_preparing = s.engine == EnginePhase::Preparing;
+  m.ignition_prepare_permille = s.ecu_prepare_permille;
+  m.display_brightness = static_cast<uint8_t>(s.settings.display_brightness);
   m.ignition_enabled = s.engine == EnginePhase::Ready && !s.output_error;
   m.finish_mode = m.phase == RacePhase::Measuring && lap == lap_count_;
   m.lap_enabled = m.phase == RacePhase::Measuring &&

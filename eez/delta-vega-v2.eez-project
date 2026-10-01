@@ -33485,6 +33485,111 @@
               "groupIndex": 0
             },
             {
+              "objID": "4391fdeb-7094-4edc-958e-712dd3565c4e",
+              "type": "LVGLLabelWidget",
+              "identifier": "settings_brightness_title",
+              "left": 640,
+              "top": 480,
+              "width": 280,
+              "height": 30,
+              "customInputs": [],
+              "customOutputs": [],
+              "style": {
+                "objID": "b0a80c06-9e76-475a-bb63-74f301690209",
+                "useStyle": "default",
+                "conditionalStyles": [],
+                "childStyles": []
+              },
+              "timeline": [],
+              "eventHandlers": [],
+              "leftUnit": "px",
+              "topUnit": "px",
+              "widthUnit": "px",
+              "heightUnit": "px",
+              "children": [],
+              "widgetFlags": "",
+              "hiddenFlagType": "literal",
+              "clickableFlagType": "literal",
+              "checkedStateType": "literal",
+              "disabledStateType": "literal",
+              "states": "",
+              "localStyles": {
+                "objID": "adbf4b43-e0b4-44f2-8cee-a64869076c7a",
+                "definition": {
+                  "MAIN": {
+                    "DEFAULT": {
+                      "pad_top": 0,
+                      "pad_bottom": 0,
+                      "pad_left": 0,
+                      "pad_right": 0,
+                      "border_width": 0,
+                      "bg_opa": 0,
+                      "shadow_width": 0,
+                      "text_font": "RictyDiminished_24",
+                      "text_color": "#202B36",
+                      "text_align": "LEFT"
+                    }
+                  }
+                }
+              },
+              "groupIndex": 0,
+              "text": "DISPLAY BRIGHTNESS",
+              "textType": "literal",
+              "longMode": "CLIP",
+              "recolor": false,
+              "useStaticText": true
+            },
+            {
+              "objID": "f104dd4f-6e5c-4d18-ac17-4034c1421fd6",
+              "type": "LVGLContainerWidget",
+              "identifier": "settings_brightness_control",
+              "left": 930,
+              "top": 472,
+              "width": 274,
+              "height": 46,
+              "customInputs": [],
+              "customOutputs": [],
+              "style": {
+                "objID": "4719469b-1d9f-4532-b349-1ede71a7a8c8",
+                "useStyle": "default",
+                "conditionalStyles": [],
+                "childStyles": []
+              },
+              "timeline": [],
+              "eventHandlers": [],
+              "leftUnit": "px",
+              "topUnit": "px",
+              "widthUnit": "px",
+              "heightUnit": "px",
+              "children": [],
+              "widgetFlags": "",
+              "hiddenFlagType": "literal",
+              "clickableFlagType": "literal",
+              "checkedStateType": "literal",
+              "disabledStateType": "literal",
+              "states": "",
+              "localStyles": {
+                "objID": "d11dc175-9223-486c-8e7b-f41ce4c5469c",
+                "definition": {
+                  "MAIN": {
+                    "DEFAULT": {
+                      "pad_top": 0,
+                      "pad_bottom": 0,
+                      "pad_left": 0,
+                      "pad_right": 0,
+                      "border_width": 0,
+                      "bg_opa": 0,
+                      "radius": 0,
+                      "shadow_width": 0,
+                      "bg_color": "#D8E0E8"
+                    }
+                  }
+                }
+              },
+              "groupIndex": 0,
+              "containerVersion": 1
+            },
+            {
               "objID": "28112651-27f5-4a81-96ba-cdfa5ea9eb1a",
               "type": "LVGLButtonWidget",
               "identifier": "settings_open_advanced_button",
