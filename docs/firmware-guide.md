@@ -10,7 +10,7 @@
 - 取消はメニュー/SettingsのCANCEL TIMING → 確認画面のCANCEL TIMING。KEEP TIMINGで継続。取消後は新規開始可能。完走後の再計測は提供しない。
 - 左下の青緑の電源トグルはエンジン系電装への指令。ON後、設定されたECU準備時間（初期1000 ms）は右下の点火ボタンが無効時と同じ薄い赤から時計回りに通常の赤へ変わり、操作できない。準備完了時に全面が通常の赤となり、炎ボタンを操作できる。炎ボタンはECUへの1000 ms HIGHパルス。電装ONごとに1回まで。
 - 電装OFFは準備待ち/パルスを中止する。計測とTab5は動作継続。Tab5はエンジンの実運転状態を確認できない。
-- 全体42:00・各周06:00のTARGETとスタート/周回更新/ゴールの各緯度経度を`COURSE SETTINGS`で編集できる。`COURSE DETAILS`には回廊幅・最小周回距離・最小周回時間・重複抑制を置く。`GENERAL SETTINGS`には車輪・電装・ECU・GPS関連値とGPS接続先、`DISPLAY BRIGHTNESS`を置く。輝度は25～100%相当（内部値64～255）で、操作中は画面へ反映する。初期値は127。数値画面のSETは一時編集の確定、各ページのSAVE SETTINGSはその範囲だけの保存。戻る矢印で未保存の編集と輝度プレビューを破棄する。
+- ハンバーガーメニューの`COURSE MENU`から、全体42:00・各周06:00のTARGETとスタート/周回更新/ゴールの各緯度経度を編集できる。`COURSE DETAILS`には回廊幅・最小周回距離・最小周回時間・重複抑制を置く。`GENERAL MENU`からは車輪・電装・ECU・GPS関連値とGPS接続先、`DISPLAY BRIGHTNESS`を編集できる。輝度は25～100%相当（内部値64～255）で、操作中は画面へ反映する。初期値は127。数値画面のSETは一時編集の確定、各ページのSAVE SETTINGSはその範囲だけの保存。戻る矢印で未保存の編集と輝度プレビューを破棄する。
 - 電装極性（POWER HIGH）は`1`でHIGH=ON、`0`でLOW=ON。電装ON中は極性・ECU準備時間・点火パルス幅の編集を無効にし、アプリケーション側も変更を拒否する。これらの値は実車接続前に回路とECUの仕様に合わせて確認する。
 - 計測中はUIとApplicationの双方で設定変更を拒否する。全体TARGETと各周合計の一致は強制しない。大会制限39:16とは独立した値。
 - NVSは端末共通の`vega-device/settings`と、選択コースの名前空間にある`course`を別々に保存する。従来のv1～v3 `settings` blobは初回起動時に読み、現在選択中のコースの輝度・GPS入力先・車両設定を端末共通値へ移す。各コースのTARGET・地点・周回判定値はコースごとに引き継ぐ。旧v1ではGPS入力先をM5Bus、旧v1/v2では輝度を127として扱う。保存した共通輝度はコースを切り替えても変わらず、再起動後も保持する。電装状態・始動権・進行中レースは復元しない。
@@ -105,11 +105,11 @@ Walking modeで玉川学園コースを歩いたセッション50は約10分45�
 | `log-read NUMBER` | 指定したセッション番号の計測ファイルをSDから読み戻す。記録中は拒否。SD上のファイルは変更しない |
 | `gps-nav` | Port.AのUnit GPSからCASICの動作モード・静止判定しきい値を読み出す。Waiting時のみ |
 | `gps-walk` | Port.AのUnit GPSを試験用Walking modeへ一時変更し、ACK後に再読出しする。FLASHには保存しない。Waiting時のみ |
-| `ui-status` / `ui-settings` / `ui-back` | 現在のUI状態確認・設定への遷移・復帰 |
+| `ui-status` / `ui-settings` / `ui-general-menu` / `ui-back` | 現在のUI状態確認・コース設定または一般設定への遷移・復帰 |
 | `ui-course-markers` | メイン画面のスタート・ゴールマーカーと周回更新線の画像内座標・表示状態 |
 | `ui-plan` | Main上の戦略線・地点マーカー・次の操作案内の状態 |
 | `ui-advanced` / `ui-advanced-back` | Course Detailsを開く/Settingsへ戻る |
-| `ui-general` / `ui-general-back` | General Settingsを開く/Settingsへ戻る |
+| `ui-general` / `ui-general-back` | 一般設定オーバーレイを開く/ダッシュボードへ戻る |
 | `ui-inspect-field 8` | 指定した設定欄を開き、表示文字列を出力して閉じる。値は変更しない |
 | `ui-edit 0 39:16` / `ui-save` | 生成ボタン/編集イベントを通したUIテスト。項目番号0=全体、1〜7=各周、8〜13=地点緯度経度、14〜21・23=General Settings、22・24〜26=Course Details |
 | `ui-start` / `ui-cancel` / `ui-confirm-cancel` | 生成UIの開始/取消操作経路のテスト |

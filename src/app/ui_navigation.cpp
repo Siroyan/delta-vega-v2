@@ -57,11 +57,16 @@ extern "C" void action_open_settings(lv_event_t *) {
   loadScreen(SCREEN_ID_SETTINGS);
 }
 
+extern "C" void action_open_general_menu(lv_event_t *) {
+  close_menus();
+  tab5::viewOpenSettings();
+  loadScreen(SCREEN_ID_SETTINGS);
+  tab5::viewOpenGeneral();
+}
+
 extern "C" void action_open_advanced_settings(lv_event_t *) { tab5::viewOpenAdvanced(); }
 
 extern "C" void action_close_advanced_settings(lv_event_t *) { tab5::viewCloseAdvanced(); }
-
-extern "C" void action_open_general_settings(lv_event_t *) { tab5::viewOpenGeneral(); }
 
 extern "C" void action_close_general_settings(lv_event_t *) { tab5::viewCloseGeneral(); }
 

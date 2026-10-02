@@ -344,8 +344,8 @@
       "userProperties": []
     },
     {
-      "objID": "a5736db0-0380-45e1-b84c-0783064cd692",
-      "name": "open_general_settings",
+      "objID": "63a8f7ff-9417-48df-a0c6-91102f94e2e2",
+      "name": "close_general_settings",
       "description": "Settings page navigation",
       "implementationType": "native",
       "implementation": "",
@@ -356,9 +356,9 @@
       "userProperties": []
     },
     {
-      "objID": "63a8f7ff-9417-48df-a0c6-91102f94e2e2",
-      "name": "close_general_settings",
-      "description": "Settings page navigation",
+      "objID": "a60b18af-8cf6-4589-9676-f2ccdfdfaaf4",
+      "name": "open_general_menu",
+      "description": "UI navigation; implementation: src/app/ui_navigation.cpp",
       "implementationType": "native",
       "implementation": "",
       "components": [],
@@ -3048,7 +3048,7 @@
                     {
                       "objID": "b6b10aab-9a8e-4eda-b319-b882b9181381",
                       "type": "LVGLButtonWidget",
-                      "identifier": "menu_settings_button",
+                      "identifier": "menu_general_button",
                       "left": 24,
                       "top": 112,
                       "width": 336,
@@ -3067,7 +3067,7 @@
                           "objID": "3bbf327e-87d1-4854-893b-02ab77a0a998",
                           "eventName": "CLICKED",
                           "handlerType": "action",
-                          "action": "open_settings",
+                          "action": "open_general_menu",
                           "userData": 0
                         }
                       ],
@@ -3079,7 +3079,7 @@
                         {
                           "objID": "c5965e90-005c-46bc-ad8d-c65364b78a36",
                           "type": "LVGLImageWidget",
-                          "identifier": "settings_icon",
+                          "identifier": "general_icon",
                           "left": 20,
                           "top": 24,
                           "width": 40,
@@ -3136,7 +3136,7 @@
                         {
                           "objID": "c4dfb29f-ce92-46a5-8a79-9e8f52ee1a65",
                           "type": "LVGLLabelWidget",
-                          "identifier": "settings_label",
+                          "identifier": "general_label",
                           "left": 80,
                           "top": 30,
                           "width": 232,
@@ -3183,7 +3183,7 @@
                             }
                           },
                           "groupIndex": 0,
-                          "text": "SETTINGS",
+                          "text": "GENERAL MENU",
                           "textType": "literal",
                           "longMode": "CLIP",
                           "recolor": false,
@@ -3198,6 +3198,180 @@
                       "states": "",
                       "localStyles": {
                         "objID": "72934f60-fef7-4322-bb44-76c04bd5ae31",
+                        "definition": {
+                          "MAIN": {
+                            "DEFAULT": {
+                              "pad_top": 0,
+                              "pad_bottom": 0,
+                              "pad_left": 0,
+                              "pad_right": 0,
+                              "border_width": 0,
+                              "bg_opa": 255,
+                              "radius": 12,
+                              "shadow_width": 0,
+                              "bg_color": "#F0F4F8"
+                            },
+                            "PRESSED": {
+                              "bg_color": "#DCE5EF"
+                            }
+                          }
+                        }
+                      },
+                      "groupIndex": 0
+                    },
+                    {
+                      "objID": "db1032ab-32e0-47e7-8a30-559ad6924fad",
+                      "type": "LVGLButtonWidget",
+                      "identifier": "menu_course_button",
+                      "left": 24,
+                      "top": 216,
+                      "width": 336,
+                      "height": 88,
+                      "customInputs": [],
+                      "customOutputs": [],
+                      "style": {
+                        "objID": "2f80a0d8-0a7d-490b-b786-1911186c7a7e",
+                        "useStyle": "default",
+                        "conditionalStyles": [],
+                        "childStyles": []
+                      },
+                      "timeline": [],
+                      "eventHandlers": [
+                        {
+                          "objID": "b79c052b-a562-4196-a676-f844a690b17c",
+                          "eventName": "CLICKED",
+                          "handlerType": "action",
+                          "action": "open_settings",
+                          "userData": 0
+                        }
+                      ],
+                      "leftUnit": "px",
+                      "topUnit": "px",
+                      "widthUnit": "px",
+                      "heightUnit": "px",
+                      "children": [
+                        {
+                          "objID": "cc409829-c3e3-482a-b449-dbfb4ffc753a",
+                          "type": "LVGLImageWidget",
+                          "identifier": "course_icon",
+                          "left": 20,
+                          "top": 24,
+                          "width": 40,
+                          "height": 40,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "de4f3ee9-01c2-4d13-b988-f5ae7e7b6b87",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "33cdcea8-9718-4a66-9cde-cdbef0f2d957",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "image": "settings_dark",
+                          "setPivot": false,
+                          "pivotX": 0,
+                          "pivotY": 0,
+                          "zoom": 256,
+                          "angle": 0,
+                          "innerAlign": "CENTER",
+                          "sizeMode": "VIRTUAL",
+                          "value": 0,
+                          "valueType": "literal",
+                          "previewValue": 0
+                        },
+                        {
+                          "objID": "a271541c-f34b-4fc3-86b9-21b217c46be1",
+                          "type": "LVGLLabelWidget",
+                          "identifier": "course_label",
+                          "left": 80,
+                          "top": 30,
+                          "width": 232,
+                          "height": 28,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "4f22a4a1-3701-4785-8036-7cc4846de21a",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "51424694-45f9-4dff-be71-2c8e3ef9fc0d",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0,
+                                  "radius": 0,
+                                  "shadow_width": 0,
+                                  "text_font": "RictyDiminished_32",
+                                  "text_color": "#202B36",
+                                  "text_align": "LEFT"
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "text": "COURSE MENU",
+                          "textType": "literal",
+                          "longMode": "CLIP",
+                          "recolor": false,
+                          "useStaticText": true
+                        }
+                      ],
+                      "widgetFlags": "CLICKABLE",
+                      "hiddenFlagType": "literal",
+                      "clickableFlagType": "literal",
+                      "checkedStateType": "literal",
+                      "disabledStateType": "literal",
+                      "states": "",
+                      "localStyles": {
+                        "objID": "3ca99e0e-3d3d-455f-b9cd-06f5211c18a9",
                         "definition": {
                           "MAIN": {
                             "DEFAULT": {
@@ -6225,7 +6399,7 @@
                     {
                       "objID": "602cc24f-6291-444c-a2b1-060b67c2dd83",
                       "type": "LVGLButtonWidget",
-                      "identifier": "waiting_menu_settings_button",
+                      "identifier": "waiting_menu_general_button",
                       "left": 24,
                       "top": 112,
                       "width": 336,
@@ -6244,7 +6418,7 @@
                           "objID": "36e8e85e-0bf5-4e33-9723-2c4aed11a33e",
                           "eventName": "CLICKED",
                           "handlerType": "action",
-                          "action": "open_settings",
+                          "action": "open_general_menu",
                           "userData": 0
                         }
                       ],
@@ -6256,7 +6430,7 @@
                         {
                           "objID": "ab534189-dc10-400e-bd40-3cf7e9e716f2",
                           "type": "LVGLImageWidget",
-                          "identifier": "waiting_settings_icon",
+                          "identifier": "waiting_general_icon",
                           "left": 20,
                           "top": 24,
                           "width": 40,
@@ -6313,7 +6487,7 @@
                         {
                           "objID": "11cba1bb-ecd2-415d-b5ff-6db7c99f587d",
                           "type": "LVGLLabelWidget",
-                          "identifier": "waiting_settings_label",
+                          "identifier": "waiting_general_label",
                           "left": 80,
                           "top": 30,
                           "width": 232,
@@ -6360,7 +6534,7 @@
                             }
                           },
                           "groupIndex": 0,
-                          "text": "SETTINGS",
+                          "text": "GENERAL MENU",
                           "textType": "literal",
                           "longMode": "CLIP",
                           "recolor": false,
@@ -6375,6 +6549,180 @@
                       "states": "",
                       "localStyles": {
                         "objID": "a3801400-e30c-42f2-a920-9dd2dde2e4ea",
+                        "definition": {
+                          "MAIN": {
+                            "DEFAULT": {
+                              "pad_top": 0,
+                              "pad_bottom": 0,
+                              "pad_left": 0,
+                              "pad_right": 0,
+                              "border_width": 0,
+                              "bg_opa": 255,
+                              "radius": 12,
+                              "shadow_width": 0,
+                              "bg_color": "#F0F4F8"
+                            },
+                            "PRESSED": {
+                              "bg_color": "#DCE5EF"
+                            }
+                          }
+                        }
+                      },
+                      "groupIndex": 0
+                    },
+                    {
+                      "objID": "9d53642e-8ac7-4c51-8c46-5fa32009dccc",
+                      "type": "LVGLButtonWidget",
+                      "identifier": "waiting_menu_course_button",
+                      "left": 24,
+                      "top": 216,
+                      "width": 336,
+                      "height": 88,
+                      "customInputs": [],
+                      "customOutputs": [],
+                      "style": {
+                        "objID": "8cc587e6-56ab-4e05-b943-b64d5dfc1bb4",
+                        "useStyle": "default",
+                        "conditionalStyles": [],
+                        "childStyles": []
+                      },
+                      "timeline": [],
+                      "eventHandlers": [
+                        {
+                          "objID": "76e3fb06-61e4-405e-bbc3-a133611c9995",
+                          "eventName": "CLICKED",
+                          "handlerType": "action",
+                          "action": "open_settings",
+                          "userData": 0
+                        }
+                      ],
+                      "leftUnit": "px",
+                      "topUnit": "px",
+                      "widthUnit": "px",
+                      "heightUnit": "px",
+                      "children": [
+                        {
+                          "objID": "ab624958-e200-4c41-b2c6-6939f924c0f4",
+                          "type": "LVGLImageWidget",
+                          "identifier": "waiting_course_icon",
+                          "left": 20,
+                          "top": 24,
+                          "width": 40,
+                          "height": 40,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "02bb7d8a-dac2-447a-ac4f-3fd3b61c6176",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "7fe85442-ff13-4929-830f-7e8fabb572d7",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "image": "settings_dark",
+                          "setPivot": false,
+                          "pivotX": 0,
+                          "pivotY": 0,
+                          "zoom": 256,
+                          "angle": 0,
+                          "innerAlign": "CENTER",
+                          "sizeMode": "VIRTUAL",
+                          "value": 0,
+                          "valueType": "literal",
+                          "previewValue": 0
+                        },
+                        {
+                          "objID": "5c2324c6-ab62-4ba9-9ef1-8c63475c6bc7",
+                          "type": "LVGLLabelWidget",
+                          "identifier": "waiting_course_label",
+                          "left": 80,
+                          "top": 30,
+                          "width": 232,
+                          "height": 28,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "4b2f09ae-df55-4f59-a67e-686dde100c40",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "606ff09e-29bd-4194-97d6-f424a1d2d302",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0,
+                                  "radius": 0,
+                                  "shadow_width": 0,
+                                  "text_font": "RictyDiminished_32",
+                                  "text_color": "#202B36",
+                                  "text_align": "LEFT"
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "text": "COURSE MENU",
+                          "textType": "literal",
+                          "longMode": "CLIP",
+                          "recolor": false,
+                          "useStaticText": true
+                        }
+                      ],
+                      "widgetFlags": "CLICKABLE",
+                      "hiddenFlagType": "literal",
+                      "clickableFlagType": "literal",
+                      "checkedStateType": "literal",
+                      "disabledStateType": "literal",
+                      "states": "",
+                      "localStyles": {
+                        "objID": "01eb207f-4cd8-433f-b04b-63903ab2443d",
                         "definition": {
                           "MAIN": {
                             "DEFAULT": {
@@ -9393,7 +9741,7 @@
                     {
                       "objID": "2308b283-2e0c-4b2a-8036-2cd2e0432cd8",
                       "type": "LVGLButtonWidget",
-                      "identifier": "finished_menu_settings_button",
+                      "identifier": "finished_menu_general_button",
                       "left": 24,
                       "top": 112,
                       "width": 336,
@@ -9412,7 +9760,7 @@
                           "objID": "38782898-ad69-4046-a879-db3600ffdd1b",
                           "eventName": "CLICKED",
                           "handlerType": "action",
-                          "action": "open_settings",
+                          "action": "open_general_menu",
                           "userData": 0
                         }
                       ],
@@ -9424,7 +9772,7 @@
                         {
                           "objID": "a6a841a9-4c43-458c-8a71-aba7786b0736",
                           "type": "LVGLImageWidget",
-                          "identifier": "finished_settings_icon",
+                          "identifier": "finished_general_icon",
                           "left": 20,
                           "top": 24,
                           "width": 40,
@@ -9481,7 +9829,7 @@
                         {
                           "objID": "393e0af5-2e56-4d0a-9359-4a634aa8bca9",
                           "type": "LVGLLabelWidget",
-                          "identifier": "finished_settings_label",
+                          "identifier": "finished_general_label",
                           "left": 80,
                           "top": 30,
                           "width": 232,
@@ -9528,7 +9876,7 @@
                             }
                           },
                           "groupIndex": 0,
-                          "text": "SETTINGS",
+                          "text": "GENERAL MENU",
                           "textType": "literal",
                           "longMode": "CLIP",
                           "recolor": false,
@@ -9543,6 +9891,180 @@
                       "states": "",
                       "localStyles": {
                         "objID": "60537b69-1732-425b-98f9-b30532cfa5bf",
+                        "definition": {
+                          "MAIN": {
+                            "DEFAULT": {
+                              "pad_top": 0,
+                              "pad_bottom": 0,
+                              "pad_left": 0,
+                              "pad_right": 0,
+                              "border_width": 0,
+                              "bg_opa": 255,
+                              "radius": 12,
+                              "shadow_width": 0,
+                              "bg_color": "#F0F4F8"
+                            },
+                            "PRESSED": {
+                              "bg_color": "#DCE5EF"
+                            }
+                          }
+                        }
+                      },
+                      "groupIndex": 0
+                    },
+                    {
+                      "objID": "8cf4387b-ed11-42fd-b6a0-e74704d08ea3",
+                      "type": "LVGLButtonWidget",
+                      "identifier": "finished_menu_course_button",
+                      "left": 24,
+                      "top": 216,
+                      "width": 336,
+                      "height": 88,
+                      "customInputs": [],
+                      "customOutputs": [],
+                      "style": {
+                        "objID": "1186914e-fcaa-4d8d-901b-979da330cc26",
+                        "useStyle": "default",
+                        "conditionalStyles": [],
+                        "childStyles": []
+                      },
+                      "timeline": [],
+                      "eventHandlers": [
+                        {
+                          "objID": "560ba1b3-e565-4b58-bd4c-1236d3527e0f",
+                          "eventName": "CLICKED",
+                          "handlerType": "action",
+                          "action": "open_settings",
+                          "userData": 0
+                        }
+                      ],
+                      "leftUnit": "px",
+                      "topUnit": "px",
+                      "widthUnit": "px",
+                      "heightUnit": "px",
+                      "children": [
+                        {
+                          "objID": "b8a229e4-e59b-4a8d-bc04-57647c798207",
+                          "type": "LVGLImageWidget",
+                          "identifier": "finished_course_icon",
+                          "left": 20,
+                          "top": 24,
+                          "width": 40,
+                          "height": 40,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "5ce63101-c2b6-45e9-9fee-77442b83abf1",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "d8cd2aa7-5bba-4708-87ff-eaac51975bfa",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "image": "settings_dark",
+                          "setPivot": false,
+                          "pivotX": 0,
+                          "pivotY": 0,
+                          "zoom": 256,
+                          "angle": 0,
+                          "innerAlign": "CENTER",
+                          "sizeMode": "VIRTUAL",
+                          "value": 0,
+                          "valueType": "literal",
+                          "previewValue": 0
+                        },
+                        {
+                          "objID": "f9c72070-5e89-452e-b526-400286b3fbb8",
+                          "type": "LVGLLabelWidget",
+                          "identifier": "finished_course_label",
+                          "left": 80,
+                          "top": 30,
+                          "width": 232,
+                          "height": 28,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "78e9c105-0bcc-47fd-961d-252126a318f1",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "9eb975c3-0181-47ec-95c5-0e0d569a7848",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0,
+                                  "radius": 0,
+                                  "shadow_width": 0,
+                                  "text_font": "RictyDiminished_32",
+                                  "text_color": "#202B36",
+                                  "text_align": "LEFT"
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "text": "COURSE MENU",
+                          "textType": "literal",
+                          "longMode": "CLIP",
+                          "recolor": false,
+                          "useStaticText": true
+                        }
+                      ],
+                      "widgetFlags": "CLICKABLE",
+                      "hiddenFlagType": "literal",
+                      "clickableFlagType": "literal",
+                      "checkedStateType": "literal",
+                      "disabledStateType": "literal",
+                      "states": "",
+                      "localStyles": {
+                        "objID": "50f53162-c171-4849-8f11-a34912fd5ed9",
                         "definition": {
                           "MAIN": {
                             "DEFAULT": {
@@ -12591,7 +13113,7 @@
                     {
                       "objID": "cfe1f81a-b3ec-4c69-801d-837d2aebbefd",
                       "type": "LVGLButtonWidget",
-                      "identifier": "gpsstale_menu_settings_button",
+                      "identifier": "gpsstale_menu_general_button",
                       "left": 24,
                       "top": 112,
                       "width": 336,
@@ -12610,7 +13132,7 @@
                           "objID": "349277cf-d035-4963-8592-90c65f20e5dc",
                           "eventName": "CLICKED",
                           "handlerType": "action",
-                          "action": "open_settings",
+                          "action": "open_general_menu",
                           "userData": 0
                         }
                       ],
@@ -12622,7 +13144,7 @@
                         {
                           "objID": "f5d46f3d-33f7-4a15-ae2a-32c31772ddc3",
                           "type": "LVGLImageWidget",
-                          "identifier": "gpsstale_settings_icon",
+                          "identifier": "gpsstale_general_icon",
                           "left": 20,
                           "top": 24,
                           "width": 40,
@@ -12679,7 +13201,7 @@
                         {
                           "objID": "e7a0f91e-5c2b-4e0b-8041-8eca33aa8ad5",
                           "type": "LVGLLabelWidget",
-                          "identifier": "gpsstale_settings_label",
+                          "identifier": "gpsstale_general_label",
                           "left": 80,
                           "top": 30,
                           "width": 232,
@@ -12726,7 +13248,7 @@
                             }
                           },
                           "groupIndex": 0,
-                          "text": "SETTINGS",
+                          "text": "GENERAL MENU",
                           "textType": "literal",
                           "longMode": "CLIP",
                           "recolor": false,
@@ -12741,6 +13263,180 @@
                       "states": "",
                       "localStyles": {
                         "objID": "2198f394-3752-45e5-9087-12797f9f8da3",
+                        "definition": {
+                          "MAIN": {
+                            "DEFAULT": {
+                              "pad_top": 0,
+                              "pad_bottom": 0,
+                              "pad_left": 0,
+                              "pad_right": 0,
+                              "border_width": 0,
+                              "bg_opa": 255,
+                              "radius": 12,
+                              "shadow_width": 0,
+                              "bg_color": "#F0F4F8"
+                            },
+                            "PRESSED": {
+                              "bg_color": "#DCE5EF"
+                            }
+                          }
+                        }
+                      },
+                      "groupIndex": 0
+                    },
+                    {
+                      "objID": "f4aa2f7d-b9ec-41a1-bcfe-f03f9f3e8303",
+                      "type": "LVGLButtonWidget",
+                      "identifier": "gpsstale_menu_course_button",
+                      "left": 24,
+                      "top": 216,
+                      "width": 336,
+                      "height": 88,
+                      "customInputs": [],
+                      "customOutputs": [],
+                      "style": {
+                        "objID": "977e09c0-134d-4f41-8acd-f37ceebc0505",
+                        "useStyle": "default",
+                        "conditionalStyles": [],
+                        "childStyles": []
+                      },
+                      "timeline": [],
+                      "eventHandlers": [
+                        {
+                          "objID": "0c6bdcd6-601e-405d-b83d-143c50a8b790",
+                          "eventName": "CLICKED",
+                          "handlerType": "action",
+                          "action": "open_settings",
+                          "userData": 0
+                        }
+                      ],
+                      "leftUnit": "px",
+                      "topUnit": "px",
+                      "widthUnit": "px",
+                      "heightUnit": "px",
+                      "children": [
+                        {
+                          "objID": "2b027299-38d5-473f-a112-73e1fef6bbfc",
+                          "type": "LVGLImageWidget",
+                          "identifier": "gpsstale_course_icon",
+                          "left": 20,
+                          "top": 24,
+                          "width": 40,
+                          "height": 40,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "f385f846-03ac-4fea-8031-3edc15a0a258",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "c89edbf0-60af-4f4a-83fa-1b6e67e30a70",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "image": "settings_dark",
+                          "setPivot": false,
+                          "pivotX": 0,
+                          "pivotY": 0,
+                          "zoom": 256,
+                          "angle": 0,
+                          "innerAlign": "CENTER",
+                          "sizeMode": "VIRTUAL",
+                          "value": 0,
+                          "valueType": "literal",
+                          "previewValue": 0
+                        },
+                        {
+                          "objID": "6f9b21af-e265-44e2-9ffb-99a1f499cfb2",
+                          "type": "LVGLLabelWidget",
+                          "identifier": "gpsstale_course_label",
+                          "left": 80,
+                          "top": 30,
+                          "width": 232,
+                          "height": 28,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "dc28b46d-d87c-453c-ba75-ae437912f89e",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "af5826f0-f08b-4554-ba9d-af920b540406",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0,
+                                  "radius": 0,
+                                  "shadow_width": 0,
+                                  "text_font": "RictyDiminished_32",
+                                  "text_color": "#202B36",
+                                  "text_align": "LEFT"
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "text": "COURSE MENU",
+                          "textType": "literal",
+                          "longMode": "CLIP",
+                          "recolor": false,
+                          "useStaticText": true
+                        }
+                      ],
+                      "widgetFlags": "CLICKABLE",
+                      "hiddenFlagType": "literal",
+                      "clickableFlagType": "literal",
+                      "checkedStateType": "literal",
+                      "disabledStateType": "literal",
+                      "states": "",
+                      "localStyles": {
+                        "objID": "09fe18e4-a5cc-4e6f-ab38-b5dae6b8b219",
                         "definition": {
                           "MAIN": {
                             "DEFAULT": {
@@ -15466,7 +16162,7 @@
                     {
                       "objID": "6cc6e9c5-e2d5-4600-8199-4c4321946062",
                       "type": "LVGLButtonWidget",
-                      "identifier": "missingdata_menu_settings_button",
+                      "identifier": "missingdata_menu_general_button",
                       "left": 24,
                       "top": 112,
                       "width": 336,
@@ -15485,7 +16181,7 @@
                           "objID": "6837b988-e8a8-48fc-bcdf-7dd2df8f2a72",
                           "eventName": "CLICKED",
                           "handlerType": "action",
-                          "action": "open_settings",
+                          "action": "open_general_menu",
                           "userData": 0
                         }
                       ],
@@ -15497,7 +16193,7 @@
                         {
                           "objID": "60e9a2d5-957b-4e7f-b1a3-1bf72ca8a6a2",
                           "type": "LVGLImageWidget",
-                          "identifier": "missingdata_settings_icon",
+                          "identifier": "missingdata_general_icon",
                           "left": 20,
                           "top": 24,
                           "width": 40,
@@ -15554,7 +16250,7 @@
                         {
                           "objID": "8f7a736d-6e7d-48a0-a0c5-70ea5743fbbe",
                           "type": "LVGLLabelWidget",
-                          "identifier": "missingdata_settings_label",
+                          "identifier": "missingdata_general_label",
                           "left": 80,
                           "top": 30,
                           "width": 232,
@@ -15601,7 +16297,7 @@
                             }
                           },
                           "groupIndex": 0,
-                          "text": "SETTINGS",
+                          "text": "GENERAL MENU",
                           "textType": "literal",
                           "longMode": "CLIP",
                           "recolor": false,
@@ -15616,6 +16312,180 @@
                       "states": "",
                       "localStyles": {
                         "objID": "6b06169a-7237-4d50-9abf-e60fc5fa6477",
+                        "definition": {
+                          "MAIN": {
+                            "DEFAULT": {
+                              "pad_top": 0,
+                              "pad_bottom": 0,
+                              "pad_left": 0,
+                              "pad_right": 0,
+                              "border_width": 0,
+                              "bg_opa": 255,
+                              "radius": 12,
+                              "shadow_width": 0,
+                              "bg_color": "#F0F4F8"
+                            },
+                            "PRESSED": {
+                              "bg_color": "#DCE5EF"
+                            }
+                          }
+                        }
+                      },
+                      "groupIndex": 0
+                    },
+                    {
+                      "objID": "34d22790-b1f6-4971-aa02-75acb4b2cf1b",
+                      "type": "LVGLButtonWidget",
+                      "identifier": "missingdata_menu_course_button",
+                      "left": 24,
+                      "top": 216,
+                      "width": 336,
+                      "height": 88,
+                      "customInputs": [],
+                      "customOutputs": [],
+                      "style": {
+                        "objID": "f4b03fb2-e3fe-4bb5-b4e2-a6ba023f6b6b",
+                        "useStyle": "default",
+                        "conditionalStyles": [],
+                        "childStyles": []
+                      },
+                      "timeline": [],
+                      "eventHandlers": [
+                        {
+                          "objID": "8f5505c5-7741-43bd-a344-b73a7d9dd0ef",
+                          "eventName": "CLICKED",
+                          "handlerType": "action",
+                          "action": "open_settings",
+                          "userData": 0
+                        }
+                      ],
+                      "leftUnit": "px",
+                      "topUnit": "px",
+                      "widthUnit": "px",
+                      "heightUnit": "px",
+                      "children": [
+                        {
+                          "objID": "0eb78447-18b7-411e-b158-fc2a001aea2b",
+                          "type": "LVGLImageWidget",
+                          "identifier": "missingdata_course_icon",
+                          "left": 20,
+                          "top": 24,
+                          "width": 40,
+                          "height": 40,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "0538f648-3bb4-4ca9-b66a-82b62c5c22d8",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "9774dc63-aa8b-4fca-899b-d9cdcde0afe3",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "image": "settings_dark",
+                          "setPivot": false,
+                          "pivotX": 0,
+                          "pivotY": 0,
+                          "zoom": 256,
+                          "angle": 0,
+                          "innerAlign": "CENTER",
+                          "sizeMode": "VIRTUAL",
+                          "value": 0,
+                          "valueType": "literal",
+                          "previewValue": 0
+                        },
+                        {
+                          "objID": "da4c4be4-7963-4a05-93d3-4cf737e4aa58",
+                          "type": "LVGLLabelWidget",
+                          "identifier": "missingdata_course_label",
+                          "left": 80,
+                          "top": 30,
+                          "width": 232,
+                          "height": 28,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "370a76d4-1da7-434a-95b5-968cd16726ff",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "e6a9e828-e9fb-4207-8491-b4c0513d17b7",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0,
+                                  "radius": 0,
+                                  "shadow_width": 0,
+                                  "text_font": "RictyDiminished_32",
+                                  "text_color": "#202B36",
+                                  "text_align": "LEFT"
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "text": "COURSE MENU",
+                          "textType": "literal",
+                          "longMode": "CLIP",
+                          "recolor": false,
+                          "useStaticText": true
+                        }
+                      ],
+                      "widgetFlags": "CLICKABLE",
+                      "hiddenFlagType": "literal",
+                      "clickableFlagType": "literal",
+                      "checkedStateType": "literal",
+                      "disabledStateType": "literal",
+                      "states": "",
+                      "localStyles": {
+                        "objID": "15276cbe-235b-4cc0-b0df-dddccc16af8e",
                         "definition": {
                           "MAIN": {
                             "DEFAULT": {
@@ -18387,7 +19257,7 @@
                     {
                       "objID": "39f59acc-2d8b-4252-81f0-d8add4db08e8",
                       "type": "LVGLButtonWidget",
-                      "identifier": "overtime_menu_settings_button",
+                      "identifier": "overtime_menu_general_button",
                       "left": 24,
                       "top": 112,
                       "width": 336,
@@ -18406,7 +19276,7 @@
                           "objID": "5b926bac-6271-400e-841b-ffe619e6db29",
                           "eventName": "CLICKED",
                           "handlerType": "action",
-                          "action": "open_settings",
+                          "action": "open_general_menu",
                           "userData": 0
                         }
                       ],
@@ -18418,7 +19288,7 @@
                         {
                           "objID": "b87581bf-832d-47d6-a54b-bf4a0e8d073c",
                           "type": "LVGLImageWidget",
-                          "identifier": "overtime_settings_icon",
+                          "identifier": "overtime_general_icon",
                           "left": 20,
                           "top": 24,
                           "width": 40,
@@ -18475,7 +19345,7 @@
                         {
                           "objID": "ab424a88-fc0f-4b44-8f30-3fc6a9ff0be7",
                           "type": "LVGLLabelWidget",
-                          "identifier": "overtime_settings_label",
+                          "identifier": "overtime_general_label",
                           "left": 80,
                           "top": 30,
                           "width": 232,
@@ -18522,7 +19392,7 @@
                             }
                           },
                           "groupIndex": 0,
-                          "text": "SETTINGS",
+                          "text": "GENERAL MENU",
                           "textType": "literal",
                           "longMode": "CLIP",
                           "recolor": false,
@@ -18537,6 +19407,180 @@
                       "states": "",
                       "localStyles": {
                         "objID": "a0157e64-4edd-4783-bfff-25e77664a13b",
+                        "definition": {
+                          "MAIN": {
+                            "DEFAULT": {
+                              "pad_top": 0,
+                              "pad_bottom": 0,
+                              "pad_left": 0,
+                              "pad_right": 0,
+                              "border_width": 0,
+                              "bg_opa": 255,
+                              "radius": 12,
+                              "shadow_width": 0,
+                              "bg_color": "#F0F4F8"
+                            },
+                            "PRESSED": {
+                              "bg_color": "#DCE5EF"
+                            }
+                          }
+                        }
+                      },
+                      "groupIndex": 0
+                    },
+                    {
+                      "objID": "bd1f9580-18cc-4c37-abb3-11e01893d7c3",
+                      "type": "LVGLButtonWidget",
+                      "identifier": "overtime_menu_course_button",
+                      "left": 24,
+                      "top": 216,
+                      "width": 336,
+                      "height": 88,
+                      "customInputs": [],
+                      "customOutputs": [],
+                      "style": {
+                        "objID": "79bcae85-7b18-463c-a1be-eb811a011a79",
+                        "useStyle": "default",
+                        "conditionalStyles": [],
+                        "childStyles": []
+                      },
+                      "timeline": [],
+                      "eventHandlers": [
+                        {
+                          "objID": "3ec4086f-6867-47f3-9a33-54f50ffd45c5",
+                          "eventName": "CLICKED",
+                          "handlerType": "action",
+                          "action": "open_settings",
+                          "userData": 0
+                        }
+                      ],
+                      "leftUnit": "px",
+                      "topUnit": "px",
+                      "widthUnit": "px",
+                      "heightUnit": "px",
+                      "children": [
+                        {
+                          "objID": "47d54a94-5f0b-4cb5-99b8-2f0a89710e26",
+                          "type": "LVGLImageWidget",
+                          "identifier": "overtime_course_icon",
+                          "left": 20,
+                          "top": 24,
+                          "width": 40,
+                          "height": 40,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "876786b7-d7c4-44e0-85fd-7b9842af62e9",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "72927868-ca62-4f88-8bbf-a0d470b72244",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "image": "settings_dark",
+                          "setPivot": false,
+                          "pivotX": 0,
+                          "pivotY": 0,
+                          "zoom": 256,
+                          "angle": 0,
+                          "innerAlign": "CENTER",
+                          "sizeMode": "VIRTUAL",
+                          "value": 0,
+                          "valueType": "literal",
+                          "previewValue": 0
+                        },
+                        {
+                          "objID": "d0449214-4edc-43d4-a1ba-d97bd5161d7d",
+                          "type": "LVGLLabelWidget",
+                          "identifier": "overtime_course_label",
+                          "left": 80,
+                          "top": 30,
+                          "width": 232,
+                          "height": 28,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "7b32729b-1a3a-4ef9-b402-750fd3b5a134",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "c8b64cc6-e9b2-4156-aaec-8e005ab891a1",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0,
+                                  "radius": 0,
+                                  "shadow_width": 0,
+                                  "text_font": "RictyDiminished_32",
+                                  "text_color": "#202B36",
+                                  "text_align": "LEFT"
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "text": "COURSE MENU",
+                          "textType": "literal",
+                          "longMode": "CLIP",
+                          "recolor": false,
+                          "useStaticText": true
+                        }
+                      ],
+                      "widgetFlags": "CLICKABLE",
+                      "hiddenFlagType": "literal",
+                      "clickableFlagType": "literal",
+                      "checkedStateType": "literal",
+                      "disabledStateType": "literal",
+                      "states": "",
+                      "localStyles": {
+                        "objID": "5a72064d-0e80-40a3-b2b7-944df0129a18",
                         "definition": {
                           "MAIN": {
                             "DEFAULT": {
@@ -21565,7 +22609,7 @@
                     {
                       "objID": "8001b0cd-baa0-40d7-b130-a889dd15d5ec",
                       "type": "LVGLButtonWidget",
-                      "identifier": "plandemo_menu_settings_button",
+                      "identifier": "plandemo_menu_general_button",
                       "left": 24,
                       "top": 112,
                       "width": 336,
@@ -21584,7 +22628,7 @@
                           "objID": "cb4381f6-21f6-4d25-8331-ca83b3e44651",
                           "eventName": "CLICKED",
                           "handlerType": "action",
-                          "action": "open_settings",
+                          "action": "open_general_menu",
                           "userData": 0
                         }
                       ],
@@ -21596,7 +22640,7 @@
                         {
                           "objID": "74cec8df-469f-418d-93f4-980cb0f76595",
                           "type": "LVGLImageWidget",
-                          "identifier": "plandemo_settings_icon",
+                          "identifier": "plandemo_general_icon",
                           "left": 20,
                           "top": 24,
                           "width": 40,
@@ -21653,7 +22697,7 @@
                         {
                           "objID": "08bb2c5c-5041-4c2d-8b9a-e177c8fb4f06",
                           "type": "LVGLLabelWidget",
-                          "identifier": "plandemo_settings_label",
+                          "identifier": "plandemo_general_label",
                           "left": 80,
                           "top": 30,
                           "width": 232,
@@ -21700,7 +22744,7 @@
                             }
                           },
                           "groupIndex": 0,
-                          "text": "SETTINGS",
+                          "text": "GENERAL MENU",
                           "textType": "literal",
                           "longMode": "CLIP",
                           "recolor": false,
@@ -21715,6 +22759,180 @@
                       "states": "",
                       "localStyles": {
                         "objID": "f33fa3e9-3bd1-4b48-bbbb-535174196c10",
+                        "definition": {
+                          "MAIN": {
+                            "DEFAULT": {
+                              "pad_top": 0,
+                              "pad_bottom": 0,
+                              "pad_left": 0,
+                              "pad_right": 0,
+                              "border_width": 0,
+                              "bg_opa": 255,
+                              "radius": 12,
+                              "shadow_width": 0,
+                              "bg_color": "#F0F4F8"
+                            },
+                            "PRESSED": {
+                              "bg_color": "#DCE5EF"
+                            }
+                          }
+                        }
+                      },
+                      "groupIndex": 0
+                    },
+                    {
+                      "objID": "9e19e6d1-6cdb-4ba9-85cd-4747935e7de0",
+                      "type": "LVGLButtonWidget",
+                      "identifier": "plandemo_menu_course_button",
+                      "left": 24,
+                      "top": 216,
+                      "width": 336,
+                      "height": 88,
+                      "customInputs": [],
+                      "customOutputs": [],
+                      "style": {
+                        "objID": "020b319e-cfb8-4a1c-9e03-d2dc8cdf1872",
+                        "useStyle": "default",
+                        "conditionalStyles": [],
+                        "childStyles": []
+                      },
+                      "timeline": [],
+                      "eventHandlers": [
+                        {
+                          "objID": "deec5e4d-1cd5-463b-9b6d-ed5afbf081be",
+                          "eventName": "CLICKED",
+                          "handlerType": "action",
+                          "action": "open_settings",
+                          "userData": 0
+                        }
+                      ],
+                      "leftUnit": "px",
+                      "topUnit": "px",
+                      "widthUnit": "px",
+                      "heightUnit": "px",
+                      "children": [
+                        {
+                          "objID": "1df123f2-922f-496a-8e55-4f516225b186",
+                          "type": "LVGLImageWidget",
+                          "identifier": "plandemo_course_icon",
+                          "left": 20,
+                          "top": 24,
+                          "width": 40,
+                          "height": 40,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "51ebdbf8-6b79-406f-a284-fd5b68f450f5",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "edf57762-12c0-45f3-8162-85a266e792aa",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "image": "settings_dark",
+                          "setPivot": false,
+                          "pivotX": 0,
+                          "pivotY": 0,
+                          "zoom": 256,
+                          "angle": 0,
+                          "innerAlign": "CENTER",
+                          "sizeMode": "VIRTUAL",
+                          "value": 0,
+                          "valueType": "literal",
+                          "previewValue": 0
+                        },
+                        {
+                          "objID": "6714df50-5b32-4f9e-aeaf-742ab7861add",
+                          "type": "LVGLLabelWidget",
+                          "identifier": "plandemo_course_label",
+                          "left": 80,
+                          "top": 30,
+                          "width": 232,
+                          "height": 28,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "c796359c-3b32-4122-b5d4-0510bd2d5552",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "84c3e9d9-2464-4ece-aed0-1c32c4082042",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0,
+                                  "radius": 0,
+                                  "shadow_width": 0,
+                                  "text_font": "RictyDiminished_32",
+                                  "text_color": "#202B36",
+                                  "text_align": "LEFT"
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "text": "COURSE MENU",
+                          "textType": "literal",
+                          "longMode": "CLIP",
+                          "recolor": false,
+                          "useStaticText": true
+                        }
+                      ],
+                      "widgetFlags": "CLICKABLE",
+                      "hiddenFlagType": "literal",
+                      "clickableFlagType": "literal",
+                      "checkedStateType": "literal",
+                      "disabledStateType": "literal",
+                      "states": "",
+                      "localStyles": {
+                        "objID": "55352eb5-405a-41df-b4d9-3fafa4a5fdad",
                         "definition": {
                           "MAIN": {
                             "DEFAULT": {
@@ -24743,7 +25961,7 @@
                     {
                       "objID": "e53cca00-5f33-49b4-8428-5b4f57ead14d",
                       "type": "LVGLButtonWidget",
-                      "identifier": "cachedplan_menu_settings_button",
+                      "identifier": "cachedplan_menu_general_button",
                       "left": 24,
                       "top": 112,
                       "width": 336,
@@ -24762,7 +25980,7 @@
                           "objID": "6fb64de9-081c-48a2-9a60-f536239e2844",
                           "eventName": "CLICKED",
                           "handlerType": "action",
-                          "action": "open_settings",
+                          "action": "open_general_menu",
                           "userData": 0
                         }
                       ],
@@ -24774,7 +25992,7 @@
                         {
                           "objID": "34f46381-190e-40f2-9374-bba637ae5c2f",
                           "type": "LVGLImageWidget",
-                          "identifier": "cachedplan_settings_icon",
+                          "identifier": "cachedplan_general_icon",
                           "left": 20,
                           "top": 24,
                           "width": 40,
@@ -24831,7 +26049,7 @@
                         {
                           "objID": "6e6ad947-fecd-4582-92a0-a135f548d846",
                           "type": "LVGLLabelWidget",
-                          "identifier": "cachedplan_settings_label",
+                          "identifier": "cachedplan_general_label",
                           "left": 80,
                           "top": 30,
                           "width": 232,
@@ -24878,7 +26096,7 @@
                             }
                           },
                           "groupIndex": 0,
-                          "text": "SETTINGS",
+                          "text": "GENERAL MENU",
                           "textType": "literal",
                           "longMode": "CLIP",
                           "recolor": false,
@@ -24893,6 +26111,180 @@
                       "states": "",
                       "localStyles": {
                         "objID": "d349cb3a-f2ed-4cb1-9fd5-c7d66dad219e",
+                        "definition": {
+                          "MAIN": {
+                            "DEFAULT": {
+                              "pad_top": 0,
+                              "pad_bottom": 0,
+                              "pad_left": 0,
+                              "pad_right": 0,
+                              "border_width": 0,
+                              "bg_opa": 255,
+                              "radius": 12,
+                              "shadow_width": 0,
+                              "bg_color": "#F0F4F8"
+                            },
+                            "PRESSED": {
+                              "bg_color": "#DCE5EF"
+                            }
+                          }
+                        }
+                      },
+                      "groupIndex": 0
+                    },
+                    {
+                      "objID": "1a101280-6d29-4f2e-9bbe-f48837bf76f1",
+                      "type": "LVGLButtonWidget",
+                      "identifier": "cachedplan_menu_course_button",
+                      "left": 24,
+                      "top": 216,
+                      "width": 336,
+                      "height": 88,
+                      "customInputs": [],
+                      "customOutputs": [],
+                      "style": {
+                        "objID": "d80e7d50-e760-4dd2-b1d2-ec4c8b08d47e",
+                        "useStyle": "default",
+                        "conditionalStyles": [],
+                        "childStyles": []
+                      },
+                      "timeline": [],
+                      "eventHandlers": [
+                        {
+                          "objID": "a6a87486-5e52-4b06-ba0a-dca8c9120b15",
+                          "eventName": "CLICKED",
+                          "handlerType": "action",
+                          "action": "open_settings",
+                          "userData": 0
+                        }
+                      ],
+                      "leftUnit": "px",
+                      "topUnit": "px",
+                      "widthUnit": "px",
+                      "heightUnit": "px",
+                      "children": [
+                        {
+                          "objID": "de93bd1b-5694-48a7-92a5-1141503a7f67",
+                          "type": "LVGLImageWidget",
+                          "identifier": "cachedplan_course_icon",
+                          "left": 20,
+                          "top": 24,
+                          "width": 40,
+                          "height": 40,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "eb66d065-ecca-45d5-92e6-2346ad28e6bd",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "08e52172-32eb-4fbd-96a2-0c58732ef55d",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "image": "settings_dark",
+                          "setPivot": false,
+                          "pivotX": 0,
+                          "pivotY": 0,
+                          "zoom": 256,
+                          "angle": 0,
+                          "innerAlign": "CENTER",
+                          "sizeMode": "VIRTUAL",
+                          "value": 0,
+                          "valueType": "literal",
+                          "previewValue": 0
+                        },
+                        {
+                          "objID": "4a90fe07-2d92-4812-909c-211422e21a42",
+                          "type": "LVGLLabelWidget",
+                          "identifier": "cachedplan_course_label",
+                          "left": 80,
+                          "top": 30,
+                          "width": 232,
+                          "height": 28,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "17c1565b-d4ac-400e-b4ed-2ba397423e9a",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "fb774059-dd6a-4c23-865d-b5976c80073d",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0,
+                                  "radius": 0,
+                                  "shadow_width": 0,
+                                  "text_font": "RictyDiminished_32",
+                                  "text_color": "#202B36",
+                                  "text_align": "LEFT"
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "text": "COURSE MENU",
+                          "textType": "literal",
+                          "longMode": "CLIP",
+                          "recolor": false,
+                          "useStaticText": true
+                        }
+                      ],
+                      "widgetFlags": "CLICKABLE",
+                      "hiddenFlagType": "literal",
+                      "clickableFlagType": "literal",
+                      "checkedStateType": "literal",
+                      "disabledStateType": "literal",
+                      "states": "",
+                      "localStyles": {
+                        "objID": "f988014d-ae16-4874-b459-7abf194c86d7",
                         "definition": {
                           "MAIN": {
                             "DEFAULT": {
@@ -27664,7 +29056,7 @@
                     {
                       "objID": "7a7c58f1-cfc9-4d4e-ba52-7702478ab68d",
                       "type": "LVGLButtonWidget",
-                      "identifier": "expiredplan_menu_settings_button",
+                      "identifier": "expiredplan_menu_general_button",
                       "left": 24,
                       "top": 112,
                       "width": 336,
@@ -27683,7 +29075,7 @@
                           "objID": "f0aad75e-efcb-480a-8642-1548b926f44c",
                           "eventName": "CLICKED",
                           "handlerType": "action",
-                          "action": "open_settings",
+                          "action": "open_general_menu",
                           "userData": 0
                         }
                       ],
@@ -27695,7 +29087,7 @@
                         {
                           "objID": "d16b1370-e716-4bea-8f4e-685787c6b36a",
                           "type": "LVGLImageWidget",
-                          "identifier": "expiredplan_settings_icon",
+                          "identifier": "expiredplan_general_icon",
                           "left": 20,
                           "top": 24,
                           "width": 40,
@@ -27752,7 +29144,7 @@
                         {
                           "objID": "3ea2b427-5a9f-445a-a11f-14b8a3af8768",
                           "type": "LVGLLabelWidget",
-                          "identifier": "expiredplan_settings_label",
+                          "identifier": "expiredplan_general_label",
                           "left": 80,
                           "top": 30,
                           "width": 232,
@@ -27799,7 +29191,7 @@
                             }
                           },
                           "groupIndex": 0,
-                          "text": "SETTINGS",
+                          "text": "GENERAL MENU",
                           "textType": "literal",
                           "longMode": "CLIP",
                           "recolor": false,
@@ -27814,6 +29206,180 @@
                       "states": "",
                       "localStyles": {
                         "objID": "60ba1417-70b1-47ce-b6cc-4cf71aae694b",
+                        "definition": {
+                          "MAIN": {
+                            "DEFAULT": {
+                              "pad_top": 0,
+                              "pad_bottom": 0,
+                              "pad_left": 0,
+                              "pad_right": 0,
+                              "border_width": 0,
+                              "bg_opa": 255,
+                              "radius": 12,
+                              "shadow_width": 0,
+                              "bg_color": "#F0F4F8"
+                            },
+                            "PRESSED": {
+                              "bg_color": "#DCE5EF"
+                            }
+                          }
+                        }
+                      },
+                      "groupIndex": 0
+                    },
+                    {
+                      "objID": "1c757acf-48e1-4536-8ade-997b379e806e",
+                      "type": "LVGLButtonWidget",
+                      "identifier": "expiredplan_menu_course_button",
+                      "left": 24,
+                      "top": 216,
+                      "width": 336,
+                      "height": 88,
+                      "customInputs": [],
+                      "customOutputs": [],
+                      "style": {
+                        "objID": "209a49e3-24ff-4730-b125-a69bff1cd3e1",
+                        "useStyle": "default",
+                        "conditionalStyles": [],
+                        "childStyles": []
+                      },
+                      "timeline": [],
+                      "eventHandlers": [
+                        {
+                          "objID": "8c4458f3-10f5-45af-9032-d4a84755e2a3",
+                          "eventName": "CLICKED",
+                          "handlerType": "action",
+                          "action": "open_settings",
+                          "userData": 0
+                        }
+                      ],
+                      "leftUnit": "px",
+                      "topUnit": "px",
+                      "widthUnit": "px",
+                      "heightUnit": "px",
+                      "children": [
+                        {
+                          "objID": "ee041f12-fe5a-4af7-8a30-3a93a865e029",
+                          "type": "LVGLImageWidget",
+                          "identifier": "expiredplan_course_icon",
+                          "left": 20,
+                          "top": 24,
+                          "width": 40,
+                          "height": 40,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "f5ae8bb6-5726-4bdd-bf96-006d89230e0d",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "e54c7c38-654e-4990-a114-edebfe55d857",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "image": "settings_dark",
+                          "setPivot": false,
+                          "pivotX": 0,
+                          "pivotY": 0,
+                          "zoom": 256,
+                          "angle": 0,
+                          "innerAlign": "CENTER",
+                          "sizeMode": "VIRTUAL",
+                          "value": 0,
+                          "valueType": "literal",
+                          "previewValue": 0
+                        },
+                        {
+                          "objID": "4db1642b-eb93-4fe7-8295-8068fc5ba08d",
+                          "type": "LVGLLabelWidget",
+                          "identifier": "expiredplan_course_label",
+                          "left": 80,
+                          "top": 30,
+                          "width": 232,
+                          "height": 28,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "8595cc49-d5e7-4bb0-a1f5-9fb233f5807a",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "061c9123-63e2-4d1f-9aeb-a41f58974072",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0,
+                                  "radius": 0,
+                                  "shadow_width": 0,
+                                  "text_font": "RictyDiminished_32",
+                                  "text_color": "#202B36",
+                                  "text_align": "LEFT"
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "text": "COURSE MENU",
+                          "textType": "literal",
+                          "longMode": "CLIP",
+                          "recolor": false,
+                          "useStaticText": true
+                        }
+                      ],
+                      "widgetFlags": "CLICKABLE",
+                      "hiddenFlagType": "literal",
+                      "clickableFlagType": "literal",
+                      "checkedStateType": "literal",
+                      "disabledStateType": "literal",
+                      "states": "",
+                      "localStyles": {
+                        "objID": "59bc7f77-d8d8-4d40-aa98-aba83d03b2f0",
                         "definition": {
                           "MAIN": {
                             "DEFAULT": {
@@ -30585,7 +32151,7 @@
                     {
                       "objID": "ba8a4b34-dc6d-4843-a37b-dbf1f561bd8b",
                       "type": "LVGLButtonWidget",
-                      "identifier": "lapcorrected_menu_settings_button",
+                      "identifier": "lapcorrected_menu_general_button",
                       "left": 24,
                       "top": 112,
                       "width": 336,
@@ -30604,7 +32170,7 @@
                           "objID": "32654406-41ee-4797-9de8-2f3045b1247d",
                           "eventName": "CLICKED",
                           "handlerType": "action",
-                          "action": "open_settings",
+                          "action": "open_general_menu",
                           "userData": 0
                         }
                       ],
@@ -30616,7 +32182,7 @@
                         {
                           "objID": "89151fec-0134-469f-ae64-09b92a679525",
                           "type": "LVGLImageWidget",
-                          "identifier": "lapcorrected_settings_icon",
+                          "identifier": "lapcorrected_general_icon",
                           "left": 20,
                           "top": 24,
                           "width": 40,
@@ -30673,7 +32239,7 @@
                         {
                           "objID": "c36b4b8a-9764-430c-b76a-b100ad006b9d",
                           "type": "LVGLLabelWidget",
-                          "identifier": "lapcorrected_settings_label",
+                          "identifier": "lapcorrected_general_label",
                           "left": 80,
                           "top": 30,
                           "width": 232,
@@ -30720,7 +32286,7 @@
                             }
                           },
                           "groupIndex": 0,
-                          "text": "SETTINGS",
+                          "text": "GENERAL MENU",
                           "textType": "literal",
                           "longMode": "CLIP",
                           "recolor": false,
@@ -30735,6 +32301,180 @@
                       "states": "",
                       "localStyles": {
                         "objID": "b4bb022b-ca7d-4b8c-ae78-636ee94f006f",
+                        "definition": {
+                          "MAIN": {
+                            "DEFAULT": {
+                              "pad_top": 0,
+                              "pad_bottom": 0,
+                              "pad_left": 0,
+                              "pad_right": 0,
+                              "border_width": 0,
+                              "bg_opa": 255,
+                              "radius": 12,
+                              "shadow_width": 0,
+                              "bg_color": "#F0F4F8"
+                            },
+                            "PRESSED": {
+                              "bg_color": "#DCE5EF"
+                            }
+                          }
+                        }
+                      },
+                      "groupIndex": 0
+                    },
+                    {
+                      "objID": "40fb8b17-71ff-401f-84a7-700919fd3966",
+                      "type": "LVGLButtonWidget",
+                      "identifier": "lapcorrected_menu_course_button",
+                      "left": 24,
+                      "top": 216,
+                      "width": 336,
+                      "height": 88,
+                      "customInputs": [],
+                      "customOutputs": [],
+                      "style": {
+                        "objID": "c3233dab-6b6b-42bb-87d6-d8e00a79fe55",
+                        "useStyle": "default",
+                        "conditionalStyles": [],
+                        "childStyles": []
+                      },
+                      "timeline": [],
+                      "eventHandlers": [
+                        {
+                          "objID": "f79e9dff-31a3-4e8b-89f2-56fb53df5bbb",
+                          "eventName": "CLICKED",
+                          "handlerType": "action",
+                          "action": "open_settings",
+                          "userData": 0
+                        }
+                      ],
+                      "leftUnit": "px",
+                      "topUnit": "px",
+                      "widthUnit": "px",
+                      "heightUnit": "px",
+                      "children": [
+                        {
+                          "objID": "c2727e5d-0398-4437-9a4f-47deee519f4b",
+                          "type": "LVGLImageWidget",
+                          "identifier": "lapcorrected_course_icon",
+                          "left": 20,
+                          "top": 24,
+                          "width": 40,
+                          "height": 40,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "1d2eb289-8400-424e-bf15-8dc08100c0a6",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "03c76d8c-021f-402b-9eac-b7f254f750d9",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "image": "settings_dark",
+                          "setPivot": false,
+                          "pivotX": 0,
+                          "pivotY": 0,
+                          "zoom": 256,
+                          "angle": 0,
+                          "innerAlign": "CENTER",
+                          "sizeMode": "VIRTUAL",
+                          "value": 0,
+                          "valueType": "literal",
+                          "previewValue": 0
+                        },
+                        {
+                          "objID": "26500e21-3417-4576-97ea-af3c13cc8524",
+                          "type": "LVGLLabelWidget",
+                          "identifier": "lapcorrected_course_label",
+                          "left": 80,
+                          "top": 30,
+                          "width": 232,
+                          "height": 28,
+                          "customInputs": [],
+                          "customOutputs": [],
+                          "style": {
+                            "objID": "8e4a8471-c8ba-4912-9c85-c6793b153554",
+                            "useStyle": "default",
+                            "conditionalStyles": [],
+                            "childStyles": []
+                          },
+                          "timeline": [],
+                          "eventHandlers": [],
+                          "leftUnit": "px",
+                          "topUnit": "px",
+                          "widthUnit": "px",
+                          "heightUnit": "px",
+                          "children": [],
+                          "widgetFlags": "",
+                          "hiddenFlagType": "literal",
+                          "clickableFlagType": "literal",
+                          "checkedStateType": "literal",
+                          "disabledStateType": "literal",
+                          "states": "",
+                          "localStyles": {
+                            "objID": "6686b4c6-8f47-499a-95aa-33c2bd3b766f",
+                            "definition": {
+                              "MAIN": {
+                                "DEFAULT": {
+                                  "pad_top": 0,
+                                  "pad_bottom": 0,
+                                  "pad_left": 0,
+                                  "pad_right": 0,
+                                  "border_width": 0,
+                                  "bg_opa": 0,
+                                  "radius": 0,
+                                  "shadow_width": 0,
+                                  "text_font": "RictyDiminished_32",
+                                  "text_color": "#202B36",
+                                  "text_align": "LEFT"
+                                }
+                              }
+                            }
+                          },
+                          "groupIndex": 0,
+                          "text": "COURSE MENU",
+                          "textType": "literal",
+                          "longMode": "CLIP",
+                          "recolor": false,
+                          "useStaticText": true
+                        }
+                      ],
+                      "widgetFlags": "CLICKABLE",
+                      "hiddenFlagType": "literal",
+                      "clickableFlagType": "literal",
+                      "checkedStateType": "literal",
+                      "disabledStateType": "literal",
+                      "states": "",
+                      "localStyles": {
+                        "objID": "a613ea40-783c-48be-b5fe-01cb541f5809",
                         "definition": {
                           "MAIN": {
                             "DEFAULT": {
@@ -33514,7 +35254,7 @@
               "identifier": "settings_open_advanced_button",
               "left": 24,
               "top": 588,
-              "width": 270,
+              "width": 564,
               "height": 64,
               "customInputs": [],
               "customOutputs": [],
@@ -33603,119 +35343,6 @@
               "states": "",
               "localStyles": {
                 "objID": "a8c286a4-b8ea-4957-859d-a1d2ae132e88",
-                "definition": {
-                  "MAIN": {
-                    "DEFAULT": {
-                      "pad_top": 0,
-                      "pad_bottom": 0,
-                      "pad_left": 0,
-                      "pad_right": 0,
-                      "border_width": 0,
-                      "bg_opa": 255,
-                      "shadow_width": 0,
-                      "bg_color": "#1769B2",
-                      "radius": 12
-                    }
-                  }
-                }
-              },
-              "groupIndex": 0
-            },
-            {
-              "objID": "f1dc5931-e5bd-4e7f-870d-5c067d106d25",
-              "type": "LVGLButtonWidget",
-              "identifier": "settings_open_general_button",
-              "left": 314,
-              "top": 588,
-              "width": 274,
-              "height": 64,
-              "customInputs": [],
-              "customOutputs": [],
-              "style": {
-                "objID": "1a0246ea-9468-45aa-bc7b-274521e4f879",
-                "useStyle": "default",
-                "conditionalStyles": [],
-                "childStyles": []
-              },
-              "timeline": [],
-              "eventHandlers": [
-                {
-                  "objID": "56de0434-d17a-43fe-9b3d-e67573e490fa",
-                  "eventName": "CLICKED",
-                  "handlerType": "action",
-                  "action": "open_general_settings",
-                  "userData": 0
-                }
-              ],
-              "leftUnit": "px",
-              "topUnit": "px",
-              "widthUnit": "px",
-              "heightUnit": "px",
-              "children": [
-                {
-                  "objID": "c0d8dade-9820-482d-aa5f-4312abe18d45",
-                  "type": "LVGLLabelWidget",
-                  "identifier": "settings_open_general_button_label",
-                  "left": 0,
-                  "top": 18,
-                  "width": 564,
-                  "height": 28,
-                  "customInputs": [],
-                  "customOutputs": [],
-                  "style": {
-                    "objID": "f464a37e-5b40-4125-969a-9cae1011ba9a",
-                    "useStyle": "default",
-                    "conditionalStyles": [],
-                    "childStyles": []
-                  },
-                  "timeline": [],
-                  "eventHandlers": [],
-                  "leftUnit": "px",
-                  "topUnit": "px",
-                  "widthUnit": "px",
-                  "heightUnit": "px",
-                  "children": [],
-                  "widgetFlags": "",
-                  "hiddenFlagType": "literal",
-                  "clickableFlagType": "literal",
-                  "checkedStateType": "literal",
-                  "disabledStateType": "literal",
-                  "states": "",
-                  "localStyles": {
-                    "objID": "ff8cfc7a-d6c0-4761-9331-cf04959b08a6",
-                    "definition": {
-                      "MAIN": {
-                        "DEFAULT": {
-                          "pad_top": 0,
-                          "pad_bottom": 0,
-                          "pad_left": 0,
-                          "pad_right": 0,
-                          "border_width": 0,
-                          "bg_opa": 0,
-                          "shadow_width": 0,
-                          "text_font": "RictyDiminished_24",
-                          "text_color": "#FFFFFF",
-                          "text_align": "CENTER"
-                        }
-                      }
-                    }
-                  },
-                  "groupIndex": 0,
-                  "text": "GENERAL SETTINGS",
-                  "textType": "literal",
-                  "longMode": "CLIP",
-                  "recolor": false,
-                  "useStaticText": true
-                }
-              ],
-              "widgetFlags": "CLICKABLE",
-              "hiddenFlagType": "literal",
-              "clickableFlagType": "literal",
-              "checkedStateType": "literal",
-              "disabledStateType": "literal",
-              "states": "",
-              "localStyles": {
-                "objID": "88c55bd9-c818-4086-8100-7b4423df4a8b",
                 "definition": {
                   "MAIN": {
                     "DEFAULT": {

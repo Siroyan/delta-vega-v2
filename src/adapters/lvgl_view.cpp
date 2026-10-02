@@ -740,7 +740,7 @@ void openSelection() {
   else text(selection_message, "ELECTRICAL OFF TO CHANGE SELECTION");
 }
 void setupSelectionUi() {
-  auto *menu = selectorButton(objects.waiting_navigation_drawer, 24, 216, 336, 88,
+  auto *menu = selectorButton(objects.waiting_navigation_drawer, 24, 320, 336, 88,
                               "COURSE / STRATEGY", 0x1769B2);
   lv_obj_add_event_cb(menu, [](lv_event_t *) { openSelection(); }, LV_EVENT_CLICKED, nullptr);
 
@@ -1176,7 +1176,7 @@ void viewOpenGeneral() {
   visible(objects.settings_general_overlay, true);
   lv_obj_move_foreground(objects.settings_general_overlay);
 }
-void viewCloseGeneral() { visible(objects.settings_general_overlay, false); }
+void viewCloseGeneral() { viewReturnDashboard(); }
 
 void selectGpsSource(vega::GpsSource source) {
   if (presenter.phase() == vega::RacePhase::Measuring || save_pending) return;
@@ -1358,7 +1358,7 @@ bool viewDiagnostic(const char *command) {
   if (!strcmp(command, "ui-status")) {
     Serial.printf(
         "[UI] screen=%s start_enabled=%u ignition_enabled=%u settings_enabled=%u "
-        "advanced_visible=%u editor_visible=%u "
+        "advanced_visible=%u general_visible=%u editor_visible=%u "
         "message=%s\n",
         lv_screen_active() == objects.settings  ? "settings"
         : lv_screen_active() == objects.waiting ? "waiting"
@@ -1368,6 +1368,7 @@ bool viewDiagnostic(const char *command) {
         !lv_obj_has_state(objects.waiting_ignition_switch, LV_STATE_DISABLED),
         !lv_obj_has_state(objects.settings_save_button, LV_STATE_DISABLED),
         !lv_obj_has_flag(objects.settings_advanced_overlay, LV_OBJ_FLAG_HIDDEN),
+        !lv_obj_has_flag(objects.settings_general_overlay, LV_OBJ_FLAG_HIDDEN),
         !lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN), message);
   } else if (!strcmp(command, "ui-touch")) {
     auto *screen = lv_screen_active();
@@ -1421,10 +1422,12 @@ bool viewDiagnostic(const char *command) {
                   lv_label_get_text(objects.plan_status_label));
   } else if (!strcmp(command, "ui-settings"))
     action_open_settings(nullptr);
+  else if (!strcmp(command, "ui-general-menu"))
+    action_open_general_menu(nullptr);
   else if (!strcmp(command, "ui-advanced"))
     action_open_advanced_settings(nullptr);
   else if (!strcmp(command, "ui-general"))
-    action_open_general_settings(nullptr);
+    viewOpenGeneral();
   else if (!strcmp(command, "ui-advanced-back"))
     action_close_advanced_settings(nullptr);
   else if (!strcmp(command, "ui-general-back"))
