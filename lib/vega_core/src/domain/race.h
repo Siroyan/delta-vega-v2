@@ -14,6 +14,11 @@ class RaceSession {
   RacePhase phase() const { return phase_; }
   uint8_t lap() const { return lap_; }
   uint8_t lapCount() const { return lap_count_; }
+  bool setLapCount(uint8_t count) {
+    if (phase_ != RacePhase::Waiting || count < 2 || count > kLapCount) return false;
+    lap_count_ = count;
+    return true;
+  }
   Millis sinceLap(Millis now) const { return now >= lap_start_ ? now - lap_start_ : 0; }
 
  private:

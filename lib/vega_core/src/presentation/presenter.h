@@ -48,6 +48,7 @@ class Presenter {
   bool request(const Command &command);
   const Settings &settings() const { return settings_; }
   RacePhase phase() const { return phase_; }
+  void setLapCount(uint8_t count) { if (count >= 2 && count <= kLapCount) lap_count_ = count; }
   static void formatTime(uint64_t ms, char *text, size_t capacity);
 
  private:

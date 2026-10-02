@@ -17,7 +17,7 @@
     "ui_image_electrical_power_on.c",
     "ui_image_ignition_flame.c",
     "ui_image_menu_dark.c",
-    "ui_image_motegi_background_480.c",
+    "ui_image_route_dark.c",
     "ui_image_settings_dark.c",
     "ui_image_x_dark.c",
     "vars.h"

@@ -249,16 +249,17 @@ GPS未受信やクラウド未接続は「計測中」に重なる状態とし�
 - 左上の56×56 pxボタンに32 pxのハンバーガーアイコンを置く。10種類のダッシュボードすべてで同じ位置に表示する。
 - タップすると幅384 px・高さ720 pxの白いパネルを左端に表示し、画面の残りを半透明の暗い背景（#202B36、opacity 100/255）で覆う。表示中は背景の操作領域へのタッチを遮断する。
 - パネル上部の閉じるアイコン、またはパネル外の背景をタップすると閉じる。パネル内の余白をタップしても閉じない。
-- メニュー項目は`SETTINGS`のみ。ボタンは（24, 112, 336, 88）、設定アイコンは40 pxとする。PlanDemo等の確認用ページへの切り替え項目は追加しない。
-- `SETTINGS`を押すとSettings画面へ遷移する。戻るボタンは（16, 12, 56, 56）で32 pxの矢印アイコン、タイトルは（96, 26, 1100, 43）で48 px文字とする。設定はNVSへ保存する。戻る操作は未保存の編集を破棄し、現在のレース状態に対応するダッシュボードへ戻る。
-- Settingsの左側には全体と7周のTARGET、右側にはスタート・周回更新・ゴールの緯度と経度を配置する。右側の最下段には`DISPLAY BRIGHTNESS`のスライダーと現在値（%）を置く。左下の`ADVANCED SETTINGS`から車輪・GPS・周回判定・ECU関連の13項目とGPS接続先を開く。Advanced画面はSettingsと同じ見た目・2列構成とし、右側の最下段に`GPS INPUT`の`M5BUS` / `PORT.A`二択を配置する。選択中のボタンを青く表示する。戻る矢印はSettingsへ戻す。両画面の編集内容は共通の一時設定に保持する。
-- 数値をタップすると編集オーバーレイを開く。左上の戻る矢印はその項目の編集を破棄し、SETは編集値を一時設定へ反映する。GPS接続先は二択のボタンで選ぶ。明るさはスライダー操作中にプレビューし、保存せずSettingsを閉じると元の明るさに戻す。表示が読めるよう明るさの下限を64/255、初期値を従来と同じ127/255にする。SAVE SETTINGSで27個の数値項目・GPS接続先・明るさをまとめてNVSへ保存する。Settingsからダッシュボードへ戻ると未保存の編集は破棄する。
+- メニューに`GENERAL MENU`（24, 112, 336, 88）と`COURSE MENU`（24, 216, 336, 88）を別々に置く。Waiting画面だけは、その下（24, 320, 336, 88）に`COURSE / STRATEGY`を置く。各項目は同じ白いボタンと左側40 pxのアイコンで揃え、前二者は設定、後者は経路のLucideアイコンを使う。PlanDemo等の確認用ページへの切り替え項目は追加しない。
+- `COURSE / STRATEGY`の選択画面も左上（16, 12, 56, 56）に32 pxの戻る矢印を置き、タイトルを他の設定画面と同じ位置・文字サイズに揃える。戻る矢印はWaiting画面へ戻す。右上の`REFRESH`は維持する。
+- `GENERAL MENU`は端末共通の設定画面、`COURSE MENU`は選択中コースの設定画面へ直接遷移する。戻るボタンは（16, 12, 56, 56）で32 pxの矢印アイコン、タイトルは（96, 26, 1100, 43）で48 px文字とする。GENERAL SETTINGSの戻る矢印はコース設定画面を経由せず、ダッシュボードへ戻る。戻る操作は未保存の編集を破棄する。
+- `COURSE SETTINGS`の左側には全体と7周のTARGET、右側にはスタート・周回更新・ゴールの緯度と経度を配置する。左下の`COURSE DETAILS`から回廊幅・最小周回距離・最小周回時間・重複抑制の4項目を開き、その戻る矢印はCOURSE SETTINGSへ戻す。`GENERAL SETTINGS`には車輪・電装・ECU・GPSの9数値項目、`GPS INPUT`の`M5BUS` / `PORT.A`二択、`DISPLAY BRIGHTNESS`のスライダーを置く。
+- 数値をタップすると編集オーバーレイを開く。左上の戻る矢印はその項目の編集を破棄し、SETは編集値を一時設定へ反映する。GPS接続先は二択のボタンで選ぶ。明るさはスライダー操作中にプレビューし、保存せずSettingsを閉じると元の明るさに戻す。表示が読めるよう明るさの下限を64/255、初期値を127/255にする。各ページのSAVE SETTINGSは表示中の範囲だけをNVSへ保存し、他方の未保存値は変更しない。TARGET・地点・周回判定はコース別、輝度・GPS・車両設定は端末共通とする。Settingsからダッシュボードへ戻ると未保存の編集は破棄する。
 - Advanced画面の電装極性は`POWER HIGH`として`1`=HIGHでON、`0`=LOWでONを表示する。単位は各ラベルに記す。値は中核の設定検証を通し、範囲外や不正な形式は受け付けない。
 - 計測中は数値編集・GPS接続先の切替・明るさの変更・保存を無効にする。GPS接続先の保存に成功した場合はUARTと受信状態を初期化する。取消はダッシュボードのメニューまたはSettingsのCANCEL TIMINGから行い、確認画面でCANCEL TIMINGを押すとWaitingへ戻る。KEEP TIMINGで計測を継続する。記録済みデータは保持する。
 - 電装ON中は電装極性・ECU準備時間・点火パルス幅の編集ボタンを無効にし、アプリケーション側でも変更を拒否する。
 - 設定画面の戻るアイコンで、メニューを開いたダッシュボードに戻る。画面を再作成せず、表示値・電装トグルの状態を維持する。
 - ハンバーガー・閉じる・戻る・設定アイコンもLucideのアセットを使い、元SVG・派生画像・ライセンスを既存のアイコン用フォルダで管理する。
-- EEZのCLICKEDイベントに`open_menu`・`close_menu`・`open_settings`・`open_advanced_settings`・`close_advanced_settings`・`return_to_dashboard`のネイティブアクションを設定する。実装は`src/app/ui_navigation.cpp`に置き、EEZ再生成で失われないようにする。
+- EEZのCLICKEDイベントに`open_menu`・`close_menu`・`open_settings`・`open_general_menu`・`open_selection`・`open_advanced_settings`・`close_advanced_settings`・`close_general_settings`・`return_to_dashboard`のネイティブアクションを設定する。実装は`src/app/ui_navigation.cpp`に置き、EEZ再生成で失われないようにする。
 
 ## 7. インジケーター
 
@@ -349,7 +350,7 @@ PlanDemo・CachedPlan・ExpiredPlanの地図内には`plan_demo_label`、`plan_l
 
 ### 9.1 現行のmicroSDプラン
 
-Tab5起動時に`/vega/strategy.json`を読み込む。フォーマット、7周の例、距離の原点と検証条件は[走行戦略データREADME](../assets/strategy/README.md)を参照する。対象コースと各周の経路・距離を検証し、不正なら案内を表示しない。Waitingでは1周目をプレビューし、Mainでは現在周回をモックと同じ橙色のエンジン使用区間、青色の惰性区間、点火炎とOFF四角で描く。GPS測位が有効なら次のON/OFF地点までの距離を下部中央に表示する。GPSが使えない場合も地図上の計画は表示し、距離案内の代わりにGPS欠損を示す。戦略は表示専用で、電装・点火GPIOを自動操作しない。
+Waiting画面のメニューからコースと、microSDの`/vega/strategies/`に置いた戦略JSONを選ぶ。旧`/vega/strategy.json`も選択できる。フォーマット、周回数別の検証、距離の原点は[走行戦略データREADME](../assets/strategy/README.md)を参照する。対象コースと各周の経路・距離を検証し、不正なら案内を表示しない。Waitingでは1周目をプレビューし、Mainでは現在周回を橙色のエンジン使用区間、青色の惰性区間、点火炎とOFF四角で描く。GPS測位が有効なら次のON/OFF地点までの距離を下部中央に表示する。GPSが使えない場合も地図上の計画は表示し、距離案内の代わりにGPS欠損を示す。戦略は表示専用で、電装・点火GPIOを自動操作しない。
 
 ### 9.2 将来のAWS更新
 
@@ -388,7 +389,7 @@ EEZはレイアウト・固定スタイル・静的アセットの編集元と�
 | `eez/delta-vega-v2.eez-project` | 画面の編集元。既存 |
 | `eez/fonts/` | 元フォントとライセンス。既存 |
 | `assets/icons/lucide/` | 電源・炎・メニュー等の原本SVG、派生SVG・PNG、ライセンス、取得元 |
-| `assets/motegi_oval_full/` | 現行のコースJSON・背景PNG・編集用SVG。画像生成ツールは別リポジトリで管理する方針 |
+| `assets/motegi_oval_full/` | 収録コースの一つ。JSON・背景PNG・編集用SVG・組込用画像 |
 | `assets/motegi_oval/` | 旧周回路データ。現行ファームウェアからは参照しない |
 | `src/ui/` | EEZ生成物。既存。生成先は`../src/ui`を維持 |
 | `src/app/ui_navigation.cpp` | メニュー開閉、設定画面への遷移、元の画面への復帰。EEZ生成コードの外に実装 |
@@ -397,7 +398,7 @@ EEZはレイアウト・固定スタイル・静的アセットの編集元と�
 | `src/adapters/lvgl_view.*` | LVGL View・EEZオブジェクトとの接続・動的地図描画 |
 | `src/tab5_lvgl.*` | 画面・タッチ接続。既存 |
 
-`assets/`は編集用データとアセットの保管場所であり、置くだけで実機に転送・読み込みされる仕様ではない。背景はEEZの画像アセットとして取り込み、JSONは`python3 scripts/generate_course_data.py`で`src/adapters/course_data.h`へ定数生成する。
+`assets/`には各コースの編集元と組込用データをまとめる。背景画像と生成済みコース定数はPlatformIOで同時に組み込み、EEZ画面は選択結果に応じて画像を切り替える。JSONの定数は`python3 scripts/generate_course_data.py --source <course.json>`で同じアセットフォルダの`course_data.h`へ生成する。
 
 ### 10.2 現行EEZオブジェクト名
 

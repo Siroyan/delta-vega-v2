@@ -16,16 +16,12 @@
 #include "../ui/ui.h"
 #include "../tab5_lvgl.h"
 #include "../control_gesture.h"
-#include "selected_course.h"
+#include "course_catalog.h"
 #include "domain/course.h"
 #include "presentation/settings_form.h"
 #include "tab5_runtime.h"
 
-#if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 1
-extern "C" const lv_image_dsc_t img_tamagawagakuen_course_480;
-#elif defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 2
-extern "C" const lv_image_dsc_t img_tobitakyu_course_480;
-#endif
+
 
 namespace tab5 {
 void finishEdit();
@@ -43,6 +39,7 @@ void text(lv_obj_t *o, const char *value) {
 }
 void enabled(lv_obj_t *o, bool value) {
   if (o) {
+    if (value == !lv_obj_has_state(o, LV_STATE_DISABLED)) return;
     if (value)
       lv_obj_remove_state(o, LV_STATE_DISABLED);
     else
@@ -115,6 +112,7 @@ lv_obj_t *gps_coordinate_labels[2][2]{};  // [Main, Waiting][latitude, longitude
 vega::Settings draft{};
 size_t editing_field = 0;
 bool save_pending = false;
+vega::Settings pending_settings{};
 bool ignition_pending = false;
 bool finish_mode = false;
 bool finish_ready = false;
@@ -157,6 +155,16 @@ struct CourseMapMarkers {
   lv_point_precise_t lap_points[2]{};
 };
 std::array<CourseMapMarkers, kCourseMapCount> course_markers{};
+std::array<lv_obj_t *, kCourseMapCount> course_images{};
+uint8_t displayed_course_index = 0;
+const vega::CourseData &courseData() { return *courseAsset(displayed_course_index).data; }
+lv_obj_t *selection_overlay = nullptr;
+lv_obj_t *selection_list = nullptr;
+lv_obj_t *selection_message = nullptr;
+lv_obj_t *selection_refresh = nullptr;
+lv_obj_t *course_buttons[8]{};
+PlanChoices shown_choices{};
+bool choices_initialized = false;
 constexpr size_t kPlanLinePoints = 96;
 struct PlanLine {
   lv_obj_t *object = nullptr;
@@ -184,7 +192,7 @@ lv_point_precise_t planPixel(const vega::CoursePath &path, double s_m) {
   const double fraction = b.s > a.s ? (distance - a.s) / (b.s - a.s) : 0;
   const double east = a.east + fraction * (b.east - a.east);
   const double north = a.north + fraction * (b.north - a.north);
-  const auto &matrix = course_data.pixel_matrix;
+  const auto &matrix = courseData().pixel_matrix;
   return {static_cast<lv_value_precise_t>(std::lround(matrix[0] * east + matrix[1] * north + matrix[2])),
           static_cast<lv_value_precise_t>(std::lround(matrix[3] * east + matrix[4] * north + matrix[5]))};
 }
@@ -224,7 +232,7 @@ void renderPlanMap(PlanMap &map, const vega::DisplayModel &model) {
   }
   if (map.shown && map.shown_lap == model.plan_lap_number) return;
   const auto &lap = model.plan_lap;
-  const auto &path = course_data.routes[static_cast<size_t>(lap.route)];
+  const auto &path = courseData().routes[static_cast<size_t>(lap.route)];
   double previous_off = 0;
   for (size_t i = 0; i < vega::kMaxStrategyRunsPerLap; ++i) {
     if (i >= lap.run_count) {
@@ -392,7 +400,7 @@ void updateCourseMarkers(const vega::Settings &settings) {
       settings.timing.longitude == displayed_timing.longitude &&
       settings.course_corridor_m == displayed_corridor_m)
     return;
-  vega::Course course(course_data);
+  vega::Course course(courseData());
   const auto start = course.locateOn(settings.start, settings.course_corridor_m,
                                       vega::CourseRoute::First);
   const auto goal = course.locateOn(settings.goal, settings.course_corridor_m,
@@ -460,6 +468,7 @@ void setMessage(const char *value) {
   std::snprintf(message, sizeof(message), "%s", value);
   text(objects.settings_message_label, message);
   text(objects.settings_advanced_message_label, message);
+  text(objects.settings_general_message_label, message);
 }
 bool sameSettings(const vega::Settings &a, const vega::Settings &b) {
   return a.version == b.version && a.gps_source == b.gps_source &&
@@ -641,8 +650,10 @@ class View final : public vega::IView {
     for (size_t i = 16; i <= 18; ++i) enabled(fieldButton(i), editable && !m.power_on);
     enabled(objects.settings_save_button, editable);
     enabled(objects.settings_advanced_save_button, editable);
+    enabled(objects.settings_general_save_button, editable);
     enabled(objects.settings_cancel_button, m.phase == vega::RacePhase::Measuring);
     enabled(objects.settings_advanced_cancel_button, m.phase == vega::RacePhase::Measuring);
+    enabled(objects.settings_general_cancel_button, m.phase == vega::RacePhase::Measuring);
     if (m.phase == vega::RacePhase::Measuring && lv_screen_active() == objects.settings &&
         !save_pending) {
       setMessage("TIMING ACTIVE - SETTINGS LOCKED");
@@ -653,7 +664,7 @@ class View final : public vega::IView {
 struct Sink final : vega::ICommandSink {
   bool submit(const vega::Command &c) override { return tab5::submit(c); }
 } sink;
-vega::Presenter presenter(view, sink, vega::Course(course_data).lapCount());
+vega::Presenter presenter(view, sink, vega::Course(*courseAsset(0).data).lapCount());
 
 bool request(CommandKind kind) {
   Command command{};
@@ -664,7 +675,140 @@ bool request(CommandKind kind) {
   }
   return true;
 }
+lv_obj_t *selectorButton(lv_obj_t *parent, int x, int y, int w, int h,
+                         const char *caption, uint32_t color) {
+  auto *button = lv_button_create(parent);
+  lv_obj_set_pos(button, x, y);
+  lv_obj_set_size(button, w, h);
+  lv_obj_set_style_bg_color(button, lv_color_hex(color), 0);
+  lv_obj_set_style_radius(button, 10, 0);
+  lv_obj_set_style_border_width(button, 0, 0);
+  auto *label = lv_label_create(button);
+  lv_obj_set_width(label, w - 20);
+  lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
+  lv_label_set_text(label, caption);
+  lv_obj_set_style_text_font(label, &ui_font_ricty_diminished_24, 0);
+  lv_obj_set_style_text_color(label, lv_color_white(), 0);
+  lv_obj_center(label);
+  return button;
+}
+void refreshSelectionList(const PlanChoices &choices) {
+  if (!selection_list) return;
+  if (choices_initialized && memcmp(&shown_choices, &choices, sizeof(choices)) == 0) return;
+  shown_choices = choices;
+  choices_initialized = true;
+  lv_obj_clean(selection_list);
+  if (choices.course_index != displayed_course_index) {
+    text(selection_message, "LOADING STRATEGIES...");
+    return;
+  }
+  text(selection_message, choices.message[0] ? choices.message :
+       "SELECT A STRATEGY FOR THIS COURSE");
+  for (uint8_t i = 0; i < choices.count; ++i) {
+    const auto &item = choices.items[i];
+    char label[100];
+    if (item.valid)
+      snprintf(label, sizeof(label), "%s%s", i == choices.selected ? "[SELECTED] " : "", item.label);
+    else
+      snprintf(label, sizeof(label), "%s  (%s)", item.label, item.error);
+    auto *button = selectorButton(selection_list, 8, 8 + i * 60, 520, 52, label,
+                                  !item.valid ? 0x8996A3 : i == choices.selected ? 0x087F8C : 0x1769B2);
+    if (!item.valid) lv_obj_add_state(button, LV_STATE_DISABLED);
+    lv_obj_add_event_cb(button, [](lv_event_t *event) {
+      vega::Snapshot current{};
+      if (!snapshot(current) || current.race.phase != vega::RacePhase::Waiting ||
+          current.engine != vega::EnginePhase::Off) {
+        text(selection_message, "ELECTRICAL OFF TO CHANGE SELECTION");
+        return;
+      }
+      const auto index = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+      Command command{};
+      command.kind = CommandKind::SelectStrategy;
+      command.choice = index;
+      if (!presenter.request(command)) text(selection_message, "SELECTION REJECTED");
+      else visible(selection_overlay, false);
+    }, LV_EVENT_CLICKED, reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
+  }
+}
+void openSelection() {
+  vega::Snapshot s{};
+  if (!snapshot(s) || s.race.phase != vega::RacePhase::Waiting) return;
+  action_close_menu(nullptr);
+  visible(selection_overlay, true);
+  lv_obj_move_foreground(selection_overlay);
+  if (s.engine == vega::EnginePhase::Off) request(CommandKind::RefreshStrategies);
+  else text(selection_message, "ELECTRICAL OFF TO CHANGE SELECTION");
+}
+void setupSelectionUi() {
+  selection_overlay = lv_obj_create(objects.waiting);
+  lv_obj_set_pos(selection_overlay, 0, 0);
+  lv_obj_set_size(selection_overlay, 1280, 720);
+  lv_obj_remove_flag(selection_overlay, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(selection_overlay, lv_color_hex(0xE6EDF4), 0);
+  lv_obj_set_style_border_width(selection_overlay, 0, 0);
+  lv_obj_set_style_pad_all(selection_overlay, 0, 0);
+  auto *back = lv_button_create(selection_overlay);
+  lv_obj_set_pos(back, 16, 12);
+  lv_obj_set_size(back, 56, 56);
+  lv_obj_set_style_pad_all(back, 0, 0);
+  lv_obj_set_style_border_width(back, 0, 0);
+  lv_obj_set_style_radius(back, 12, 0);
+  lv_obj_set_style_shadow_width(back, 0, 0);
+  lv_obj_set_style_bg_color(back, lv_color_hex(0xF0F4F8), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(back, lv_color_hex(0xDCE5EF), LV_STATE_PRESSED);
+  lv_obj_add_event_cb(back, [](lv_event_t *) { visible(selection_overlay, false); },
+                      LV_EVENT_CLICKED, nullptr);
+  auto *back_icon = lv_image_create(back);
+  lv_obj_set_pos(back_icon, 12, 12);
+  lv_obj_set_size(back_icon, 32, 32);
+  lv_image_set_src(back_icon, &img_arrow_left_dark);
+  lv_obj_remove_flag(back_icon, LV_OBJ_FLAG_CLICKABLE);
+  auto *title = lv_label_create(selection_overlay);
+  lv_obj_set_pos(title, 96, 26);
+  lv_obj_set_size(title, 760, 43);
+  lv_label_set_text_static(title, "COURSE / STRATEGY");
+  lv_obj_set_style_text_font(title, &ui_font_ricty_diminished_48, 0);
+  lv_obj_set_style_text_color(title, lv_color_hex(0x202B36), 0);
+  selection_refresh = selectorButton(selection_overlay, 902, 16, 174, 56, "REFRESH", 0x1769B2);
+  lv_obj_add_event_cb(selection_refresh, [](lv_event_t *) { request(CommandKind::RefreshStrategies); },
+                      LV_EVENT_CLICKED, nullptr);
+  auto *course_title = lv_label_create(selection_overlay);
+  lv_obj_set_pos(course_title, 42, 96);
+  lv_label_set_text_static(course_title, "COURSE");
+  lv_obj_set_style_text_font(course_title, &ui_font_ricty_diminished_24, 0);
+  for (size_t i = 0; i < courseCount() && i < 8; ++i) {
+    course_buttons[i] = selectorButton(selection_overlay, 42, 140 + i * 72, 430, 62,
+                                       courseAsset(i).name, 0x1769B2);
+    lv_obj_add_event_cb(course_buttons[i], [](lv_event_t *event) {
+      vega::Snapshot current{};
+      if (!snapshot(current) || current.engine != vega::EnginePhase::Off) {
+        text(selection_message, "ELECTRICAL OFF TO CHANGE SELECTION");
+        return;
+      }
+      Command command{};
+      command.kind = CommandKind::SelectCourse;
+      command.choice = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+      if (!presenter.request(command)) text(selection_message, "COURSE CHANGE REJECTED");
+    }, LV_EVENT_CLICKED, reinterpret_cast<void *>(i));
+  }
+  auto *plan_title = lv_label_create(selection_overlay);
+  lv_obj_set_pos(plan_title, 536, 96);
+  lv_label_set_text_static(plan_title, "STRATEGY ON microSD");
+  lv_obj_set_style_text_font(plan_title, &ui_font_ricty_diminished_24, 0);
+  selection_list = lv_obj_create(selection_overlay);
+  lv_obj_set_pos(selection_list, 528, 132);
+  lv_obj_set_size(selection_list, 568, 474);
+  lv_obj_set_style_pad_all(selection_list, 0, 0);
+  selection_message = lv_label_create(selection_overlay);
+  lv_obj_set_pos(selection_message, 42, 640);
+  lv_obj_set_size(selection_message, 1160, 32);
+  lv_label_set_text_static(selection_message, "LOADING STRATEGIES...");
+  lv_obj_set_style_text_font(selection_message, &ui_font_ricty_diminished_24, 0);
+  visible(selection_overlay, false);
+}
 }  // namespace
+
+void viewOpenSelection() { openSelection(); }
 
 void viewBegin() {
   // Both live pages have the same free space between race status and clock.
@@ -684,31 +828,7 @@ void viewBegin() {
     gps_coordinate_labels[i][0] = createGpsCoordinateLabel(live_screens[i], 16, "LAT --");
     gps_coordinate_labels[i][1] = createGpsCoordinateLabel(live_screens[i], 48, "LON --");
   }
-#if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE
-  // The Settings layout has seven slots for the production course. Hide the
-  // unused targets without changing the persisted Settings structure.
-  lv_obj_t *unused_lap_fields[] = {
-      objects.settings_lap5_title, objects.settings_lap5_button,
-      objects.settings_lap6_title, objects.settings_lap6_button,
-      objects.settings_lap7_title, objects.settings_lap7_button};
-  for (auto *field : unused_lap_fields) visible(field, false);
-  // EEZ keeps the production artwork. Replace only the runtime images in the
-  // test build so every course page uses the same coordinates and background.
-  lv_obj_t *backgrounds[] = {
-      objects.course_background,            objects.waiting_course_background,
-      objects.finished_course_background,   objects.gpsstale_course_background,
-      objects.missingdata_course_background, objects.overtime_course_background,
-      objects.plandemo_course_background,   objects.cachedplan_course_background,
-      objects.expiredplan_course_background, objects.lapcorrected_course_background};
-  for (auto *background : backgrounds) {
-    if (!background) continue;
-#if VEGA_TEST_COURSE == 1
-    lv_image_set_src(background, &img_tamagawagakuen_course_480);
-#elif VEGA_TEST_COURSE == 2
-    lv_image_set_src(background, &img_tobitakyu_course_480);
-#endif
-  }
-#endif
+
   control_pages = {{{"main", objects.main, objects.electrical_standby_switch,
                      objects.ignition_switch},
                     {"waiting", objects.waiting, objects.waiting_electrical_standby_switch,
@@ -897,14 +1017,22 @@ void viewBegin() {
     lv_obj_set_style_text_color(label, lv_color_hex(action ? 0xFFFFFF : 0x202B36), 0);
     lv_obj_center(label);
   }
-  createPlanMap(plan_maps[0], objects.course_container);
-  createPlanMap(plan_maps[1], objects.waiting_course_container);
   lv_obj_t *maps[kCourseMapCount] = {
       objects.course_container,            objects.waiting_course_container,
       objects.finished_course_container,   objects.gpsstale_course_container,
       objects.missingdata_course_container, objects.overtime_course_container,
       objects.plandemo_course_container,   objects.cachedplan_course_container,
       objects.expiredplan_course_container, objects.lapcorrected_course_container};
+  for (size_t i = 0; i < kCourseMapCount; ++i) {
+    course_images[i] = lv_image_create(maps[i]);
+    lv_obj_set_pos(course_images[i], 0, 0);
+    lv_obj_set_size(course_images[i], kCourseMapSize, kCourseMapSize);
+    lv_image_set_src(course_images[i], courseAsset(displayed_course_index).image);
+    lv_obj_remove_flag(course_images[i], LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_move_background(course_images[i]);
+  }
+  createPlanMap(plan_maps[0], objects.course_container);
+  createPlanMap(plan_maps[1], objects.waiting_course_container);
   lv_obj_t *position_backings[kCourseMapCount] = {
       objects.position_marker_backing,            objects.waiting_position_marker_backing,
       objects.finished_position_marker_backing,   objects.gpsstale_position_marker_backing,
@@ -934,17 +1062,49 @@ void viewBegin() {
     if (position_backings[i]) lv_obj_move_foreground(position_backings[i]);
     if (position_arrows[i]) lv_obj_move_foreground(position_arrows[i]);
   }
+  setupSelectionUi();
   course_markers_positioned = false;
   loadScreen(SCREEN_ID_WAITING);
 }
 void viewUpdate() {
   vega::Snapshot s;
   if (!snapshot(s)) return;
+  if (s.course_index != displayed_course_index) {
+    displayed_course_index = s.course_index;
+    for (auto *image : course_images)
+      lv_image_set_src(image, courseAsset(displayed_course_index).image);
+    course_markers_positioned = false;
+    for (auto &map : plan_maps) hidePlanMap(map);
+    if (selection_list) lv_obj_clean(selection_list);
+    choices_initialized = false;
+    text(selection_message, "LOADING STRATEGIES...");
+  }
+  lv_obj_t *extra_lap_fields[] = {
+      objects.settings_lap5_title, objects.settings_lap5_button,
+      objects.settings_lap6_title, objects.settings_lap6_button,
+      objects.settings_lap7_title, objects.settings_lap7_button};
+  for (size_t i = 0; i < 3; ++i) {
+    visible(extra_lap_fields[i * 2], s.lap_count > i + 4);
+    visible(extra_lap_fields[i * 2 + 1], s.lap_count > i + 4);
+  }
+  for (size_t i = 0; i < courseCount() && i < 8; ++i)
+    if (course_buttons[i]) {
+      const auto color = lv_color_hex(i == s.course_index ? 0x087F8C : 0x1769B2);
+      if (!lv_color_eq(lv_obj_get_style_bg_color(course_buttons[i], LV_PART_MAIN), color))
+        lv_obj_set_style_bg_color(course_buttons[i], color, 0);
+      enabled(course_buttons[i], s.engine == vega::EnginePhase::Off);
+    }
+  enabled(selection_refresh, s.engine == vega::EnginePhase::Off);
+  if (selection_list && choices_initialized)
+    for (uint8_t i = 0; i < shown_choices.count; ++i)
+      enabled(lv_obj_get_child(selection_list, i),
+              shown_choices.items[i].valid && s.engine == vega::EnginePhase::Off);
+  presenter.setLapCount(s.lap_count);
   if (finish_pending && s.race.phase == vega::RacePhase::Measuring &&
       s.now_ms - finish_requested_ms > 2000)
     finish_pending = false;
   if (save_pending) {
-    bool same = sameSettings(s.settings, draft);
+    bool same = sameSettings(s.settings, pending_settings);
     if (s.settings_attempt != pending_settings_attempt || s.now_ms - save_started > 3000) {
       save_pending = false;
       setMessage(s.settings_attempt != pending_settings_attempt && s.settings_accepted && same
@@ -955,13 +1115,37 @@ void viewUpdate() {
   }
   vega::Strategy strategy_data;
   const bool plan_loaded = strategy(strategy_data);
-  presenter.render(s, status(), plan_loaded ? &strategy_data : nullptr);
+  const auto ui_status = status();
+  presenter.render(s, ui_status, plan_loaded ? &strategy_data : nullptr);
+  static PlanChoices choices{};
+  if (planChoices(choices) && choices.course_index == s.course_index) {
+    refreshSelectionList(choices);
+    if (s.engine != vega::EnginePhase::Off)
+      text(selection_message, "ELECTRICAL OFF TO CHANGE SELECTION");
+    text(objects.waiting_plan_status_label, courseAsset(s.course_index).short_name);
+    char plan_caption[72];
+    if (ui_status.plan_state == vega::PlanState::Loading)
+      snprintf(plan_caption, sizeof(plan_caption), "PLAN LOADING");
+    else if (choices.selected && choices.selected < choices.count)
+      snprintf(plan_caption, sizeof(plan_caption), "PLAN %s", choices.items[choices.selected].label);
+    else if (!choices.sd_available)
+      snprintf(plan_caption, sizeof(plan_caption), "SD NOT AVAILABLE");
+    else if (ui_status.plan_state == vega::PlanState::Invalid)
+      snprintf(plan_caption, sizeof(plan_caption), "PLAN INVALID");
+    else if (choices.selected == 255)
+      snprintf(plan_caption, sizeof(plan_caption), "PLAN MISSING");
+    else snprintf(plan_caption, sizeof(plan_caption), "PLAN NONE");
+    text(objects.waiting_race_status_label, plan_caption);
+  } else {
+    text(objects.waiting_plan_status_label, courseAsset(s.course_index).short_name);
+    text(objects.waiting_race_status_label, "PLAN LOADING");
+  }
   updateCourseMarkers(s.settings);
   char start[90];
   if (s.gps_fresh) {
     const auto &p = s.settings.start;
-    double north = (s.gps.position.latitude - p.latitude) * course_data.north_per_degree;
-    double east = (s.gps.position.longitude - p.longitude) * course_data.east_per_degree;
+    double north = (s.gps.position.latitude - p.latitude) * courseData().north_per_degree;
+    double east = (s.gps.position.longitude - p.longitude) * courseData().east_per_degree;
     std::snprintf(start, sizeof(start), "START POSITION: %.0f m", std::hypot(north, east));
   } else
     std::snprintf(start, sizeof(start), "START POSITION: GPS UNAVAILABLE");
@@ -977,11 +1161,13 @@ void viewOpenSettings() {
                  ? "TIMING ACTIVE - SETTINGS LOCKED"
                  : "TARGET / MM:SS - COORDINATES / DEGREES");
   visible(objects.settings_advanced_overlay, false);
+  visible(objects.settings_general_overlay, false);
   visible(objects.settings_editor_overlay, false);
   visible(objects.cancel_confirmation_overlay, false);
 }
 void viewReturnDashboard() {
   visible(objects.settings_advanced_overlay, false);
+  visible(objects.settings_general_overlay, false);
   visible(objects.settings_editor_overlay, false);
   visible(objects.cancel_confirmation_overlay, false);
   loadScreen(live_screen);
@@ -989,12 +1175,21 @@ void viewReturnDashboard() {
 void viewOpenAdvanced() {
   text(objects.settings_advanced_message_label,
        presenter.phase() == vega::RacePhase::Measuring
-           ? "TIMING ACTIVE - SETTINGS LOCKED"
-           : "UNITS IN LABELS  /  POWER HIGH: 1=HIGH, 0=LOW");
+           ? "TIMING ACTIVE - SETTINGS LOCKED" : "COURSE GEOMETRY AND LAP RULES");
+  visible(objects.settings_general_overlay, false);
   visible(objects.settings_advanced_overlay, true);
   lv_obj_move_foreground(objects.settings_advanced_overlay);
 }
 void viewCloseAdvanced() { visible(objects.settings_advanced_overlay, false); }
+void viewOpenGeneral() {
+  text(objects.settings_general_message_label,
+       presenter.phase() == vega::RacePhase::Measuring
+           ? "TIMING ACTIVE - SETTINGS LOCKED" : "DEVICE DISPLAY, GPS AND VEHICLE INPUTS");
+  visible(objects.settings_advanced_overlay, false);
+  visible(objects.settings_general_overlay, true);
+  lv_obj_move_foreground(objects.settings_general_overlay);
+}
+void viewCloseGeneral() { viewReturnDashboard(); }
 
 void selectGpsSource(vega::GpsSource source) {
   if (presenter.phase() == vega::RacePhase::Measuring || save_pending) return;
@@ -1052,15 +1247,23 @@ void finishEdit() {
 }
 void discardEdit() { visible(objects.settings_editor_overlay, false); }
 void saveSettings() {
-  Command c{};
-  c.kind = CommandKind::Configure;
-  c.settings = draft;
   vega::Snapshot before;
   if (!snapshot(before)) return;
+  const auto scope = !lv_obj_has_flag(objects.settings_general_overlay, LV_OBJ_FLAG_HIDDEN)
+                         ? vega::SettingsScope::General : vega::SettingsScope::Course;
+  Command c{};
+  c.kind = CommandKind::Configure;
+  c.scope = scope;
+  c.settings = before.settings;
+  if (scope == vega::SettingsScope::General)
+    vega::applyGeneral(c.settings, vega::generalSettings(draft));
+  else
+    vega::applyCourse(c.settings, vega::courseSettings(draft));
   if (!presenter.request(c)) {
     setMessage("SETTINGS NOT ACCEPTED");
     return;
   }
+  pending_settings = c.settings;
   save_pending = true;
   save_started = before.now_ms;
   pending_settings_attempt = before.settings_attempt;
@@ -1168,7 +1371,7 @@ bool viewDiagnostic(const char *command) {
   if (!strcmp(command, "ui-status")) {
     Serial.printf(
         "[UI] screen=%s start_enabled=%u ignition_enabled=%u settings_enabled=%u "
-        "advanced_visible=%u editor_visible=%u "
+        "advanced_visible=%u general_visible=%u editor_visible=%u "
         "message=%s\n",
         lv_screen_active() == objects.settings  ? "settings"
         : lv_screen_active() == objects.waiting ? "waiting"
@@ -1178,6 +1381,7 @@ bool viewDiagnostic(const char *command) {
         !lv_obj_has_state(objects.waiting_ignition_switch, LV_STATE_DISABLED),
         !lv_obj_has_state(objects.settings_save_button, LV_STATE_DISABLED),
         !lv_obj_has_flag(objects.settings_advanced_overlay, LV_OBJ_FLAG_HIDDEN),
+        !lv_obj_has_flag(objects.settings_general_overlay, LV_OBJ_FLAG_HIDDEN),
         !lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN), message);
   } else if (!strcmp(command, "ui-touch")) {
     auto *screen = lv_screen_active();
@@ -1231,10 +1435,16 @@ bool viewDiagnostic(const char *command) {
                   lv_label_get_text(objects.plan_status_label));
   } else if (!strcmp(command, "ui-settings"))
     action_open_settings(nullptr);
+  else if (!strcmp(command, "ui-general-menu"))
+    action_open_general_menu(nullptr);
   else if (!strcmp(command, "ui-advanced"))
     action_open_advanced_settings(nullptr);
+  else if (!strcmp(command, "ui-general"))
+    viewOpenGeneral();
   else if (!strcmp(command, "ui-advanced-back"))
     action_close_advanced_settings(nullptr);
+  else if (!strcmp(command, "ui-general-back"))
+    action_close_general_settings(nullptr);
   else if (!strcmp(command, "ui-back"))
     viewReturnDashboard();
   else if (!strcmp(command, "ui-start"))
@@ -1250,7 +1460,8 @@ bool viewDiagnostic(const char *command) {
     char extra;
     if (sscanf(command + 17, "%u%c", &index, &extra) == 1 &&
         index < vega::kSettingsFieldCount) {
-      if (index >= 14) viewOpenAdvanced();
+      if ((index >= 14 && index <= 21) || index == 23) viewOpenGeneral();
+      else if (index >= 22) viewOpenAdvanced();
       lv_obj_send_event(fieldButton(index), LV_EVENT_CLICKED, nullptr);
       if (!lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN)) {
         Serial.printf("[UI FIELD] index=%u text=%s\n", index,
@@ -1264,7 +1475,8 @@ bool viewDiagnostic(const char *command) {
     unsigned index;
     char value[25];
     if (sscanf(command + 8, "%u %24s", &index, value) == 2 && index < vega::kSettingsFieldCount) {
-      if (index >= 14) viewOpenAdvanced();
+      if ((index >= 14 && index <= 21) || index == 23) viewOpenGeneral();
+      else if (index >= 22) viewOpenAdvanced();
       lv_obj_send_event(fieldButton(index), LV_EVENT_CLICKED, nullptr);
       if (!lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN)) {
         lv_textarea_set_text(objects.settings_editor_input, value);

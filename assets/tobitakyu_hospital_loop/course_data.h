@@ -2,7 +2,7 @@
 // Source SHA256: b74836d2077ecafc816f1492fcf201175d5e2099c9929e67aff6f979b22f1c9e
 #pragma once
 #include "domain/course.h"
-namespace tab5 {
+namespace asset_tobitakyu_hospital_loop {
 inline constexpr vega::CoursePoint first_points[] = {
   {-70.374274, 216.496665, 0},
   {-72.578552, 215.418074, 2.454017},

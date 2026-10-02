@@ -37,7 +37,7 @@
 | 周回更新 | 36.532766 | 140.226269 | 周回更新用 |
 | ゴール | 36.534443 | 140.225411 | 7周目のみ完走判定 |
 
-地点はユーザー指定の近似値であり、Settingsから変更可能とする。座標・TARGET・車輪定数・GPIO極性・ECU待ち時間・パルス時間を設定データに集約し、処理や生成UIに分散して埋め込まない。Settingsの基本画面にはTARGETと3地点、Advanced Settingsには車輪・GPS・周回判定・ECU関連の13項目を置く。
+地点はユーザー指定の近似値であり、Settingsから変更可能とする。座標・TARGET・車輪定数・GPIO極性・ECU待ち時間・パルス時間を設定データに集約し、処理や生成UIに分散して埋め込まない。ハンバーガーメニューのCOURSE MENUからTARGET・3地点とCOURSE DETAILSの周回判定値へ、GENERAL MENUから端末・車両・GPS設定へ直接進む。
 
 ## 2. 責務と依存関係
 
@@ -92,13 +92,15 @@ src/
   adapters/
     tab5_runtime.*    GPIO・UART・NVS・SD・MQTT/NTP・タスク構成
     lvgl_view.*       LVGL View・生成オブジェクト・編集操作
-    course_data.h     コースJSONから生成した定数
   ui/                 EEZ生成物
   tab5_lvgl.*         M5ディスプレイ・タッチとLVGLの接続
 variants/m5tab5/       Tab5専用Arduinoピン定義
 include/config/       通信設定例（秘密情報はGit除外）
 scripts/              nativeテスト、EEZ再生成、コース定数生成
- test/native/         中核のテスト
+assets/
+  course_catalog.*    収録コースの登録とコース別の初期設定
+  <course>/            コースJSON・画像・生成済み定数
+test/native/          中核のテスト
 ```
 
 `src/app/ui_navigation.cpp`はナビゲーション専用Adapterとして残し、設定初期化と復帰先の決定はLVGL Viewへ委譲する。EEZの生成先`src/ui/`とネイティブアクションの接続は維持する。生成コードは編集しない。現行10ダッシュボードは状態例であり、実機の状態はレース・GPS・通信・電装の組み合わせとして管理する。表示ページとアプリ状態を1対1の巨大な列挙にしない。
@@ -133,7 +135,7 @@ scripts/              nativeテスト、EEZ再生成、コース定数生成
 
 ### 設定
 
-設定保存は版付きSettingsをNVS blobとして行う。型・範囲・版を検証し、開始時に計測用設定のスナップショットを固定する。計測中の変更はApplicationで拒否する。電装ON状態や始動権は永続設定として復元しない。全体TARGETと各周TARGETは独立して保存し、合計一致を強制しない。Settingsは数値キーボードによるMM:SS/H:MM:SSと十進座標の編集を行う。電装極性・待ち時間・パルス時間の変更は電装OFF時に限る。
+端末共通の`GeneralSettings`とコース別の`CourseSettings`を別の版付きNVS blobとして保存し、Applicationには結合した`Settings`を渡す。全体・各周TARGET、3地点、回廊幅、最小周回距離・時間、重複抑制はコース別。画面輝度、GPS入力先と鮮度・最大移動量、車輪・電装・ECUの値は端末共通。初回起動時には現在選択中のコースの旧版Settingsから共通値を移し、各コースの旧版値も読み込んで移行する。保存時は編集した範囲だけを書き、別範囲の未保存値を変更しない。型・範囲・版を検証し、計測中の変更はApplicationで拒否する。電装ON状態や始動権は復元しない。全体TARGETと各周TARGETは独立し、合計一致を強制しない。電装極性・待ち時間・パルス時間の変更は電装OFF時に限る。
 
 ## 5. データと並行処理
 

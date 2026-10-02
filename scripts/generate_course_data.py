@@ -7,11 +7,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--source", type=Path, default=Path("assets/motegi_oval_full/motegi_course_full.json"))
-parser.add_argument("--output", type=Path, default=Path("src/adapters/course_data.h"))
+parser.add_argument("--source", type=Path, required=True)
+parser.add_argument("--output", type=Path, help="Defaults to course_data.h beside the source JSON")
 args = parser.parse_args()
 source = args.source if args.source.is_absolute() else ROOT / args.source
-output = args.output if args.output.is_absolute() else ROOT / args.output
+output = args.output or source.with_name("course_data.h")
+output = output if output.is_absolute() else ROOT / output
 data = json.loads(source.read_text())
 if data["schema_version"] != 2:
     raise ValueError("Expected the full course schema (version 2)")
@@ -42,7 +43,7 @@ lines = [
     "// Source SHA256: " + hashlib.sha256(source.read_bytes()).hexdigest(),
     "#pragma once",
     '#include "domain/course.h"',
-    "namespace tab5 {",
+    f"namespace asset_{source.parent.name} {{",
 ]
 for name, path in paths.items():
     points = path["points"]

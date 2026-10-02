@@ -8,8 +8,11 @@
 #include <limits>
 #include <string>
 
-#include "../../src/adapters/course_data.h"
+#include "../../assets/motegi_oval_full/course_data.h"
+#include "../../assets/tamagawagakuen_station_loop/course_data.h"
+#include "../../assets/tobitakyu_hospital_loop/course_data.h"
 #include "../../src/control_gesture.h"
+#include "../../src/adapters/settings_migration.h"
 #include "application/application.h"
 #include "application/telemetry_json.h"
 #include "domain/nmea.h"
@@ -42,10 +45,17 @@ struct Output : IEngineOutput {
 };
 struct Store : ISettingsStore {
   bool fail = false;
-  Settings saved;
-  bool save(const Settings &s) override {
-    saved = s;
-    return !fail;
+  GeneralSettings general;
+  CourseSettings course;
+  bool saveGeneral(const GeneralSettings &s) override {
+    if (fail) return false;
+    general = s;
+    return true;
+  }
+  bool saveCourse(const CourseSettings &s) override {
+    if (fail) return false;
+    course = s;
+    return true;
   }
 };
 struct Recorder : ISessionRecorder {
@@ -191,7 +201,7 @@ void raceTest() {
   assert(f.app.snapshot().race.phase == RacePhase::Measuring);
   Settings cfg = f.settings;
   cfg.total_target_s = 2400;
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::Course));
   for (int i = 0; i < 6; ++i) {
     f.clock.time += 10000;
     assert(f.app.manualLap());
@@ -493,35 +503,39 @@ void settingsTest() {
   Settings cfg = f.settings;
   cfg.total_target_s = 2356;
   cfg.goal = {36.01, 140};
-  assert(f.app.configure(cfg));
+  assert(f.app.configure(cfg, SettingsScope::Course));
   assert(f.app.snapshot().settings.total_target_s == 2356);
+  assert(f.store.course.total_target_s == 2356);
   cfg.lap_target_s[2] = 0;
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::Course));
   cfg = f.settings;
   cfg.goal.latitude = std::numeric_limits<double>::quiet_NaN();
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::Course));
   f.store.fail = true;
-  assert(!f.app.configure(f.settings));
+  assert(!f.app.configure(f.settings, SettingsScope::Course));
   assert(f.app.snapshot().settings.total_target_s == 2356);
   assert(f.app.snapshot().settings_attempt == 4 && !f.app.snapshot().settings_accepted);
   f.store.fail = false;
   f.app.power(true);
-  assert(f.app.configure(f.settings));
+  assert(f.app.configure(f.settings, SettingsScope::General));
   assert(f.output.on);
+  assert(f.app.snapshot().settings.total_target_s == 2356);
   cfg = f.settings;
   cfg.power_active_high = false;
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::General));
   f.app.power(false);
-  assert(f.app.configure(cfg));
+  assert(f.app.configure(cfg, SettingsScope::General));
   assert(!f.output.on && !f.output.active_high);
   cfg.display_brightness = kMinDisplayBrightness - 1;
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::General));
   cfg.display_brightness = kMaxDisplayBrightness + 1;
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::General));
   cfg.display_brightness = 200;
   cfg.ecu_ready_ms = 2000;
-  assert(f.app.configure(cfg));
+  assert(f.app.configure(cfg, SettingsScope::General));
   assert(f.app.snapshot().settings.display_brightness == 200);
+  assert(f.store.general.display_brightness == 200);
+  assert(f.store.course.total_target_s == 2356);
   f.app.power(true);
   f.clock.time += 1000;
   f.app.tick();
@@ -682,12 +696,12 @@ void gpsSourceSettingsTest() {
   assert(f.app.snapshot().gps_seen);
   Settings changed = f.app.snapshot().settings;
   changed.gps_source = GpsSource::PortA;
-  assert(f.app.configure(changed));
+  assert(f.app.configure(changed, SettingsScope::General));
   assert(!f.app.snapshot().gps_seen && !f.app.snapshot().gps_fresh);
   assert(f.app.snapshot().settings.gps_source == GpsSource::PortA);
   assert(f.app.start());
   changed.gps_source = GpsSource::M5Bus;
-  assert(!f.app.configure(changed));
+  assert(!f.app.configure(changed, SettingsScope::General));
   assert(f.app.snapshot().settings.gps_source == GpsSource::PortA);
 }
 void strategyTest() {
@@ -695,10 +709,10 @@ void strategyTest() {
   assert(input);
   const std::string json((std::istreambuf_iterator<char>(input)),
                          std::istreambuf_iterator<char>());
-  Course course(tab5::course_data);
+  Course course(asset_motegi_oval_full::course_data);
   Strategy plan;
   char error[80]{};
-  assert(parseStrategy(json.data(), json.size(), course, tab5::course_data.id, plan,
+  assert(parseStrategy(json.data(), json.size(), course, asset_motegi_oval_full::course_data.id, plan,
                        error, sizeof(error)));
   assert(std::strcmp(plan.plan_id, "dummy-race-002") == 0);
   assert(plan.demo);
@@ -744,7 +758,7 @@ void strategyTest() {
   assert(!view.model.plan_loaded && std::strcmp(view.model.plan_status, "PLAN INVALID") == 0);
   auto invalid = [&](std::string altered) {
     Strategy result = plan;
-    assert(!parseStrategy(altered.data(), altered.size(), course, tab5::course_data.id,
+    assert(!parseStrategy(altered.data(), altered.size(), course, asset_motegi_oval_full::course_data.id,
                           result, error, sizeof(error)));
     assert(error[0] && std::strcmp(result.plan_id, plan.plan_id) == 0);
   };
@@ -757,7 +771,7 @@ void strategyTest() {
   original_demo.erase(demo_type, std::strlen("  \"plan_type\": \"demo\",\n"));
   Strategy older_demo;
   assert(parseStrategy(original_demo.data(), original_demo.size(), course,
-                       tab5::course_data.id, older_demo, error, sizeof(error)));
+                       asset_motegi_oval_full::course_data.id, older_demo, error, sizeof(error)));
   assert(older_demo.demo);
   auto unnamed_type = original_demo;
   auto name_at = unnamed_type.find("dummy-race-001");
@@ -781,17 +795,152 @@ void strategyTest() {
   invalid(json + "unexpected");
   invalid(std::string(kMaxStrategyFileBytes + 1, ' '));
 }
+void courseSelectionTest() {
+  Fixture f;
+  Settings general = f.settings;
+  general.display_brightness = 200;
+  general.gps_source = GpsSource::PortA;
+  general.power_active_high = false;
+  general.wheel_circumference_m = 1.25;
+  general.ecu_ready_ms = 1300;
+  assert(f.app.configure(general, SettingsScope::General));
+  Course short_course(asset_tamagawagakuen_station_loop::course_data);
+  Settings local = f.settings;
+  local.start = {35.564980, 139.463466};
+  local.timing = {35.5647900, 139.4640418};
+  local.goal = {35.5633809, 139.4629657};
+  assert(f.app.selectCourse(short_course, 1, local));
+  assert(f.app.snapshot().course_index == 1 && f.app.snapshot().lap_count == 4);
+  assert(f.app.snapshot().settings.display_brightness == 200);
+  assert(f.app.snapshot().settings.gps_source == GpsSource::PortA);
+  assert(!f.app.snapshot().settings.power_active_high);
+  assert(f.app.snapshot().settings.wheel_circumference_m == 1.25);
+  assert(f.app.snapshot().settings.ecu_ready_ms == 1300);
+  assert(f.app.start());
+  assert(!f.app.selectCourse(f.course, 0, f.settings));
+  assert(f.app.snapshot().course_index == 1);
+  assert(f.app.cancel());
+  assert(f.app.selectCourse(f.course, 0, f.settings));
+  assert(f.app.snapshot().course_index == 0 && f.app.snapshot().lap_count == 7);
+  assert(f.app.snapshot().settings.display_brightness == 200);
+  assert(!f.app.snapshot().settings.power_active_high);
+  f.app.power(true);
+  assert(!f.app.selectCourse(short_course, 1, local));
+  f.app.power(false);
+}
+void settingsMigrationTest() {
+  Settings course_defaults;
+  course_defaults.start = {35.564980, 139.463466};
+  course_defaults.timing = {35.564790, 139.464042};
+  course_defaults.goal = {35.563381, 139.462966};
+  course_defaults.total_target_s = 2400;
+  course_defaults.lap_target_s.fill(600);
+
+  Settings old_vehicle;
+  old_vehicle.start = {36.530654, 140.227998};
+  old_vehicle.total_target_s = 2520;
+  old_vehicle.power_active_high = false;
+  old_vehicle.gps_source = GpsSource::PortA;
+  old_vehicle.wheel_circumference_m = 1.27;
+  old_vehicle.pulses_per_revolution = 2;
+  old_vehicle.ecu_ready_ms = 1500;
+  old_vehicle.ignition_pulse_ms = 450;
+  old_vehicle.display_brightness = 200;
+
+  // A new course must inherit only device-wide values from the old "vega" blob.
+  unsigned selected_reads = 0, device_reads = 0;
+  auto missing_selected = [&](Settings &) {
+    ++selected_reads;
+    return false;
+  };
+  auto read_device = [&](Settings &s) {
+    ++device_reads;
+    s = old_vehicle;
+    return true;
+  };
+  auto general = tab5::migratedGeneralSettings(course_defaults, missing_selected, read_device);
+  auto course = tab5::migratedCourseSettings(course_defaults, missing_selected);
+  assert(selected_reads == 2 && device_reads == 1);
+  Settings combined = course_defaults;
+  applyGeneral(combined, general);
+  applyCourse(combined, course);
+  assert(!combined.power_active_high && combined.gps_source == GpsSource::PortA);
+  assert(combined.wheel_circumference_m == 1.27 && combined.pulses_per_revolution == 2);
+  assert(combined.ecu_ready_ms == 1500 && combined.ignition_pulse_ms == 450);
+  assert(combined.display_brightness == 200);
+  assert(combined.start.latitude == course_defaults.start.latitude);
+  assert(combined.total_target_s == 2400 && combined.lap_target_s[0] == 600);
+
+  // Existing settings for the selected course take precedence over the old
+  // device namespace, including both calibration and course-specific targets.
+  Settings selected = course_defaults;
+  selected.total_target_s = 2356;
+  selected.power_active_high = true;
+  selected.gps_source = GpsSource::M5Bus;
+  auto read_selected = [&](Settings &s) {
+    s = selected;
+    return true;
+  };
+  general = tab5::migratedGeneralSettings(course_defaults, read_selected, read_device);
+  course = tab5::migratedCourseSettings(course_defaults, read_selected);
+  assert(device_reads == 1);
+  assert(general.power_active_high && general.gps_source == GpsSource::M5Bus);
+  assert(course.total_target_s == 2356);
+  auto invalid_legacy = [](Settings &s) {
+    s.power_active_high = false;
+    return false;
+  };
+  assert(tab5::migratedGeneralSettings(course_defaults, invalid_legacy, invalid_legacy)
+             .power_active_high == course_defaults.power_active_high);
+  assert(tab5::migratedCourseSettings(course_defaults, invalid_legacy).total_target_s == 2400);
+}
+void fourLapStrategyTest() {
+  std::ifstream input("assets/strategy/tamagawa_demo.json");
+  assert(input);
+  const std::string json((std::istreambuf_iterator<char>(input)),
+                         std::istreambuf_iterator<char>());
+  Course course(asset_tamagawagakuen_station_loop::course_data);
+  Strategy parsed{};
+  char error[80]{};
+  assert(parseStrategy(json.data(), json.size(), course,
+                       asset_tamagawagakuen_station_loop::course_data.id,
+                       parsed, error, sizeof(error)));
+  assert(parsed.laps[3].route == CourseRoute::Final);
+  const auto pos = json.find("\"lap\": 4");
+  assert(pos != std::string::npos);
+  auto missing = json;
+  missing.replace(pos, std::strlen("\"lap\": 4"), "\"lap\": 5");
+  assert(!parseStrategy(missing.data(), missing.size(), course,
+                        asset_tamagawagakuen_station_loop::course_data.id,
+                        parsed, error, sizeof(error)));
+  assert(std::strcmp(error, "invalid or duplicate lap number") == 0);
+  std::ifstream other_input("assets/strategy/tobitakyu_demo.json");
+  assert(other_input);
+  const std::string other_json((std::istreambuf_iterator<char>(other_input)),
+                               std::istreambuf_iterator<char>());
+  assert(!parseStrategy(other_json.data(), other_json.size(), course,
+                        asset_tamagawagakuen_station_loop::course_data.id,
+                        parsed, error, sizeof(error)));
+  assert(std::strcmp(error, "course_id mismatch") == 0);
+  Course other_course(asset_tobitakyu_hospital_loop::course_data);
+  assert(parseStrategy(other_json.data(), other_json.size(), other_course,
+                       asset_tobitakyu_hospital_loop::course_data.id,
+                       parsed, error, sizeof(error)));
+}
 void realCourseTest() {
   Clock clock;
   Output output;
   Store store;
   Recorder recorder;
   Telemetry telemetry;
-  Course course(tab5::course_data);
+  Course course(asset_motegi_oval_full::course_data);
   Settings settings;
-  auto origin = course.locate(tab5::course_data.origin, settings.course_corridor_m);
-  assert(std::abs(origin.x - tab5::course_data.pixel_matrix[2]) < 1e-9);
-  assert(std::abs(origin.y - tab5::course_data.pixel_matrix[5]) < 1e-9);
+  settings.start = {36.530654, 140.227998};
+  settings.timing = {36.532766, 140.226269};
+  settings.goal = {36.534443, 140.225411};
+  auto origin = course.locate(asset_motegi_oval_full::course_data.origin, settings.course_corridor_m);
+  assert(std::abs(origin.x - asset_motegi_oval_full::course_data.pixel_matrix[2]) < 1e-9);
+  assert(std::abs(origin.y - asset_motegi_oval_full::course_data.pixel_matrix[5]) < 1e-9);
   assert(course.hasRoute(CourseRoute::First) && course.hasRoute(CourseRoute::Final) &&
          course.hasRoute(CourseRoute::FinishApproach));
   assert(std::abs(course.routeLength(CourseRoute::First) - 2124.583905) < 1e-5);
@@ -954,6 +1103,9 @@ int main() {
   settingsFormTest();
   gpsSourceSettingsTest();
   strategyTest();
+  courseSelectionTest();
+  settingsMigrationTest();
+  fourLapStrategyTest();
   realCourseTest();
   combinedLapTest();
   controlGestureTest();
