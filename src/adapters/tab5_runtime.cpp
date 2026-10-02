@@ -27,6 +27,7 @@
 #include "domain/nmea.h"
 #include "domain/settings_codec.h"
 #include "lvgl_view.h"
+#include "reed_pulse_filter.h"
 #include "settings_migration.h"
 #include "../tab5_lvgl.h"
 #include "presentation/settings_form.h"
@@ -41,6 +42,9 @@ namespace tab5 {
 namespace {
 constexpr gpio_num_t kPower = GPIO_NUM_45, kIgnition = GPIO_NUM_48;
 constexpr int kReed = 16;
+// A hand-operated jumper or reed contact can briefly reopen during one closure.
+// Require a continuously HIGH (open) interval before counting another wheel pass.
+constexpr uint32_t kReedReleaseUs = 30000;
 constexpr int kGpsBusRx = 7, kGpsBusTx = 6;
 // Unit GPS: yellow (unit RX) to G53, white (unit TX) to G54 on Tab5 Port.A.
 constexpr int kGpsPortARx = 54, kGpsPortATx = 53;
@@ -87,6 +91,7 @@ std::atomic<uint64_t> last_ntp_sync{0};
 std::atomic<uint32_t> debounce_us{3000};
 portMUX_TYPE wheel_lock = portMUX_INITIALIZER_UNLOCKED;
 vega::WheelInput wheel_input;
+ReedPulseFilter reed_filter;
 struct Diagnostic {
   char text[160];
 };
@@ -427,9 +432,10 @@ struct Telemetry final : vega::ITelemetry {
 
 void IRAM_ATTR reedInterrupt() {
   uint64_t now = esp_timer_get_time();
+  const bool high = gpio_get_level(static_cast<gpio_num_t>(kReed)) != 0;
   portENTER_CRITICAL_ISR(&wheel_lock);
-  if (!wheel_input.last_pulse_us ||
-      now - wheel_input.last_pulse_us >= debounce_us.load(std::memory_order_relaxed)) {
+  if (reed_filter.edge(high, now, kReedReleaseUs,
+                       debounce_us.load(std::memory_order_relaxed))) {
     wheel_input.previous_pulse_us = wheel_input.last_pulse_us;
     wheel_input.last_pulse_us = now;
     ++wheel_input.pulses;
@@ -989,7 +995,10 @@ void applicationTask(void *) {
   };
   openGps(settings.gps_source);
   pinMode(kReed, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(kReed), reedInterrupt, FALLING);
+  portENTER_CRITICAL(&wheel_lock);
+  reed_filter.reset(digitalRead(kReed) != LOW, esp_timer_get_time());
+  portEXIT_CRITICAL(&wheel_lock);
+  attachInterrupt(digitalPinToInterrupt(kReed), reedInterrupt, CHANGE);
   vega::NmeaParser parser;
   diagnostic("[APP] ready; electrical OFF; commands: status/start/cancel/lap/on/off/ignite/log");
   for (;;) {
@@ -1387,6 +1396,19 @@ void serialPoll() {
               st.time_valid, static_cast<unsigned long>(s.settings.total_target_s),
               static_cast<unsigned long>(s.settings.lap_target_s[0]),
               static_cast<unsigned long>(s.settings.display_brightness));
+      } else if (!strcmp(buffer, "wheel-debug")) {
+        uint64_t raw, rejected_release, rejected_interval, accepted;
+        portENTER_CRITICAL(&wheel_lock);
+        raw = reed_filter.rawFalls();
+        rejected_release = reed_filter.rejectedRelease();
+        rejected_interval = reed_filter.rejectedInterval();
+        accepted = wheel_input.pulses;
+        portEXIT_CRITICAL(&wheel_lock);
+        Serial.printf("[WHEEL] raw_falls=%llu accepted=%llu rejected_release=%llu "
+                      "rejected_interval=%llu level=%d release_us=%lu debounce_us=%lu\n",
+                      raw, accepted, rejected_release, rejected_interval, digitalRead(kReed),
+                      static_cast<unsigned long>(kReedReleaseUs),
+                      static_cast<unsigned long>(debounce_us.load(std::memory_order_relaxed)));
       } else if (!strcmp(buffer, "plan-status")) {
         vega::Strategy current;
         static PlanChoices choices{};

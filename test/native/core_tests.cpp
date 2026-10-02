@@ -13,6 +13,7 @@
 #include "../../assets/tobitakyu_hospital_loop/course_data.h"
 #include "../../src/control_gesture.h"
 #include "../../src/adapters/settings_migration.h"
+#include "../../src/adapters/reed_pulse_filter.h"
 #include "application/application.h"
 #include "application/telemetry_json.h"
 #include "domain/nmea.h"
@@ -408,6 +409,27 @@ void gpsOutageAndManualLapTest() {
   }
 }
 void wheelTest() {
+  tab5::ReedPulseFilter filter;
+  filter.reset(true, 0);
+  assert(filter.edge(false, 100000, 30000, 3000));  // First closure.
+  assert(!filter.edge(true, 101000, 30000, 3000));
+  assert(!filter.edge(false, 108000, 30000, 3000));  // Contact bounce after 7 ms open.
+  assert(!filter.edge(true, 110000, 30000, 3000));
+  assert(!filter.edge(false, 139999, 30000, 3000));  // Just short of rearm.
+  assert(!filter.edge(true, 150000, 30000, 3000));
+  assert(filter.edge(false, 180000, 30000, 3000));  // Next wheel revolution.
+  assert(filter.rawFalls() == 4 && filter.rejectedRelease() == 2);
+
+  filter.reset(true, 0);
+  assert(filter.edge(false, 100000, 30000, 100000));
+  assert(!filter.edge(true, 110000, 30000, 100000));
+  assert(!filter.edge(false, 150000, 30000, 100000));  // Configured interval still applies.
+  assert(filter.rejectedInterval() == 1);
+  filter.reset(false, 0);  // A contact already closed at boot is not a new pulse.
+  assert(!filter.edge(false, 100000, 30000, 3000));
+  assert(!filter.edge(true, 110000, 30000, 3000));
+  assert(filter.edge(false, 140000, 30000, 3000));
+
   Settings s;
   assert(!wheelReading({}, 1000000, s).valid);
   auto r = wheelReading({2, 2000000, 1000000}, 2000000, s);
