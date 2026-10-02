@@ -131,6 +131,9 @@ struct ControlPage {
 std::array<ControlPage, 10> control_pages{};
 std::array<lv_obj_t *, 10> ignition_progress_arcs{};
 std::array<int16_t, 10> ignition_progress_angles{};
+bool was_ignition_preparing = false;
+bool ignition_finish_mask = false;
+uint32_t ignition_finish_started = 0;
 lv_obj_t *brightness_slider = nullptr;
 lv_obj_t *brightness_value = nullptr;
 bool refreshing_brightness = false;
@@ -587,19 +590,35 @@ class View final : public vega::IView {
       ++page_index;
     }
     for (auto &map : plan_maps) renderPlanMap(map, m);
+    if (m.ignition_preparing) {
+      ignition_finish_mask = false;
+    } else if (was_ignition_preparing && m.ignition_enabled) {
+      // Cover LVGL's disabled-to-enabled color transition with the completed
+      // red disc. The default theme fades for 80 ms after a 70 ms delay.
+      ignition_finish_mask = true;
+      ignition_finish_started = lv_tick_get();
+    } else if (!m.power_on ||
+               (ignition_finish_mask && lv_tick_elaps(ignition_finish_started) >= 200)) {
+      ignition_finish_mask = false;
+    }
+    was_ignition_preparing = m.ignition_preparing;
+    const bool show_ignition_arc = m.ignition_preparing || ignition_finish_mask;
     for (size_t i = 0; i < control_pages.size(); ++i) {
       checked(control_pages[i].power, m.power_on);
       auto *ignition = control_pages[i].ignition;
       // Keep the 3 px border in the layout so its flame child does not move.
-      const lv_opa_t border_opa = m.ignition_preparing ? LV_OPA_TRANSP : LV_OPA_COVER;
+      const lv_opa_t border_opa = show_ignition_arc ? LV_OPA_TRANSP : LV_OPA_COVER;
       if (lv_obj_get_style_border_opa(ignition, LV_PART_MAIN) != border_opa)
         lv_obj_set_style_border_opa(ignition, border_opa, LV_PART_MAIN);
       auto *arc = ignition_progress_arcs[i];
       if (!arc) continue;
-      visible(arc, m.ignition_preparing);
-      if (m.ignition_preparing) {
-        const int16_t angle = static_cast<int16_t>(
-            std::min<uint32_t>(360, (uint32_t(m.ignition_prepare_permille) * 360 + 500) / 1000));
+      visible(arc, show_ignition_arc);
+      if (show_ignition_arc) {
+        const int16_t angle = m.ignition_preparing
+                                  ? static_cast<int16_t>(std::min<uint32_t>(
+                                        360, (uint32_t(m.ignition_prepare_permille) * 360 + 500) /
+                                                 1000))
+                                  : 360;
         if (ignition_progress_angles[i] != angle) {
           lv_arc_set_angles(arc, 0, angle);
           ignition_progress_angles[i] = angle;
