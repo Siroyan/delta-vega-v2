@@ -42,9 +42,11 @@ namespace tab5 {
 namespace {
 constexpr gpio_num_t kPower = GPIO_NUM_45, kIgnition = GPIO_NUM_48;
 constexpr int kReed = 16;
-// A hand-operated jumper or reed contact can briefly reopen during one closure.
-// Require a continuously HIGH (open) interval before counting another wheel pass.
-constexpr uint32_t kReedReleaseUs = 30000;
+// The car is expected to stay below 60 km/h. Allow a 25% margin for calibration,
+// while rejecting periods that would imply a faster wheel. A reed contact must
+// also be continuously open before another closure can be counted.
+constexpr double kWheelGuardSpeedKmh = 75.0;
+constexpr uint32_t kReedReleaseUs = 10000;
 constexpr int kGpsBusRx = 7, kGpsBusTx = 6;
 // Unit GPS: yellow (unit RX) to G53, white (unit TX) to G54 on Tab5 Port.A.
 constexpr int kGpsPortARx = 54, kGpsPortATx = 53;
@@ -89,9 +91,15 @@ std::atomic<bool> readback{false};
 std::atomic<uint32_t> readback_session{0};
 std::atomic<uint64_t> last_ntp_sync{0};
 std::atomic<uint32_t> debounce_us{3000};
+std::atomic<uint32_t> wheel_interval_us{50000};
 portMUX_TYPE wheel_lock = portMUX_INITIALIZER_UNLOCKED;
 vega::WheelInput wheel_input;
 ReedPulseFilter reed_filter;
+uint32_t wheelIntervalUs(const vega::Settings &settings) {
+  return ::tab5::wheelIntervalUs(settings.wheel_circumference_m,
+                                 settings.pulses_per_revolution, kWheelGuardSpeedKmh,
+                                 settings.pulse_debounce_us);
+}
 struct Diagnostic {
   char text[160];
 };
@@ -435,7 +443,7 @@ void IRAM_ATTR reedInterrupt() {
   const bool high = gpio_get_level(static_cast<gpio_num_t>(kReed)) != 0;
   portENTER_CRITICAL_ISR(&wheel_lock);
   if (reed_filter.edge(high, now, kReedReleaseUs,
-                       debounce_us.load(std::memory_order_relaxed))) {
+                       wheel_interval_us.load(std::memory_order_relaxed))) {
     wheel_input.previous_pulse_us = wheel_input.last_pulse_us;
     wheel_input.last_pulse_us = now;
     ++wheel_input.pulses;
@@ -955,6 +963,7 @@ void applicationTask(void *) {
                 settings.timing.latitude, settings.timing.longitude,
                 settings.goal.latitude, settings.goal.longitude);
   debounce_us = settings.pulse_debounce_us;
+  wheel_interval_us = wheelIntervalUs(settings);
   vega::Application app(clock_source, engine_output, settings_store, recorder, telemetry, course,
                         settings);
   app.selectCourse(course, initial_index, settings);
@@ -1155,6 +1164,7 @@ void applicationTask(void *) {
           ok = app.configure(command.settings, command.scope);
           if (ok) {
             debounce_us = command.settings.pulse_debounce_us;
+            wheel_interval_us = wheelIntervalUs(command.settings);
             if (command.settings.gps_source != old_gps_source) {
               gps_uart.flush();
               openGps(command.settings.gps_source);
@@ -1180,6 +1190,7 @@ void applicationTask(void *) {
               settings_store.select(index);
               active_course = index;
               debounce_us = replacement.pulse_debounce_us;
+              wheel_interval_us = wheelIntervalUs(replacement);
               parser = vega::NmeaParser{};
               openGps(replacement.gps_source);
               xQueueReset(strategies);
@@ -1405,9 +1416,11 @@ void serialPoll() {
         accepted = wheel_input.pulses;
         portEXIT_CRITICAL(&wheel_lock);
         Serial.printf("[WHEEL] raw_falls=%llu accepted=%llu rejected_release=%llu "
-                      "rejected_interval=%llu level=%d release_us=%lu debounce_us=%lu\n",
+                      "rejected_interval=%llu level=%d release_us=%lu interval_us=%lu "
+                      "debounce_us=%lu\n",
                       raw, accepted, rejected_release, rejected_interval, digitalRead(kReed),
                       static_cast<unsigned long>(kReedReleaseUs),
+                      static_cast<unsigned long>(wheel_interval_us.load(std::memory_order_relaxed)),
                       static_cast<unsigned long>(debounce_us.load(std::memory_order_relaxed)));
       } else if (!strcmp(buffer, "plan-status")) {
         vega::Strategy current;

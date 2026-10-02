@@ -409,26 +409,36 @@ void gpsOutageAndManualLapTest() {
   }
 }
 void wheelTest() {
+  const auto guarded_interval = tab5::wheelIntervalUs(1.03, 1, 75.0, 3000);
+  assert(guarded_interval == 49440);
+  assert(tab5::wheelIntervalUs(1.03, 1, 75.0, 100000) == 100000);
   tab5::ReedPulseFilter filter;
   filter.reset(true, 0);
-  assert(filter.edge(false, 100000, 30000, 3000));  // First closure.
-  assert(!filter.edge(true, 101000, 30000, 3000));
-  assert(!filter.edge(false, 108000, 30000, 3000));  // Contact bounce after 7 ms open.
-  assert(!filter.edge(true, 110000, 30000, 3000));
-  assert(!filter.edge(false, 139999, 30000, 3000));  // Just short of rearm.
-  assert(!filter.edge(true, 150000, 30000, 3000));
-  assert(filter.edge(false, 180000, 30000, 3000));  // Next wheel revolution.
-  assert(filter.rawFalls() == 4 && filter.rejectedRelease() == 2);
+  assert(filter.edge(false, 100000, 10000, guarded_interval));  // First closure.
+  assert(!filter.edge(true, 101000, 10000, guarded_interval));
+  assert(!filter.edge(false, 108000, 10000, guarded_interval));  // 7 ms open: contact bounce.
+  assert(!filter.edge(true, 110000, 10000, guarded_interval));
+  assert(!filter.edge(false, 119999, 10000, guarded_interval));  // Just short of rearm.
+  assert(!filter.edge(true, 120000, 10000, guarded_interval));
+  assert(!filter.edge(false, 149000, 10000, guarded_interval));  // Implausible wheel period.
+  assert(!filter.edge(true, 150000, 10000, guarded_interval));
+  assert(filter.edge(false, 200000, 10000, guarded_interval));  // Next wheel revolution.
+  assert(filter.rawFalls() == 5 && filter.rejectedRelease() == 2 &&
+         filter.rejectedInterval() == 1);
 
   filter.reset(true, 0);
-  assert(filter.edge(false, 100000, 30000, 100000));
-  assert(!filter.edge(true, 110000, 30000, 100000));
-  assert(!filter.edge(false, 150000, 30000, 100000));  // Configured interval still applies.
+  assert(filter.edge(false, 100000, 10000, guarded_interval));
+  assert(!filter.edge(true, 105000, 10000, guarded_interval));
+  assert(filter.edge(false, 161800, 10000, guarded_interval));  // 60 km/h equivalent.
+  filter.reset(true, 0);
+  assert(filter.edge(false, 100000, 10000, 100000));
+  assert(!filter.edge(true, 105000, 10000, 100000));
+  assert(!filter.edge(false, 161800, 10000, 100000));  // 100 ms setting is too long.
   assert(filter.rejectedInterval() == 1);
   filter.reset(false, 0);  // A contact already closed at boot is not a new pulse.
-  assert(!filter.edge(false, 100000, 30000, 3000));
-  assert(!filter.edge(true, 110000, 30000, 3000));
-  assert(filter.edge(false, 140000, 30000, 3000));
+  assert(!filter.edge(false, 100000, 10000, guarded_interval));
+  assert(!filter.edge(true, 110000, 10000, guarded_interval));
+  assert(filter.edge(false, 140000, 10000, guarded_interval));
 
   Settings s;
   assert(!wheelReading({}, 1000000, s).valid);
