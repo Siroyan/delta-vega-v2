@@ -12,6 +12,7 @@
 #include "../../assets/tamagawagakuen_station_loop/course_data.h"
 #include "../../assets/tobitakyu_hospital_loop/course_data.h"
 #include "../../src/control_gesture.h"
+#include "../../src/adapters/settings_migration.h"
 #include "application/application.h"
 #include "application/telemetry_json.h"
 #include "domain/nmea.h"
@@ -799,6 +800,9 @@ void courseSelectionTest() {
   Settings general = f.settings;
   general.display_brightness = 200;
   general.gps_source = GpsSource::PortA;
+  general.power_active_high = false;
+  general.wheel_circumference_m = 1.25;
+  general.ecu_ready_ms = 1300;
   assert(f.app.configure(general, SettingsScope::General));
   Course short_course(asset_tamagawagakuen_station_loop::course_data);
   Settings local = f.settings;
@@ -809,6 +813,9 @@ void courseSelectionTest() {
   assert(f.app.snapshot().course_index == 1 && f.app.snapshot().lap_count == 4);
   assert(f.app.snapshot().settings.display_brightness == 200);
   assert(f.app.snapshot().settings.gps_source == GpsSource::PortA);
+  assert(!f.app.snapshot().settings.power_active_high);
+  assert(f.app.snapshot().settings.wheel_circumference_m == 1.25);
+  assert(f.app.snapshot().settings.ecu_ready_ms == 1300);
   assert(f.app.start());
   assert(!f.app.selectCourse(f.course, 0, f.settings));
   assert(f.app.snapshot().course_index == 1);
@@ -816,9 +823,76 @@ void courseSelectionTest() {
   assert(f.app.selectCourse(f.course, 0, f.settings));
   assert(f.app.snapshot().course_index == 0 && f.app.snapshot().lap_count == 7);
   assert(f.app.snapshot().settings.display_brightness == 200);
+  assert(!f.app.snapshot().settings.power_active_high);
   f.app.power(true);
   assert(!f.app.selectCourse(short_course, 1, local));
   f.app.power(false);
+}
+void settingsMigrationTest() {
+  Settings course_defaults;
+  course_defaults.start = {35.564980, 139.463466};
+  course_defaults.timing = {35.564790, 139.464042};
+  course_defaults.goal = {35.563381, 139.462966};
+  course_defaults.total_target_s = 2400;
+  course_defaults.lap_target_s.fill(600);
+
+  Settings old_vehicle;
+  old_vehicle.start = {36.530654, 140.227998};
+  old_vehicle.total_target_s = 2520;
+  old_vehicle.power_active_high = false;
+  old_vehicle.gps_source = GpsSource::PortA;
+  old_vehicle.wheel_circumference_m = 1.27;
+  old_vehicle.pulses_per_revolution = 2;
+  old_vehicle.ecu_ready_ms = 1500;
+  old_vehicle.ignition_pulse_ms = 450;
+  old_vehicle.display_brightness = 200;
+
+  // A new course must inherit only device-wide values from the old "vega" blob.
+  unsigned selected_reads = 0, device_reads = 0;
+  auto missing_selected = [&](Settings &) {
+    ++selected_reads;
+    return false;
+  };
+  auto read_device = [&](Settings &s) {
+    ++device_reads;
+    s = old_vehicle;
+    return true;
+  };
+  auto general = tab5::migratedGeneralSettings(course_defaults, missing_selected, read_device);
+  auto course = tab5::migratedCourseSettings(course_defaults, missing_selected);
+  assert(selected_reads == 2 && device_reads == 1);
+  Settings combined = course_defaults;
+  applyGeneral(combined, general);
+  applyCourse(combined, course);
+  assert(!combined.power_active_high && combined.gps_source == GpsSource::PortA);
+  assert(combined.wheel_circumference_m == 1.27 && combined.pulses_per_revolution == 2);
+  assert(combined.ecu_ready_ms == 1500 && combined.ignition_pulse_ms == 450);
+  assert(combined.display_brightness == 200);
+  assert(combined.start.latitude == course_defaults.start.latitude);
+  assert(combined.total_target_s == 2400 && combined.lap_target_s[0] == 600);
+
+  // Existing settings for the selected course take precedence over the old
+  // device namespace, including both calibration and course-specific targets.
+  Settings selected = course_defaults;
+  selected.total_target_s = 2356;
+  selected.power_active_high = true;
+  selected.gps_source = GpsSource::M5Bus;
+  auto read_selected = [&](Settings &s) {
+    s = selected;
+    return true;
+  };
+  general = tab5::migratedGeneralSettings(course_defaults, read_selected, read_device);
+  course = tab5::migratedCourseSettings(course_defaults, read_selected);
+  assert(device_reads == 1);
+  assert(general.power_active_high && general.gps_source == GpsSource::M5Bus);
+  assert(course.total_target_s == 2356);
+  auto invalid_legacy = [](Settings &s) {
+    s.power_active_high = false;
+    return false;
+  };
+  assert(tab5::migratedGeneralSettings(course_defaults, invalid_legacy, invalid_legacy)
+             .power_active_high == course_defaults.power_active_high);
+  assert(tab5::migratedCourseSettings(course_defaults, invalid_legacy).total_target_s == 2400);
 }
 void fourLapStrategyTest() {
   std::ifstream input("assets/strategy/tamagawa_demo.json");
@@ -1030,6 +1104,7 @@ int main() {
   gpsSourceSettingsTest();
   strategyTest();
   courseSelectionTest();
+  settingsMigrationTest();
   fourLapStrategyTest();
   realCourseTest();
   combinedLapTest();

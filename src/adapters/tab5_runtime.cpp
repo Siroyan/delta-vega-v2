@@ -27,6 +27,7 @@
 #include "domain/nmea.h"
 #include "domain/settings_codec.h"
 #include "lvgl_view.h"
+#include "settings_migration.h"
 #include "../tab5_lvgl.h"
 #include "presentation/settings_form.h"
 
@@ -267,13 +268,16 @@ class SettingsStore final : public vega::ISettingsStore {
   void select(uint8_t index) { active_ = index; }
   vega::Settings load(uint8_t index) {
     const auto &asset = courseAsset(index);
-    vega::Settings s = defaults(index);
+    const vega::Settings base = defaults(index);
+    const auto read_selected = [index](vega::Settings &s) { return readLegacy(index, s); };
     if (!general_loaded_) {
       vega::GeneralSettings stored;
       if (!readGeneral(stored)) {
-        vega::Settings legacy = s;
-        if (readLegacy(index, legacy)) s = legacy;
-        stored = vega::generalSettings(s);
+        // Older firmware stored vehicle settings with the selected course.
+        // A newly selected course has no blob yet; the old "vega" namespace
+        // still carries the vehicle calibration and output polarity.
+        stored = migratedGeneralSettings(base, read_selected,
+                                         [](vega::Settings &s) { return loadFrom("vega", s); });
         if (saveGeneral(stored)) diagnostic("[SETTINGS] migrated general settings");
       }
       general_ = stored;
@@ -281,12 +285,10 @@ class SettingsStore final : public vega::ISettingsStore {
     }
     vega::CourseSettings course;
     if (!readCourse(index, course)) {
-      vega::Settings legacy = defaults(index);
-      if (readLegacy(index, legacy)) s = legacy;
-      course = vega::courseSettings(s);
+      course = migratedCourseSettings(base, read_selected);
       if (writeCourse(index, course)) diagnostic("[SETTINGS] migrated course=%s", asset.data->id);
     }
-    s = defaults(index);
+    vega::Settings s = base;
     vega::applyGeneral(s, general_);
     vega::applyCourse(s, course);
     return s;
