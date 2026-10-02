@@ -447,7 +447,8 @@ lv_obj_t *fieldButton(size_t i) {
                         objects.settings_advanced_max_gps_step_button,
                         objects.settings_advanced_min_lap_dist_button,
                         objects.settings_advanced_min_lap_time_button,
-                        objects.settings_advanced_lap_duplicate_button};
+                        objects.settings_advanced_lap_duplicate_button,
+                        objects.settings_speed_average_button};
   return i < vega::kSettingsFieldCount ? fields[i] : nullptr;
 }
 void refreshFields() {
@@ -482,6 +483,7 @@ bool sameSettings(const vega::Settings &a, const vega::Settings &b) {
          a.pulses_per_revolution == b.pulses_per_revolution &&
          a.ecu_ready_ms == b.ecu_ready_ms && a.ignition_pulse_ms == b.ignition_pulse_ms &&
          a.power_active_high == b.power_active_high && a.pulse_debounce_us == b.pulse_debounce_us &&
+         a.speed_average_intervals == b.speed_average_intervals &&
          a.speed_zero_ms == b.speed_zero_ms && a.gps_stale_ms == b.gps_stale_ms &&
          a.course_corridor_m == b.course_corridor_m && a.max_gps_step_m == b.max_gps_step_m &&
          a.min_lap_progress_m == b.min_lap_progress_m && a.min_lap_ms == b.min_lap_ms &&
@@ -1451,6 +1453,8 @@ bool viewDiagnostic(const char *command) {
     lv_obj_send_event(objects.start_button, LV_EVENT_CLICKED, nullptr);
   else if (!strcmp(command, "ui-save"))
     lv_obj_send_event(objects.settings_save_button, LV_EVENT_CLICKED, nullptr);
+  else if (!strcmp(command, "ui-save-general"))
+    lv_obj_send_event(objects.settings_general_save_button, LV_EVENT_CLICKED, nullptr);
   else if (!strcmp(command, "ui-cancel"))
     action_confirm_cancel(nullptr);
   else if (!strcmp(command, "ui-confirm-cancel"))
@@ -1460,7 +1464,7 @@ bool viewDiagnostic(const char *command) {
     char extra;
     if (sscanf(command + 17, "%u%c", &index, &extra) == 1 &&
         index < vega::kSettingsFieldCount) {
-      if ((index >= 14 && index <= 21) || index == 23) viewOpenGeneral();
+      if ((index >= 14 && index <= 21) || index == 23 || index == 27) viewOpenGeneral();
       else if (index >= 22) viewOpenAdvanced();
       lv_obj_send_event(fieldButton(index), LV_EVENT_CLICKED, nullptr);
       if (!lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN)) {
@@ -1475,7 +1479,7 @@ bool viewDiagnostic(const char *command) {
     unsigned index;
     char value[25];
     if (sscanf(command + 8, "%u %24s", &index, value) == 2 && index < vega::kSettingsFieldCount) {
-      if ((index >= 14 && index <= 21) || index == 23) viewOpenGeneral();
+      if ((index >= 14 && index <= 21) || index == 23 || index == 27) viewOpenGeneral();
       else if (index >= 22) viewOpenAdvanced();
       lv_obj_send_event(fieldButton(index), LV_EVENT_CLICKED, nullptr);
       if (!lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN)) {

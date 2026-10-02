@@ -37688,7 +37688,7 @@
                     }
                   },
                   "groupIndex": 0,
-                  "text": "DEVICE DISPLAY, GPS AND VEHICLE INPUTS",
+                  "text": "SPEED AVG (N): RECENT WHEEL INTERVALS (1-8)",
                   "textType": "literal",
                   "longMode": "CLIP",
                   "recolor": false,
@@ -39591,6 +39591,174 @@
                   },
                   "groupIndex": 0,
                   "containerVersion": 1
+                },
+                {
+                  "objID": "adc226c5-59cc-4405-9b12-51eb4fc420c4",
+                  "type": "LVGLLabelWidget",
+                  "identifier": "settings_speed_average_title",
+                  "left": 640,
+                  "top": 404,
+                  "width": 280,
+                  "height": 30,
+                  "customInputs": [],
+                  "customOutputs": [],
+                  "style": {
+                    "objID": "6e6b5874-8884-4092-ba58-4203a1914676",
+                    "useStyle": "default",
+                    "conditionalStyles": [],
+                    "childStyles": []
+                  },
+                  "timeline": [],
+                  "eventHandlers": [],
+                  "leftUnit": "px",
+                  "topUnit": "px",
+                  "widthUnit": "px",
+                  "heightUnit": "px",
+                  "children": [],
+                  "widgetFlags": "",
+                  "hiddenFlagType": "literal",
+                  "clickableFlagType": "literal",
+                  "checkedStateType": "literal",
+                  "disabledStateType": "literal",
+                  "states": "",
+                  "localStyles": {
+                    "objID": "64de66a4-2868-44c8-b0b6-8367d22be344",
+                    "definition": {
+                      "MAIN": {
+                        "DEFAULT": {
+                          "pad_top": 0,
+                          "pad_bottom": 0,
+                          "pad_left": 0,
+                          "pad_right": 0,
+                          "border_width": 0,
+                          "bg_opa": 0,
+                          "shadow_width": 0,
+                          "text_font": "RictyDiminished_24",
+                          "text_color": "#202B36",
+                          "text_align": "LEFT"
+                        }
+                      }
+                    }
+                  },
+                  "groupIndex": 0,
+                  "text": "SPEED AVG (N)",
+                  "textType": "literal",
+                  "longMode": "CLIP",
+                  "recolor": false,
+                  "useStaticText": true
+                },
+                {
+                  "objID": "8c52c4ae-7b35-4bfb-bcab-d0b56e503314",
+                  "type": "LVGLButtonWidget",
+                  "identifier": "settings_speed_average_button",
+                  "left": 930,
+                  "top": 396,
+                  "width": 274,
+                  "height": 46,
+                  "customInputs": [],
+                  "customOutputs": [],
+                  "style": {
+                    "objID": "6aa6cd52-26ba-4342-a7b5-6bd6c34f1eae",
+                    "useStyle": "default",
+                    "conditionalStyles": [],
+                    "childStyles": []
+                  },
+                  "timeline": [],
+                  "eventHandlers": [
+                    {
+                      "objID": "9aa872f0-7bde-4a88-9a3e-65d80b60f0f2",
+                      "eventName": "CLICKED",
+                      "handlerType": "action",
+                      "action": "edit_setting",
+                      "userData": 27
+                    }
+                  ],
+                  "leftUnit": "px",
+                  "topUnit": "px",
+                  "widthUnit": "px",
+                  "heightUnit": "px",
+                  "children": [
+                    {
+                      "objID": "7f94d9a5-39f3-455a-9376-0b67e05e2ce4",
+                      "type": "LVGLLabelWidget",
+                      "identifier": "settings_speed_average_button_label",
+                      "left": 0,
+                      "top": 9,
+                      "width": 274,
+                      "height": 28,
+                      "customInputs": [],
+                      "customOutputs": [],
+                      "style": {
+                        "objID": "3d1d3357-c1b5-4b6b-b705-c4b69b482c2a",
+                        "useStyle": "default",
+                        "conditionalStyles": [],
+                        "childStyles": []
+                      },
+                      "timeline": [],
+                      "eventHandlers": [],
+                      "leftUnit": "px",
+                      "topUnit": "px",
+                      "widthUnit": "px",
+                      "heightUnit": "px",
+                      "children": [],
+                      "widgetFlags": "",
+                      "hiddenFlagType": "literal",
+                      "clickableFlagType": "literal",
+                      "checkedStateType": "literal",
+                      "disabledStateType": "literal",
+                      "states": "",
+                      "localStyles": {
+                        "objID": "eb84c692-c91c-495b-989c-a061ffe9b9a8",
+                        "definition": {
+                          "MAIN": {
+                            "DEFAULT": {
+                              "pad_top": 0,
+                              "pad_bottom": 0,
+                              "pad_left": 0,
+                              "pad_right": 0,
+                              "border_width": 0,
+                              "bg_opa": 0,
+                              "shadow_width": 0,
+                              "text_font": "RictyDiminished_24",
+                              "text_color": "#FFFFFF",
+                              "text_align": "CENTER"
+                            }
+                          }
+                        }
+                      },
+                      "groupIndex": 0,
+                      "text": "3",
+                      "textType": "literal",
+                      "longMode": "CLIP",
+                      "recolor": false,
+                      "useStaticText": true
+                    }
+                  ],
+                  "widgetFlags": "CLICKABLE",
+                  "hiddenFlagType": "literal",
+                  "clickableFlagType": "literal",
+                  "checkedStateType": "literal",
+                  "disabledStateType": "literal",
+                  "states": "",
+                  "localStyles": {
+                    "objID": "e8ba8e9c-fd4d-4a83-993a-c37c391addb5",
+                    "definition": {
+                      "MAIN": {
+                        "DEFAULT": {
+                          "pad_top": 0,
+                          "pad_bottom": 0,
+                          "pad_left": 0,
+                          "pad_right": 0,
+                          "border_width": 0,
+                          "bg_opa": 255,
+                          "shadow_width": 0,
+                          "bg_color": "#1769B2",
+                          "radius": 12
+                        }
+                      }
+                    }
+                  },
+                  "groupIndex": 0
                 }
               ],
               "widgetFlags": "HIDDEN|CLICKABLE",

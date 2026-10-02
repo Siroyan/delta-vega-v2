@@ -285,13 +285,16 @@ class SettingsStore final : public vega::ISettingsStore {
     const auto read_selected = [index](vega::Settings &s) { return readLegacy(index, s); };
     if (!general_loaded_) {
       vega::GeneralSettings stored;
-      if (!readGeneral(stored)) {
+      bool needs_upgrade = false;
+      if (!readGeneral(stored, needs_upgrade)) {
         // Older firmware stored vehicle settings with the selected course.
         // A newly selected course has no blob yet; the old "vega" namespace
         // still carries the vehicle calibration and output polarity.
         stored = migratedGeneralSettings(base, read_selected,
                                          [](vega::Settings &s) { return loadFrom("vega", s); });
         if (saveGeneral(stored)) diagnostic("[SETTINGS] migrated general settings");
+      } else if (needs_upgrade && saveGeneral(stored)) {
+        diagnostic("[SETTINGS] upgraded general settings to v2");
       }
       general_ = stored;
       general_loaded_ = true;
@@ -325,15 +328,20 @@ class SettingsStore final : public vega::ISettingsStore {
     vega::applyCourse(s, courseAsset(index).defaults());
     return s;
   }
-  static bool readGeneral(vega::GeneralSettings &s) {
+  static bool readGeneral(vega::GeneralSettings &s, bool &needs_upgrade) {
     Preferences p;
     if (!p.begin("vega-device", true)) return false;
+    const size_t size = p.getBytesLength("settings");
+    alignas(vega::GeneralSettings) uint8_t blob[sizeof(vega::GeneralSettings)]{};
     vega::GeneralSettings candidate;
-    const bool ok = p.getBytesLength("settings") == sizeof(candidate) &&
-                    p.getBytes("settings", &candidate, sizeof(candidate)) == sizeof(candidate) &&
-                    vega::validGeneralSettings(candidate);
+    const bool ok = size > 0 && size <= sizeof(blob) &&
+                    p.getBytes("settings", blob, size) == size &&
+                    vega::decodeGeneralSettingsBlob(blob, size, candidate);
     p.end();
-    if (ok) s = candidate;
+    if (ok) {
+      s = candidate;
+      needs_upgrade = size != sizeof(vega::GeneralSettings);
+    }
     return ok;
   }
   static bool readCourse(uint8_t index, vega::CourseSettings &s) {
@@ -446,6 +454,9 @@ void IRAM_ATTR reedInterrupt() {
                        wheel_interval_us.load(std::memory_order_relaxed))) {
     wheel_input.previous_pulse_us = wheel_input.last_pulse_us;
     wheel_input.last_pulse_us = now;
+    for (size_t i = vega::kMaxSpeedAverageIntervals; i > 0; --i)
+      wheel_input.recent_pulse_us[i] = wheel_input.recent_pulse_us[i - 1];
+    wheel_input.recent_pulse_us[0] = now;
     ++wheel_input.pulses;
   }
   portEXIT_CRITICAL_ISR(&wheel_lock);
@@ -1391,7 +1402,7 @@ void serialPoll() {
               "gps=%u gps_source=%s gps_bytes=%lu gps_rmc=%lu gps_rmc_hz=%lu.%lu pulses=%llu "
               "sd_ready=%u sd_error=%u sd_last_failure=%s sd_record_lost=%lu "
               "wifi=%u mqtt=%u ntp=%u total_target_s=%lu "
-              "lap1_target_s=%lu brightness=%lu\n",
+              "lap1_target_s=%lu brightness=%lu speed_avg_n=%lu\n",
               static_cast<unsigned>(s.race.phase), s.race.lap,
               courseAsset(s.course_index).data->id, s.lap_count, s.race.total_ms,
               static_cast<unsigned>(s.engine), gpio_get_level(kPower), gpio_get_level(kIgnition),
@@ -1406,7 +1417,8 @@ void serialPoll() {
               WiFi.status() == WL_CONNECTED, st.mqtt_connected,
               st.time_valid, static_cast<unsigned long>(s.settings.total_target_s),
               static_cast<unsigned long>(s.settings.lap_target_s[0]),
-              static_cast<unsigned long>(s.settings.display_brightness));
+              static_cast<unsigned long>(s.settings.display_brightness),
+              static_cast<unsigned long>(s.settings.speed_average_intervals));
       } else if (!strcmp(buffer, "wheel-debug")) {
         uint64_t raw, rejected_release, rejected_interval, accepted;
         portENTER_CRITICAL(&wheel_lock);
@@ -1515,6 +1527,8 @@ void serialPoll() {
             c.settings.ignition_pulse_ms = number;
           else if (!strcmp(key, "pulse_debounce_us"))
             c.settings.pulse_debounce_us = number;
+          else if (!strcmp(key, "speed_average_intervals"))
+            c.settings.speed_average_intervals = number;
           else if (!strcmp(key, "speed_zero_ms"))
             c.settings.speed_zero_ms = number;
           else if (!strcmp(key, "gps_stale_ms"))

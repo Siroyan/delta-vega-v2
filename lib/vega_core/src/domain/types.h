@@ -8,6 +8,7 @@ namespace vega {
 
 using Millis = uint64_t;
 constexpr size_t kLapCount = 7;
+constexpr size_t kMaxSpeedAverageIntervals = 8;
 constexpr uint32_t kMinDisplayBrightness = 64;
 constexpr uint32_t kMaxDisplayBrightness = 255;
 constexpr uint32_t kDefaultDisplayBrightness = 127;
@@ -17,7 +18,7 @@ struct GeoPoint {
 };
 enum class GpsSource : uint32_t { M5Bus = 0, PortA = 1 };
 struct Settings {
-  uint32_t version = 3;
+  uint32_t version = 4;
   uint32_t total_target_s = 42 * 60;
   std::array<uint32_t, kLapCount> lap_target_s{{360, 360, 360, 360, 360, 360, 360}};
   GeoPoint start{};
@@ -38,6 +39,7 @@ struct Settings {
   uint32_t lap_duplicate_ms = 10000;
   GpsSource gps_source = GpsSource::M5Bus;
   uint32_t display_brightness = kDefaultDisplayBrightness;
+  uint32_t speed_average_intervals = 3;
 };
 bool validSettings(const Settings &s);
 enum class RacePhase : uint8_t { Waiting, Measuring, Finished };
@@ -59,6 +61,8 @@ struct WheelInput {
   uint64_t pulses = 0;
   uint64_t last_pulse_us = 0;
   uint64_t previous_pulse_us = 0;
+  // Newest accepted pulse first. Distance still uses the unfiltered pulse count.
+  std::array<uint64_t, kMaxSpeedAverageIntervals + 1> recent_pulse_us{};
 };
 struct GpsFix {
   GeoPoint position{};

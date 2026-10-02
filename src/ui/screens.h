@@ -744,6 +744,9 @@ typedef struct _objects_t {
     lv_obj_t *settings_advanced_gps_port_a_button_label;
     lv_obj_t *settings_brightness_title;
     lv_obj_t *settings_brightness_control;
+    lv_obj_t *settings_speed_average_title;
+    lv_obj_t *settings_speed_average_button;
+    lv_obj_t *settings_speed_average_button_label;
     lv_obj_t *settings_editor_overlay;
     lv_obj_t *settings_editor_back_button;
     lv_obj_t *settings_editor_back_button_icon;

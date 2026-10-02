@@ -16,6 +16,7 @@
 - NVSは端末共通の`vega-device/settings`と、選択コースの名前空間にある`course`を別々に保存する。従来のv1～v3 `settings` blobからの初回移行では、端末共通値は選択コースの旧設定を優先し、なければ旧`vega/settings`から電装極性・GPS入力先・車輪校正・ECU時間・輝度などを引き継ぐ。コース固有値は選択コースの旧設定だけから引き継ぎ、存在しなければそのコースのカタログ初期値を使う。既存の`vega-device/settings`があればそれを優先する。旧v1ではGPS入力先をM5Bus、旧v1/v2では輝度を127として扱う。保存した共通輝度はコースを切り替えても変わらず、再起動後も保持する。電装状態・始動権・進行中レースは復元しない。
 - 修正前の開発版で一度起動し、`vega-device/settings`へ既に誤った初期値が保存された個体は、自動的には旧値へ戻らない。どの値が意図的に変更されたか判別できないため、実車の回路を接続する前にGENERAL SETTINGSの`POWER HIGH`、`ECU READY`、`IGNITION PULSE`などを回路仕様と照合し、必要なら再保存する。
 - GPS接続先はGeneral Settingsの`GPS INPUT`で`M5BUS`または`PORT.A`を選び、`SAVE SETTINGS`で確定する。切替は計測前または計測取消後のみ可能。保存成功時にUART、NMEAパーサ、直前のGPS位置・受信状態を初期化して選択先から受信し直す。Port.AのAT6558 Unit GPSは最初のRMC受信後、[CASICプロトコル](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/950/Multimode_satellite_navigation_receiver_cn.pdf)のコマンドで測位を5 Hz（200 ms）、RMCを毎回、GGAを5回に1回へ変更する。設定はGPS内のFLASHに保存せず、UARTを開き直すたびに送信する。M5BusのGT-502MGG-Nにはこのコマンドを送らない。GPSの測位確認には屋外の開けた場所で待つ。シリアルの`status`で`gps_source`・`gps_bytes`（受信バイト数）・`gps_rmc`（チェックサムが正しいRMC文の件数）・`gps_rmc_hz`（直近5秒間のRMC受信頻度）・`gps`（新鮮な測位の有無）を確認できる。
+- GENERAL SETTINGSの`SPEED AVG (N)`はCURRENT SPEEDに使う直近の車輪パルス間隔数。1〜8、初期値3。変更後に`SAVE SETTINGS`で端末共通NVSへ保存する。距離とAVERAGE SPEEDの積算は変更しない。
 - 2026-10-01、Port.AのUnit GPSを接続してTab5を再起動したところ、起動ログに5 Hzの設定要求が出て、`gps_rmc_hz`は4.9～5.0を示した。この確認時は屋内で未FIXだったため、5 Hzの位置更新や実走での周回判定は未検証。
 - コース地図にはSettingsで保存したスタート地点を青緑の点、ゴール地点を赤の点、周回更新地点をコースに垂直な紫の線として表示する。`START`・`GOAL`・`LAP`の文字は地図下端の凡例にまとめる。GPS未接続でも表示し、座標変更を保存すると対応する点・線が移動する。周回更新線は通過判定用の基準経路に投影した位置へ置き、回廊外や画像範囲外の場合は非表示にする。
 
@@ -31,15 +32,17 @@
 | ECU準備 | 1000 ms | ユーザー指定の暫定値 |
 | 車輪 | 1.03 m、1 pulse/revolution | 旧版の定数を引き継ぐ。累積パルス差から距離を求める |
 | チャタリング | 設定値3000 µs、開放確認10 ms | 受理した立ち下がりから設定値および最高速度75 km/h相当の間隔（標準車輪で約49 ms）以上離れ、かつ接点が10 ms以上連続してHIGHだった場合だけ次を採用する。75 km/hは想定最高速度60 km/hに25%の余裕を持たせた暫定ガード。実車の入力波形と最高速度で検証する |
-| 車速停止判定 | 3000 ms | 受理パルスがない間、最後の周期/経過時間から速度を減衰し、3秒で0とする |
+| 車速停止判定 | 3000 ms | 最後の受理パルスから3秒までは計算済み車速を保持し、その後は0とする。長い停止後の最初の1パルスでは古い周期を再利用しない |
 | GPS鮮度 | 3000 ms | 有効なRMC受信から3秒。無効RMC、古い/順序逆転の入力を通過として扱わない |
 | コース回廊 | 60 m | 指定の近似座標と既存GPSから作成したコースを考慮。実走行で校正 |
 | GPS最大ステップ | 80 m | 隣接測位間の不連続ジャンプを除外する暫定値。5 Hzでの実走に合わせて校正が必要 |
 | 周回判定 | 前方600 m以上、前ラップから60秒以上 | コースJSONの進行方向に沿う通過のみ。近傍滞在・逆走・欠損直後の誤検出を抑える |
-
-車速入力の切り分けにはシリアルで`wheel-debug`を送る。`raw_falls`は入力で観測した立ち下がり数、`accepted`は距離・速度に使う累積数、`rejected_release`と`rejected_interval`は各条件で除外した数。`interval_us`は速度ガードとSettingsの`DEBOUNCE (us)`の大きい方。実機に保存されていた100000 µsでは、標準車輪・1パルス/回転の60 km/h（約61800 µs/回転）を取りこぼすため、車輪試験では設定を見直す。手動短絡と実ホイールの波形が異なる可能性があるため、正式版では実ホイールと独立カウンタで照合する。
 | 重複抑制 | 10000 ms | 自動/手動を共通の更新契約で受理。同じ通過の手動補正はGPS検出器も再初期化 |
 | ゴール判定 | 前方100 m以上、最終周になってから10秒以上 | 最終周より前は無視。最終周への更新自体で完走にしない |
+
+車速入力の切り分けにはシリアルで`wheel-debug`を送る。`raw_falls`は入力で観測した立ち下がり数、`accepted`は距離・速度に使う累積数、`rejected_release`と`rejected_interval`は各条件で除外した数。`interval_us`は速度ガードとSettingsの`DEBOUNCE (us)`の大きい方。実機に保存されていた100000 µsでは、標準車輪・1パルス/回転の60 km/h（約61800 µs/回転）を取りこぼすため、車輪試験では設定を見直す。手動短絡と実ホイールの波形が異なる可能性があるため、正式版では実ホイールと独立カウンタで照合する。
+
+CURRENT SPEEDは最新の受理パルスから最大N区間を取り、`N区間の距離 ÷ その始終パルスの時間差`で算出する。まだN区間に満たないときは取得済みの区間だけを使う。次のパルスまでは値を保持し、停止判定で0にする。最初の1パルスだけでは速度を表示しない。MQTT・SDの`speed`も同じ計算値を使い、距離と停止時間込みのAVERAGE SPEEDには平滑化を適用しない。
 
 最初のパルスまでは車速/平均速度は欠損表示。速度の算出には2つの受理パルスが必要だが、1つだけでも停止判定時間を過ぎれば有効0になる。一度入力があった後の停止と配線断は、この入力だけでは区別できない。
 
@@ -99,7 +102,7 @@ Walking modeで玉川学園コースを歩いたセッション50は約10分45�
 | コマンド | 動作 |
 |---|---|
 | `status` | 計測・指令・GPIO読み取り・GPS・パルス・SD・通信・TARGET。`sd_last_failure`は最後のSD異常種類、`sd_record_lost`は記録の欠落件数 |
-| `settings` | UIで編集可能な27項目の現在値 |
+| `settings` | UIで編集可能な28項目の現在値 |
 | `plan-status` | 走行戦略の読込状態と採用したID |
 | `plan-upload BYTES` | 4096バイト以内のJSONを後続の生バイトで受け取り、SDに`/vega/strategy.json`がない場合だけ検証・保存。通常は`scripts/upload_strategy.py`から実行 |
 | `start` / `cancel` / `lap` | UIと同じ中核へ計測コマンドを送る |
@@ -114,11 +117,11 @@ Walking modeで玉川学園コースを歩いたセッション50は約10分45�
 | `ui-advanced` / `ui-advanced-back` | Course Detailsを開く/Settingsへ戻る |
 | `ui-general` / `ui-general-back` | 一般設定オーバーレイを開く/ダッシュボードへ戻る |
 | `ui-inspect-field 8` | 指定した設定欄を開き、表示文字列を出力して閉じる。値は変更しない |
-| `ui-edit 0 39:16` / `ui-save` | 生成ボタン/編集イベントを通したUIテスト。項目番号0=全体、1〜7=各周、8〜13=地点緯度経度、14〜21・23=General Settings、22・24〜26=Course Details |
+| `ui-edit 0 39:16` / `ui-save` | 生成ボタン/編集イベントを通したUIテスト。項目番号0=全体、1〜7=各周、8〜13=地点緯度経度、14〜21・23・27=General Settings、22・24〜26=Course Details。一般設定の保存は`ui-save-general` |
 | `ui-start` / `ui-cancel` / `ui-confirm-cancel` | 生成UIの開始/取消操作経路のテスト |
 | `config KEY VALUE` | 校正用設定の永続保存。中核の設定検証・計測中ロックを通す |
 
-校正キー: `power_active_high`（0/1）、`ecu_ready_ms`、`ignition_pulse_ms`、`wheel_circumference_m`、`pulses_per_revolution`、`pulse_debounce_us`、`speed_zero_ms`、`gps_stale_ms`、`max_gps_step_m`は端末共通。`course_corridor_m`、`min_lap_progress_m`、`min_lap_ms`、`lap_duplicate_ms`はコース別。電装極性・ECU待ち・パルス幅の変更は電装OFF時だけ受理する。NVSの設定形式バージョンとSDログ連番は内部管理値で、Settingsの編集項目ではない。
+校正キー: `power_active_high`（0/1）、`ecu_ready_ms`、`ignition_pulse_ms`、`wheel_circumference_m`、`pulses_per_revolution`、`pulse_debounce_us`、`speed_average_intervals`、`speed_zero_ms`、`gps_stale_ms`、`max_gps_step_m`は端末共通。`course_corridor_m`、`min_lap_progress_m`、`min_lap_ms`、`lap_duplicate_ms`はコース別。電装極性・ECU待ち・パルス幅の変更は電装OFF時だけ受理する。NVSの設定形式バージョンとSDログ連番は内部管理値で、Settingsの編集項目ではない。
 
 ## 検証記録
 

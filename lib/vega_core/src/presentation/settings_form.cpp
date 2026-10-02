@@ -43,7 +43,7 @@ const char *settingTitle(size_t field) {
                                  "POWER HIGH (0/1)", "DEBOUNCE (us)", "ZERO SPEED (ms)",
                                  "GPS STALE (ms)", "COURSE CORRIDOR (m)", "MAX GPS STEP (m)",
                                  "MIN LAP PROGRESS (m)", "MIN LAP TIME (ms)",
-                                 "LAP DUPLICATE (ms)"};
+                                 "LAP DUPLICATE (ms)", "SPEED AVG (N)"};
   static_assert(sizeof(titles) / sizeof(titles[0]) == kSettingsFieldCount);
   return field < kSettingsFieldCount ? titles[field] : "";
 }
@@ -118,6 +118,7 @@ bool editSetting(Settings &s, size_t field, const char *text) {
       case 21: candidate.gps_stale_ms = number; break;
       case 25: candidate.min_lap_ms = number; break;
       case 26: candidate.lap_duplicate_ms = number; break;
+      case 27: candidate.speed_average_intervals = number; break;
       default: return false;
     }
   }
@@ -157,7 +158,8 @@ void settingText(const Settings &s, size_t field, char *out, size_t cap) {
                      : field == 20 ? s.speed_zero_ms
                      : field == 21 ? s.gps_stale_ms
                      : field == 25 ? s.min_lap_ms
-                                   : s.lap_duplicate_ms;
+                     : field == 26 ? s.lap_duplicate_ms
+                                   : s.speed_average_intervals;
     std::snprintf(out, cap, "%lu", static_cast<unsigned long>(value));
   }
 }
