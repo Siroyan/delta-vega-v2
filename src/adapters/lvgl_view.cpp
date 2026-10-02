@@ -589,6 +589,11 @@ class View final : public vega::IView {
     for (auto &map : plan_maps) renderPlanMap(map, m);
     for (size_t i = 0; i < control_pages.size(); ++i) {
       checked(control_pages[i].power, m.power_on);
+      auto *ignition = control_pages[i].ignition;
+      // Keep the 3 px border in the layout so its flame child does not move.
+      const lv_opa_t border_opa = m.ignition_preparing ? LV_OPA_TRANSP : LV_OPA_COVER;
+      if (lv_obj_get_style_border_opa(ignition, LV_PART_MAIN) != border_opa)
+        lv_obj_set_style_border_opa(ignition, border_opa, LV_PART_MAIN);
       auto *arc = ignition_progress_arcs[i];
       if (!arc) continue;
       visible(arc, m.ignition_preparing);
@@ -716,22 +721,32 @@ void viewBegin() {
     lv_obj_remove_flag(page.power, LV_OBJ_FLAG_CHECKABLE);
     lv_obj_remove_event_cb(page.power, action_electrical_changed);
     lv_obj_remove_event_cb(page.ignition, action_ignite);
-    // A thick arc paints the button face from pale red to red, starting at 12
-    // o'clock. Keep the flame above it and leave hit testing to the button.
+    // Match the disabled button's visible color, then reveal its enabled red
+    // clockwise from 12 o'clock. The child arc must not inherit the disabled
+    // color filter, or the filled portion would stay pale too.
     auto *flame = lv_obj_get_child(page.ignition, 0);
+    const auto ready_color = lv_obj_get_style_bg_color(page.ignition, LV_PART_MAIN);
+    // LVGL's light default theme gives disabled buttons this 50% grey mix.
+    // Compute it directly, independent of when the button style is resolved.
+    const auto waiting_color =
+        lv_color_mix(lv_palette_lighten(LV_PALETTE_GREY, 2), ready_color, LV_OPA_50);
     auto *arc = lv_arc_create(page.ignition);
     ignition_progress_arcs[i] = arc;
     ignition_progress_angles[i] = -1;
-    lv_obj_set_pos(arc, 7, 7);
-    lv_obj_set_size(arc, 194, 194);
+    // The progress disc covers the whole 208 px button, including its border.
+    // Center alignment avoids an offset from the parent's content origin.
+    lv_obj_set_size(arc, 208, 208);
+    lv_obj_align(arc, LV_ALIGN_CENTER, 0, 0);
     lv_obj_remove_flag(arc, static_cast<lv_obj_flag_t>(LV_OBJ_FLAG_CLICKABLE |
                                                     LV_OBJ_FLAG_SCROLLABLE));
     lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(arc, 0, 0);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(0xE6ABA7), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(0xB43832), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(arc, 96, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(arc, 96, LV_PART_INDICATOR);
+    lv_obj_set_style_color_filter_opa(arc, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_color_filter_opa(arc, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, waiting_color, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, ready_color, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(arc, 104, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 104, LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(arc, false, LV_PART_MAIN);
     lv_obj_set_style_arc_rounded(arc, false, LV_PART_INDICATOR);
     lv_obj_set_style_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);
