@@ -251,14 +251,14 @@ GPS未受信やクラウド未接続は「計測中」に重なる状態とし�
 - パネル上部の閉じるアイコン、またはパネル外の背景をタップすると閉じる。パネル内の余白をタップしても閉じない。
 - メニュー項目は`SETTINGS`のみ。ボタンは（24, 112, 336, 88）、設定アイコンは40 pxとする。PlanDemo等の確認用ページへの切り替え項目は追加しない。
 - `SETTINGS`を押すとSettings画面へ遷移する。戻るボタンは（16, 12, 56, 56）で32 pxの矢印アイコン、タイトルは（96, 26, 1100, 43）で48 px文字とする。設定はNVSへ保存する。戻る操作は未保存の編集を破棄し、現在のレース状態に対応するダッシュボードへ戻る。
-- Settingsの左側には全体と7周のTARGET、右側にはスタート・周回更新・ゴールの緯度と経度を配置する。右側の最下段には`DISPLAY BRIGHTNESS`のスライダーと現在値（%）を置く。左下の`ADVANCED SETTINGS`から車輪・GPS・周回判定・ECU関連の13項目とGPS接続先を開く。Advanced画面はSettingsと同じ見た目・2列構成とし、右側の最下段に`GPS INPUT`の`M5BUS` / `PORT.A`二択を配置する。選択中のボタンを青く表示する。戻る矢印はSettingsへ戻す。両画面の編集内容は共通の一時設定に保持する。
-- 数値をタップすると編集オーバーレイを開く。左上の戻る矢印はその項目の編集を破棄し、SETは編集値を一時設定へ反映する。GPS接続先は二択のボタンで選ぶ。明るさはスライダー操作中にプレビューし、保存せずSettingsを閉じると元の明るさに戻す。表示が読めるよう明るさの下限を64/255、初期値を従来と同じ127/255にする。SAVE SETTINGSで27個の数値項目・GPS接続先・明るさをまとめてNVSへ保存する。Settingsからダッシュボードへ戻ると未保存の編集は破棄する。
+- `COURSE SETTINGS`の左側には全体と7周のTARGET、右側にはスタート・周回更新・ゴールの緯度と経度を配置する。左下の`COURSE DETAILS`から回廊幅・最小周回距離・最小周回時間・重複抑制の4項目を開く。隣の`GENERAL SETTINGS`には車輪・電装・ECU・GPSの9数値項目、`GPS INPUT`の`M5BUS` / `PORT.A`二択、`DISPLAY BRIGHTNESS`のスライダーを置く。各ページの戻る矢印はCOURSE SETTINGSへ戻す。
+- 数値をタップすると編集オーバーレイを開く。左上の戻る矢印はその項目の編集を破棄し、SETは編集値を一時設定へ反映する。GPS接続先は二択のボタンで選ぶ。明るさはスライダー操作中にプレビューし、保存せずSettingsを閉じると元の明るさに戻す。表示が読めるよう明るさの下限を64/255、初期値を127/255にする。各ページのSAVE SETTINGSは表示中の範囲だけをNVSへ保存し、他方の未保存値は変更しない。TARGET・地点・周回判定はコース別、輝度・GPS・車両設定は端末共通とする。Settingsからダッシュボードへ戻ると未保存の編集は破棄する。
 - Advanced画面の電装極性は`POWER HIGH`として`1`=HIGHでON、`0`=LOWでONを表示する。単位は各ラベルに記す。値は中核の設定検証を通し、範囲外や不正な形式は受け付けない。
 - 計測中は数値編集・GPS接続先の切替・明るさの変更・保存を無効にする。GPS接続先の保存に成功した場合はUARTと受信状態を初期化する。取消はダッシュボードのメニューまたはSettingsのCANCEL TIMINGから行い、確認画面でCANCEL TIMINGを押すとWaitingへ戻る。KEEP TIMINGで計測を継続する。記録済みデータは保持する。
 - 電装ON中は電装極性・ECU準備時間・点火パルス幅の編集ボタンを無効にし、アプリケーション側でも変更を拒否する。
 - 設定画面の戻るアイコンで、メニューを開いたダッシュボードに戻る。画面を再作成せず、表示値・電装トグルの状態を維持する。
 - ハンバーガー・閉じる・戻る・設定アイコンもLucideのアセットを使い、元SVG・派生画像・ライセンスを既存のアイコン用フォルダで管理する。
-- EEZのCLICKEDイベントに`open_menu`・`close_menu`・`open_settings`・`open_advanced_settings`・`close_advanced_settings`・`return_to_dashboard`のネイティブアクションを設定する。実装は`src/app/ui_navigation.cpp`に置き、EEZ再生成で失われないようにする。
+- EEZのCLICKEDイベントに`open_menu`・`close_menu`・`open_settings`・`open_advanced_settings`・`close_advanced_settings`・`open_general_settings`・`close_general_settings`・`return_to_dashboard`のネイティブアクションを設定する。実装は`src/app/ui_navigation.cpp`に置き、EEZ再生成で失われないようにする。
 
 ## 7. インジケーター
 

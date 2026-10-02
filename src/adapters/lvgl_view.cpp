@@ -112,6 +112,7 @@ lv_obj_t *gps_coordinate_labels[2][2]{};  // [Main, Waiting][latitude, longitude
 vega::Settings draft{};
 size_t editing_field = 0;
 bool save_pending = false;
+vega::Settings pending_settings{};
 bool ignition_pending = false;
 bool finish_mode = false;
 bool finish_ready = false;
@@ -467,6 +468,7 @@ void setMessage(const char *value) {
   std::snprintf(message, sizeof(message), "%s", value);
   text(objects.settings_message_label, message);
   text(objects.settings_advanced_message_label, message);
+  text(objects.settings_general_message_label, message);
 }
 bool sameSettings(const vega::Settings &a, const vega::Settings &b) {
   return a.version == b.version && a.gps_source == b.gps_source &&
@@ -648,8 +650,10 @@ class View final : public vega::IView {
     for (size_t i = 16; i <= 18; ++i) enabled(fieldButton(i), editable && !m.power_on);
     enabled(objects.settings_save_button, editable);
     enabled(objects.settings_advanced_save_button, editable);
+    enabled(objects.settings_general_save_button, editable);
     enabled(objects.settings_cancel_button, m.phase == vega::RacePhase::Measuring);
     enabled(objects.settings_advanced_cancel_button, m.phase == vega::RacePhase::Measuring);
+    enabled(objects.settings_general_cancel_button, m.phase == vega::RacePhase::Measuring);
     if (m.phase == vega::RacePhase::Measuring && lv_screen_active() == objects.settings &&
         !save_pending) {
       setMessage("TIMING ACTIVE - SETTINGS LOCKED");
@@ -1087,7 +1091,7 @@ void viewUpdate() {
       s.now_ms - finish_requested_ms > 2000)
     finish_pending = false;
   if (save_pending) {
-    bool same = sameSettings(s.settings, draft);
+    bool same = sameSettings(s.settings, pending_settings);
     if (s.settings_attempt != pending_settings_attempt || s.now_ms - save_started > 3000) {
       save_pending = false;
       setMessage(s.settings_attempt != pending_settings_attempt && s.settings_accepted && same
@@ -1144,11 +1148,13 @@ void viewOpenSettings() {
                  ? "TIMING ACTIVE - SETTINGS LOCKED"
                  : "TARGET / MM:SS - COORDINATES / DEGREES");
   visible(objects.settings_advanced_overlay, false);
+  visible(objects.settings_general_overlay, false);
   visible(objects.settings_editor_overlay, false);
   visible(objects.cancel_confirmation_overlay, false);
 }
 void viewReturnDashboard() {
   visible(objects.settings_advanced_overlay, false);
+  visible(objects.settings_general_overlay, false);
   visible(objects.settings_editor_overlay, false);
   visible(objects.cancel_confirmation_overlay, false);
   loadScreen(live_screen);
@@ -1156,12 +1162,21 @@ void viewReturnDashboard() {
 void viewOpenAdvanced() {
   text(objects.settings_advanced_message_label,
        presenter.phase() == vega::RacePhase::Measuring
-           ? "TIMING ACTIVE - SETTINGS LOCKED"
-           : "UNITS IN LABELS  /  POWER HIGH: 1=HIGH, 0=LOW");
+           ? "TIMING ACTIVE - SETTINGS LOCKED" : "COURSE GEOMETRY AND LAP RULES");
+  visible(objects.settings_general_overlay, false);
   visible(objects.settings_advanced_overlay, true);
   lv_obj_move_foreground(objects.settings_advanced_overlay);
 }
 void viewCloseAdvanced() { visible(objects.settings_advanced_overlay, false); }
+void viewOpenGeneral() {
+  text(objects.settings_general_message_label,
+       presenter.phase() == vega::RacePhase::Measuring
+           ? "TIMING ACTIVE - SETTINGS LOCKED" : "DEVICE DISPLAY, GPS AND VEHICLE INPUTS");
+  visible(objects.settings_advanced_overlay, false);
+  visible(objects.settings_general_overlay, true);
+  lv_obj_move_foreground(objects.settings_general_overlay);
+}
+void viewCloseGeneral() { visible(objects.settings_general_overlay, false); }
 
 void selectGpsSource(vega::GpsSource source) {
   if (presenter.phase() == vega::RacePhase::Measuring || save_pending) return;
@@ -1219,15 +1234,23 @@ void finishEdit() {
 }
 void discardEdit() { visible(objects.settings_editor_overlay, false); }
 void saveSettings() {
-  Command c{};
-  c.kind = CommandKind::Configure;
-  c.settings = draft;
   vega::Snapshot before;
   if (!snapshot(before)) return;
+  const auto scope = !lv_obj_has_flag(objects.settings_general_overlay, LV_OBJ_FLAG_HIDDEN)
+                         ? vega::SettingsScope::General : vega::SettingsScope::Course;
+  Command c{};
+  c.kind = CommandKind::Configure;
+  c.scope = scope;
+  c.settings = before.settings;
+  if (scope == vega::SettingsScope::General)
+    vega::applyGeneral(c.settings, vega::generalSettings(draft));
+  else
+    vega::applyCourse(c.settings, vega::courseSettings(draft));
   if (!presenter.request(c)) {
     setMessage("SETTINGS NOT ACCEPTED");
     return;
   }
+  pending_settings = c.settings;
   save_pending = true;
   save_started = before.now_ms;
   pending_settings_attempt = before.settings_attempt;
@@ -1400,8 +1423,12 @@ bool viewDiagnostic(const char *command) {
     action_open_settings(nullptr);
   else if (!strcmp(command, "ui-advanced"))
     action_open_advanced_settings(nullptr);
+  else if (!strcmp(command, "ui-general"))
+    action_open_general_settings(nullptr);
   else if (!strcmp(command, "ui-advanced-back"))
     action_close_advanced_settings(nullptr);
+  else if (!strcmp(command, "ui-general-back"))
+    action_close_general_settings(nullptr);
   else if (!strcmp(command, "ui-back"))
     viewReturnDashboard();
   else if (!strcmp(command, "ui-start"))
@@ -1417,7 +1444,8 @@ bool viewDiagnostic(const char *command) {
     char extra;
     if (sscanf(command + 17, "%u%c", &index, &extra) == 1 &&
         index < vega::kSettingsFieldCount) {
-      if (index >= 14) viewOpenAdvanced();
+      if ((index >= 14 && index <= 21) || index == 23) viewOpenGeneral();
+      else if (index >= 22) viewOpenAdvanced();
       lv_obj_send_event(fieldButton(index), LV_EVENT_CLICKED, nullptr);
       if (!lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN)) {
         Serial.printf("[UI FIELD] index=%u text=%s\n", index,
@@ -1431,7 +1459,8 @@ bool viewDiagnostic(const char *command) {
     unsigned index;
     char value[25];
     if (sscanf(command + 8, "%u %24s", &index, value) == 2 && index < vega::kSettingsFieldCount) {
-      if (index >= 14) viewOpenAdvanced();
+      if ((index >= 14 && index <= 21) || index == 23) viewOpenGeneral();
+      else if (index >= 22) viewOpenAdvanced();
       lv_obj_send_event(fieldButton(index), LV_EVENT_CLICKED, nullptr);
       if (!lv_obj_has_flag(objects.settings_editor_overlay, LV_OBJ_FLAG_HIDDEN)) {
         lv_textarea_set_text(objects.settings_editor_input, value);

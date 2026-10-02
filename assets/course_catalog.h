@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <lvgl.h>
 #include "domain/course.h"
+#include "domain/settings_scopes.h"
 
 namespace tab5 {
 struct CourseAsset {
@@ -14,7 +15,7 @@ struct CourseAsset {
   const char *settings_namespace;
   const char *legacy_settings_namespace;
   uint32_t legacy_total_target_s;
-  vega::Settings (*defaults)();
+  vega::CourseSettings (*defaults)();
   bool pedestrian_gps;
 };
 

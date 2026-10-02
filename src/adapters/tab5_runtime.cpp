@@ -267,25 +267,88 @@ class SettingsStore final : public vega::ISettingsStore {
   void select(uint8_t index) { active_ = index; }
   vega::Settings load(uint8_t index) {
     const auto &asset = courseAsset(index);
-    vega::Settings s = asset.defaults();
-    if (loadFrom(asset.settings_namespace, s)) return s;
-    if (asset.legacy_settings_namespace && loadFrom(asset.legacy_settings_namespace, s)) {
-      if (asset.legacy_total_target_s &&
-          s.total_target_s == asset.legacy_total_target_s)
-        s.total_target_s = asset.defaults().total_target_s;
-      return s;
+    vega::Settings s = defaults(index);
+    if (!general_loaded_) {
+      vega::GeneralSettings stored;
+      if (!readGeneral(stored)) {
+        vega::Settings legacy = s;
+        if (readLegacy(index, legacy)) s = legacy;
+        stored = vega::generalSettings(s);
+        if (saveGeneral(stored)) diagnostic("[SETTINGS] migrated general settings");
+      }
+      general_ = stored;
+      general_loaded_ = true;
     }
+    vega::CourseSettings course;
+    if (!readCourse(index, course)) {
+      vega::Settings legacy = defaults(index);
+      if (readLegacy(index, legacy)) s = legacy;
+      course = vega::courseSettings(s);
+      if (writeCourse(index, course)) diagnostic("[SETTINGS] migrated course=%s", asset.data->id);
+    }
+    s = defaults(index);
+    vega::applyGeneral(s, general_);
+    vega::applyCourse(s, course);
     return s;
   }
-  bool save(const vega::Settings &s) override {
+  bool saveGeneral(const vega::GeneralSettings &s) override {
+    if (!vega::validGeneralSettings(s)) return false;
     Preferences p;
-    if (!p.begin(courseAsset(active_).settings_namespace, false)) return false;
-    bool ok = p.putBytes("settings", &s, sizeof(s)) == sizeof(s);
+    if (!p.begin("vega-device", false)) return false;
+    const bool ok = p.putBytes("settings", &s, sizeof(s)) == sizeof(s);
+    p.end();
+    if (ok) general_ = s;
+    return ok;
+  }
+  bool saveCourse(const vega::CourseSettings &s) override { return writeCourse(active_, s); }
+ private:
+  uint8_t active_ = 0;
+  bool general_loaded_ = false;
+  vega::GeneralSettings general_{};
+  static vega::Settings defaults(uint8_t index) {
+    vega::Settings s;
+    vega::applyCourse(s, courseAsset(index).defaults());
+    return s;
+  }
+  static bool readGeneral(vega::GeneralSettings &s) {
+    Preferences p;
+    if (!p.begin("vega-device", true)) return false;
+    vega::GeneralSettings candidate;
+    const bool ok = p.getBytesLength("settings") == sizeof(candidate) &&
+                    p.getBytes("settings", &candidate, sizeof(candidate)) == sizeof(candidate) &&
+                    vega::validGeneralSettings(candidate);
+    p.end();
+    if (ok) s = candidate;
+    return ok;
+  }
+  static bool readCourse(uint8_t index, vega::CourseSettings &s) {
+    Preferences p;
+    if (!p.begin(courseAsset(index).settings_namespace, true)) return false;
+    vega::CourseSettings candidate;
+    const bool ok = p.getBytesLength("course") == sizeof(candidate) &&
+                    p.getBytes("course", &candidate, sizeof(candidate)) == sizeof(candidate) &&
+                    vega::validCourseSettings(candidate);
+    p.end();
+    if (ok) s = candidate;
+    return ok;
+  }
+  static bool writeCourse(uint8_t index, const vega::CourseSettings &s) {
+    if (!vega::validCourseSettings(s)) return false;
+    Preferences p;
+    if (!p.begin(courseAsset(index).settings_namespace, false)) return false;
+    const bool ok = p.putBytes("course", &s, sizeof(s)) == sizeof(s);
     p.end();
     return ok;
   }
- private:
-  uint8_t active_ = 0;
+  static bool readLegacy(uint8_t index, vega::Settings &s) {
+    const auto &asset = courseAsset(index);
+    if (loadFrom(asset.settings_namespace, s)) return true;
+    if (!asset.legacy_settings_namespace || !loadFrom(asset.legacy_settings_namespace, s))
+      return false;
+    if (asset.legacy_total_target_s && s.total_target_s == asset.legacy_total_target_s)
+      s.total_target_s = asset.defaults().total_target_s;
+    return true;
+  }
   static bool loadFrom(const char *name, vega::Settings &s) {
     nvs_handle_t handle;
     bool loaded = false;
@@ -1078,7 +1141,7 @@ void applicationTask(void *) {
           break;
         case CommandKind::Configure: {
           const auto old_gps_source = app.snapshot().settings.gps_source;
-          ok = app.configure(command.settings);
+          ok = app.configure(command.settings, command.scope);
           if (ok) {
             debounce_us = command.settings.pulse_debounce_us;
             if (command.settings.gps_source != old_gps_source) {
@@ -1384,6 +1447,7 @@ void serialPoll() {
           Command c{};
           c.kind = CommandKind::Configure;
           c.settings = s.settings;
+          c.scope = vega::SettingsScope::General;
           char *end = nullptr;
           double number = strtod(value, &end);
           bool known = true;
@@ -1396,12 +1460,16 @@ void serialPoll() {
               known = false;
           } else if (!strcmp(key, "wheel_circumference_m"))
             c.settings.wheel_circumference_m = number;
-          else if (!strcmp(key, "course_corridor_m"))
+          else if (!strcmp(key, "course_corridor_m")) {
+            c.scope = vega::SettingsScope::Course;
             c.settings.course_corridor_m = number;
+          }
           else if (!strcmp(key, "max_gps_step_m"))
             c.settings.max_gps_step_m = number;
-          else if (!strcmp(key, "min_lap_progress_m"))
+          else if (!strcmp(key, "min_lap_progress_m")) {
+            c.scope = vega::SettingsScope::Course;
             c.settings.min_lap_progress_m = number;
+          }
           else if (number > UINT32_MAX || number != std::floor(number))
             known = false;
           else if (!strcmp(key, "ecu_ready_ms"))
@@ -1414,10 +1482,13 @@ void serialPoll() {
             c.settings.speed_zero_ms = number;
           else if (!strcmp(key, "gps_stale_ms"))
             c.settings.gps_stale_ms = number;
-          else if (!strcmp(key, "min_lap_ms"))
+          else if (!strcmp(key, "min_lap_ms")) {
+            c.scope = vega::SettingsScope::Course;
             c.settings.min_lap_ms = number;
-          else if (!strcmp(key, "lap_duplicate_ms"))
+          } else if (!strcmp(key, "lap_duplicate_ms")) {
+            c.scope = vega::SettingsScope::Course;
             c.settings.lap_duplicate_ms = number;
+          }
           else if (!strcmp(key, "pulses_per_revolution"))
             c.settings.pulses_per_revolution = number;
           else

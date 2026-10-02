@@ -44,10 +44,17 @@ struct Output : IEngineOutput {
 };
 struct Store : ISettingsStore {
   bool fail = false;
-  Settings saved;
-  bool save(const Settings &s) override {
-    saved = s;
-    return !fail;
+  GeneralSettings general;
+  CourseSettings course;
+  bool saveGeneral(const GeneralSettings &s) override {
+    if (fail) return false;
+    general = s;
+    return true;
+  }
+  bool saveCourse(const CourseSettings &s) override {
+    if (fail) return false;
+    course = s;
+    return true;
   }
 };
 struct Recorder : ISessionRecorder {
@@ -193,7 +200,7 @@ void raceTest() {
   assert(f.app.snapshot().race.phase == RacePhase::Measuring);
   Settings cfg = f.settings;
   cfg.total_target_s = 2400;
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::Course));
   for (int i = 0; i < 6; ++i) {
     f.clock.time += 10000;
     assert(f.app.manualLap());
@@ -495,35 +502,39 @@ void settingsTest() {
   Settings cfg = f.settings;
   cfg.total_target_s = 2356;
   cfg.goal = {36.01, 140};
-  assert(f.app.configure(cfg));
+  assert(f.app.configure(cfg, SettingsScope::Course));
   assert(f.app.snapshot().settings.total_target_s == 2356);
+  assert(f.store.course.total_target_s == 2356);
   cfg.lap_target_s[2] = 0;
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::Course));
   cfg = f.settings;
   cfg.goal.latitude = std::numeric_limits<double>::quiet_NaN();
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::Course));
   f.store.fail = true;
-  assert(!f.app.configure(f.settings));
+  assert(!f.app.configure(f.settings, SettingsScope::Course));
   assert(f.app.snapshot().settings.total_target_s == 2356);
   assert(f.app.snapshot().settings_attempt == 4 && !f.app.snapshot().settings_accepted);
   f.store.fail = false;
   f.app.power(true);
-  assert(f.app.configure(f.settings));
+  assert(f.app.configure(f.settings, SettingsScope::General));
   assert(f.output.on);
+  assert(f.app.snapshot().settings.total_target_s == 2356);
   cfg = f.settings;
   cfg.power_active_high = false;
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::General));
   f.app.power(false);
-  assert(f.app.configure(cfg));
+  assert(f.app.configure(cfg, SettingsScope::General));
   assert(!f.output.on && !f.output.active_high);
   cfg.display_brightness = kMinDisplayBrightness - 1;
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::General));
   cfg.display_brightness = kMaxDisplayBrightness + 1;
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::General));
   cfg.display_brightness = 200;
   cfg.ecu_ready_ms = 2000;
-  assert(f.app.configure(cfg));
+  assert(f.app.configure(cfg, SettingsScope::General));
   assert(f.app.snapshot().settings.display_brightness == 200);
+  assert(f.store.general.display_brightness == 200);
+  assert(f.store.course.total_target_s == 2356);
   f.app.power(true);
   f.clock.time += 1000;
   f.app.tick();
@@ -684,12 +695,12 @@ void gpsSourceSettingsTest() {
   assert(f.app.snapshot().gps_seen);
   Settings changed = f.app.snapshot().settings;
   changed.gps_source = GpsSource::PortA;
-  assert(f.app.configure(changed));
+  assert(f.app.configure(changed, SettingsScope::General));
   assert(!f.app.snapshot().gps_seen && !f.app.snapshot().gps_fresh);
   assert(f.app.snapshot().settings.gps_source == GpsSource::PortA);
   assert(f.app.start());
   changed.gps_source = GpsSource::M5Bus;
-  assert(!f.app.configure(changed));
+  assert(!f.app.configure(changed, SettingsScope::General));
   assert(f.app.snapshot().settings.gps_source == GpsSource::PortA);
 }
 void strategyTest() {
@@ -785,6 +796,10 @@ void strategyTest() {
 }
 void courseSelectionTest() {
   Fixture f;
+  Settings general = f.settings;
+  general.display_brightness = 200;
+  general.gps_source = GpsSource::PortA;
+  assert(f.app.configure(general, SettingsScope::General));
   Course short_course(asset_tamagawagakuen_station_loop::course_data);
   Settings local = f.settings;
   local.start = {35.564980, 139.463466};
@@ -792,12 +807,15 @@ void courseSelectionTest() {
   local.goal = {35.5633809, 139.4629657};
   assert(f.app.selectCourse(short_course, 1, local));
   assert(f.app.snapshot().course_index == 1 && f.app.snapshot().lap_count == 4);
+  assert(f.app.snapshot().settings.display_brightness == 200);
+  assert(f.app.snapshot().settings.gps_source == GpsSource::PortA);
   assert(f.app.start());
   assert(!f.app.selectCourse(f.course, 0, f.settings));
   assert(f.app.snapshot().course_index == 1);
   assert(f.app.cancel());
   assert(f.app.selectCourse(f.course, 0, f.settings));
   assert(f.app.snapshot().course_index == 0 && f.app.snapshot().lap_count == 7);
+  assert(f.app.snapshot().settings.display_brightness == 200);
   f.app.power(true);
   assert(!f.app.selectCourse(short_course, 1, local));
   f.app.power(false);

@@ -16,7 +16,7 @@ class Application {
   bool manualFinish();
   void power(bool on);
   bool ignite();
-  bool configure(const Settings &settings);
+  bool configure(const Settings &settings, SettingsScope scope);
   bool selectCourse(const Course &course, uint8_t index, const Settings &settings);
   void wheel(WheelInput input) { wheel_ = input; }
   void gps(const GpsFix &fix);

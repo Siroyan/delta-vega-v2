@@ -14,15 +14,15 @@ extern const lv_image_dsc_t img_tobitakyu_course_480;
 
 namespace tab5 {
 namespace {
-vega::Settings motegiDefaults() {
-  vega::Settings s;
+vega::CourseSettings motegiDefaults() {
+  vega::CourseSettings s;
   s.start = {36.530654, 140.227998};
   s.timing = {36.532766, 140.226269};
   s.goal = {36.534443, 140.225411};
   return s;
 }
-vega::Settings tamagawaDefaults() {
-  vega::Settings s;
+vega::CourseSettings tamagawaDefaults() {
+  vega::CourseSettings s;
   s.start = {35.564980, 139.463466};
   s.timing = {35.5647900, 139.4640418};
   s.goal = {35.5633809, 139.4629657};
@@ -31,8 +31,8 @@ vega::Settings tamagawaDefaults() {
   s.lap_target_s.fill(10 * 60);
   return s;
 }
-vega::Settings tobitakyuDefaults() {
-  vega::Settings s;
+vega::CourseSettings tobitakyuDefaults() {
+  vega::CourseSettings s;
   s.start = {35.666947, 139.518721};
   s.timing = {35.6665666, 139.5186953};
   s.goal = {35.6669552, 139.5219829};

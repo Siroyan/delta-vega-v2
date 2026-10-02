@@ -61,6 +61,10 @@ extern "C" void action_open_advanced_settings(lv_event_t *) { tab5::viewOpenAdva
 
 extern "C" void action_close_advanced_settings(lv_event_t *) { tab5::viewCloseAdvanced(); }
 
+extern "C" void action_open_general_settings(lv_event_t *) { tab5::viewOpenGeneral(); }
+
+extern "C" void action_close_general_settings(lv_event_t *) { tab5::viewCloseGeneral(); }
+
 extern "C" void action_return_to_dashboard(lv_event_t *) {
   close_menus();
   tab5::viewReturnDashboard();

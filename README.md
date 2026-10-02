@@ -36,7 +36,7 @@ pio run -e esp32p4_pioarduino -t upload
 pio device monitor -b 115200
 ~~~
 
-玉川学園前、飛田給、茂木の3コースを同時に組み込んでいます。Waiting画面のメニューからコースとmicroSDの走行戦略を選べます。選択は再起動後も復元され、コースごとのSettings値は別のNVS領域に保存されます。操作とアセット構成は[コースアセット](assets/README.md)を参照してください。
+玉川学園前、飛田給、茂木の3コースを同時に組み込んでいます。Waiting画面のメニューからコースとmicroSDの走行戦略を選べます。選択は再起動後も復元されます。SettingsではTARGET・地点・周回判定をコース別に、画面輝度・GPS入力先・車両設定を端末共通で保存します。操作とアセット構成は[コースアセット](assets/README.md)を参照してください。
 
 Wi-Fi・AWS IoT Coreを使う場合は`include/config/network_secrets.example.h`を同じ場所の`network_secrets.h`へコピーして接続先と証明書を設定します。`network_secrets.h`はGitの追跡対象外です。未設定でも画面、計測、microSD保存は動作します。通信設定とログ形式は[運用・設定ガイド](docs/firmware-guide.md)を参照してください。
 

@@ -5,6 +5,8 @@ void viewUpdate();
 void viewOpenSettings();
 void viewOpenAdvanced();
 void viewCloseAdvanced();
+void viewOpenGeneral();
+void viewCloseGeneral();
 void viewReturnDashboard();
 bool viewDiagnostic(const char *command);
 }  // namespace tab5

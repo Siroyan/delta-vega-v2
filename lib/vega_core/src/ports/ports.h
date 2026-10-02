@@ -1,5 +1,6 @@
 #pragma once
 #include "domain/types.h"
+#include "domain/settings_scopes.h"
 namespace vega {
 enum class CommandKind : uint8_t { Start, Cancel, Lap, PowerOn, PowerOff, Ignite, Configure, Finish,
                                    SelectCourse, SelectStrategy, RefreshStrategies,
@@ -7,6 +8,7 @@ enum class CommandKind : uint8_t { Start, Cancel, Lap, PowerOn, PowerOff, Ignite
 struct Command {
   CommandKind kind;
   Settings settings{};
+  SettingsScope scope = SettingsScope::Course;
   uint8_t choice = 0;
 };
 struct ICommandSink {
@@ -27,7 +29,8 @@ struct IEngineOutput {
 };
 struct ISettingsStore {
   virtual ~ISettingsStore() = default;
-  virtual bool save(const Settings &s) = 0;
+  virtual bool saveGeneral(const GeneralSettings &settings) = 0;
+  virtual bool saveCourse(const CourseSettings &settings) = 0;
 };
 struct ISessionRecorder {
   virtual ~ISessionRecorder() = default;

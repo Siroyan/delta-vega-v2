@@ -138,15 +138,25 @@ bool Application::ignite() {
   event(Event::Ignition);
   return !output_error_;
 }
-bool Application::configure(const Settings &s) {
+bool Application::configure(const Settings &requested, SettingsScope scope) {
   ++settings_attempt_;
   settings_accepted_ = false;
+  Settings s = settings_;
+  if (scope == SettingsScope::General)
+    applyGeneral(s, generalSettings(requested));
+  else if (scope == SettingsScope::Course)
+    applyCourse(s, courseSettings(requested));
+  else
+    return false;
   if (race_.phase() == RacePhase::Measuring || !validSettings(s)) return false;
   if (engine_.phase() != EnginePhase::Off && (s.power_active_high != settings_.power_active_high ||
                                               s.ecu_ready_ms != settings_.ecu_ready_ms ||
                                               s.ignition_pulse_ms != settings_.ignition_pulse_ms))
     return false;
-  if (!store_.save(s)) {
+  const bool saved = scope == SettingsScope::General
+                         ? store_.saveGeneral(generalSettings(s))
+                         : store_.saveCourse(courseSettings(s));
+  if (!saved) {
     settings_error_ = true;
     return false;
   }
@@ -162,14 +172,16 @@ bool Application::configure(const Settings &s) {
   return true;
 }
 bool Application::selectCourse(const Course &course, uint8_t index, const Settings &s) {
+  Settings combined = s;
+  applyGeneral(combined, generalSettings(settings_));
   if (race_.phase() != RacePhase::Waiting || engine_.phase() != EnginePhase::Off ||
-      !validSettings(s) || !race_.setLapCount(course.lapCount())) return false;
+      !validSettings(combined) || !race_.setLapCount(course.lapCount())) return false;
   output_.stopPulse();
-  output_.configurePower(s.power_active_high);
+  output_.configurePower(combined.power_active_high);
   output_.setPower(false);
   course_ = &course;
   course_index_ = index;
-  settings_ = s;
+  settings_ = combined;
   resetGps();
   return true;
 }

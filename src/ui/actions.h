@@ -26,6 +26,8 @@ extern void action_open_advanced_settings(lv_event_t * e);
 extern void action_close_advanced_settings(lv_event_t * e);
 extern void action_select_gps_m5bus(lv_event_t * e);
 extern void action_select_gps_port_a(lv_event_t * e);
+extern void action_open_general_settings(lv_event_t * e);
+extern void action_close_general_settings(lv_event_t * e);
 
 #ifdef __cplusplus
 }
