@@ -349,7 +349,7 @@ PlanDemo・CachedPlan・ExpiredPlanの地図内には`plan_demo_label`、`plan_l
 
 ### 9.1 現行のmicroSDプラン
 
-Tab5起動時に`/vega/strategy.json`を読み込む。フォーマット、7周の例、距離の原点と検証条件は[走行戦略データREADME](../assets/strategy/README.md)を参照する。対象コースと各周の経路・距離を検証し、不正なら案内を表示しない。Waitingでは1周目をプレビューし、Mainでは現在周回をモックと同じ橙色のエンジン使用区間、青色の惰性区間、点火炎とOFF四角で描く。GPS測位が有効なら次のON/OFF地点までの距離を下部中央に表示する。GPSが使えない場合も地図上の計画は表示し、距離案内の代わりにGPS欠損を示す。戦略は表示専用で、電装・点火GPIOを自動操作しない。
+Waiting画面のメニューからコースと、microSDの`/vega/strategies/`に置いた戦略JSONを選ぶ。旧`/vega/strategy.json`も選択できる。フォーマット、周回数別の検証、距離の原点は[走行戦略データREADME](../assets/strategy/README.md)を参照する。対象コースと各周の経路・距離を検証し、不正なら案内を表示しない。Waitingでは1周目をプレビューし、Mainでは現在周回を橙色のエンジン使用区間、青色の惰性区間、点火炎とOFF四角で描く。GPS測位が有効なら次のON/OFF地点までの距離を下部中央に表示する。GPSが使えない場合も地図上の計画は表示し、距離案内の代わりにGPS欠損を示す。戦略は表示専用で、電装・点火GPIOを自動操作しない。
 
 ### 9.2 将来のAWS更新
 
@@ -388,7 +388,7 @@ EEZはレイアウト・固定スタイル・静的アセットの編集元と�
 | `eez/delta-vega-v2.eez-project` | 画面の編集元。既存 |
 | `eez/fonts/` | 元フォントとライセンス。既存 |
 | `assets/icons/lucide/` | 電源・炎・メニュー等の原本SVG、派生SVG・PNG、ライセンス、取得元 |
-| `assets/motegi_oval_full/` | 現行のコースJSON・背景PNG・編集用SVG。画像生成ツールは別リポジトリで管理する方針 |
+| `assets/motegi_oval_full/` | 収録コースの一つ。JSON・背景PNG・編集用SVG・組込用画像 |
 | `assets/motegi_oval/` | 旧周回路データ。現行ファームウェアからは参照しない |
 | `src/ui/` | EEZ生成物。既存。生成先は`../src/ui`を維持 |
 | `src/app/ui_navigation.cpp` | メニュー開閉、設定画面への遷移、元の画面への復帰。EEZ生成コードの外に実装 |
@@ -397,7 +397,7 @@ EEZはレイアウト・固定スタイル・静的アセットの編集元と�
 | `src/adapters/lvgl_view.*` | LVGL View・EEZオブジェクトとの接続・動的地図描画 |
 | `src/tab5_lvgl.*` | 画面・タッチ接続。既存 |
 
-`assets/`は編集用データとアセットの保管場所であり、置くだけで実機に転送・読み込みされる仕様ではない。背景はEEZの画像アセットとして取り込み、JSONは`python3 scripts/generate_course_data.py`で`src/adapters/course_data.h`へ定数生成する。
+`assets/`には各コースの編集元と組込用データをまとめる。背景画像と生成済みコース定数はPlatformIOで同時に組み込み、EEZ画面は選択結果に応じて画像を切り替える。JSONの定数は`python3 scripts/generate_course_data.py --source <course.json>`で同じアセットフォルダの`course_data.h`へ生成する。
 
 ### 10.2 現行EEZオブジェクト名
 

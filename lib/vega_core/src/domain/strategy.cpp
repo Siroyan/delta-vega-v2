@@ -175,7 +175,7 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
         unsigned lap_number = 0;
         StrategyLap lap{};
         if (!parseLap(r, lap_number, lap)) return report(r.error());
-        if (lap_number < 1 || lap_number > kLapCount || seen[lap_number - 1])
+        if (lap_number < 1 || lap_number > course.lapCount() || seen[lap_number - 1])
           return report("invalid or duplicate lap number");
         seen[lap_number - 1] = true;
         candidate.laps[lap_number - 1] = lap;
@@ -192,11 +192,11 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
     return report("missing strategy field");
   if (schema != 1) return report("unsupported schema");
   if (std::strcmp(candidate.course_id, expected_course_id)) return report("course_id mismatch");
-  for (size_t i = 0; i < kLapCount; ++i) {
+  for (size_t i = 0; i < course.lapCount(); ++i) {
     if (!seen[i]) return report("missing lap");
     auto &lap = candidate.laps[i];
     const auto expected_route = i == 0 ? CourseRoute::First
-                                : i == kLapCount - 1 ? CourseRoute::Final
+                                : i == course.lapCount() - 1 ? CourseRoute::Final
                                                      : CourseRoute::Regular;
     if (lap.route != expected_route || !course.hasRoute(lap.route))
       return report("route_id mismatch");

@@ -17,6 +17,7 @@ class Application {
   void power(bool on);
   bool ignite();
   bool configure(const Settings &settings);
+  bool selectCourse(const Course &course, uint8_t index, const Settings &settings);
   void wheel(WheelInput input) { wheel_ = input; }
   void gps(const GpsFix &fix);
   void tick();
@@ -32,7 +33,8 @@ class Application {
   ISettingsStore &store_;
   ISessionRecorder &recorder_;
   ITelemetry &telemetry_;
-  const Course &course_;
+  const Course *course_;
+  uint8_t course_index_ = 0;
   Settings settings_;
   RaceSession race_;
   EngineCommands engine_;

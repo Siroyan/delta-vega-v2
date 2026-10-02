@@ -1,10 +1,13 @@
 #pragma once
 #include "domain/types.h"
 namespace vega {
-enum class CommandKind : uint8_t { Start, Cancel, Lap, PowerOn, PowerOff, Ignite, Configure, Finish };
+enum class CommandKind : uint8_t { Start, Cancel, Lap, PowerOn, PowerOff, Ignite, Configure, Finish,
+                                   SelectCourse, SelectStrategy, RefreshStrategies,
+                                   UseUploadedStrategy };
 struct Command {
   CommandKind kind;
   Settings settings{};
+  uint8_t choice = 0;
 };
 struct ICommandSink {
   virtual ~ICommandSink() = default;

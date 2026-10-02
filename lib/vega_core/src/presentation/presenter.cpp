@@ -102,7 +102,7 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
     std::snprintf(m.detail, sizeof(m.detail), "CHECK SD STRATEGY");
   }
   if (status.plan_state == PlanState::Ready && strategy &&
-      m.phase != RacePhase::Finished && s.race.lap <= kLapCount) {
+      m.phase != RacePhase::Finished && s.race.lap <= lap_count_) {
     m.plan_loaded = true;
     m.plan_lap_number = s.race.lap ? s.race.lap : 1;
     m.plan_lap = strategy->laps[m.plan_lap_number - 1];

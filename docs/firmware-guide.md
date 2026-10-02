@@ -42,7 +42,7 @@
 
 リセット中やファームウェア起動前のOFFは回路側の責務。初期active HIGHなら外部プルダウン、極性変更時はそれに対応するOFF条件を設計する。ソフトウェアは設定を読んでからOFFレベルを設定し、出力ドライバを有効にする。実車側の絶縁回路・出力波形は未検証。
 
-通常コースは`assets/motegi_oval_full/motegi_course_full.json`の進入路・周回路・ゴール分岐。`scripts/generate_course_data.py`は座標と変換行列をC++ヘッダーへ埋め込むデータ変換で、画像生成ツールではない。`platformio.ini`の`VEGA_TEST_COURSE=1`では[玉川学園前駅のテストコース](../assets/tamagawagakuen_station_loop/README.md)、`2`では[飛田給・榊原記念病院周回のテストコース](../assets/tobitakyu_hospital_loop/README.md)を使う。両テストコースはそれぞれ専用のNVS領域を使い、`0`に戻すと通常コースと元の設定を使う。現在位置は実緯度経度の画素変換で表示し、投影線へ吸着させない。通常コースの1周目は進入路を含む経路、2〜6周目は周回路、7周目はゴール分岐を含む経路を表示上の基準にする。周回更新はSettingsの座標を周回路へ投影して判定する。通常コースのゴールは7周目に分岐路のGPS点が連続して前進した場合だけ受理し、本流から約27 mの距離にあるゴール付近での誤完走を抑える。合流・分岐と地点座標は近似値であり、実走評価で校正する。
+3コースは同時にファームウェアへ収録する。Waiting画面のメニューから玉川学園前・飛田給・茂木を選び、画像、地点、周回判定を切り替える。コース固有のデータ・初期値・画像・NVS領域は[コースアセット](../assets/README.md)で管理する。現在位置は緯度経度を画像へ変換して表示し、投影線へ吸着させない。茂木コースには進入路・周回路・ゴール分岐がある。周回更新は選択したコースのSettingsにある座標を周回路へ投影して判定する。合流・分岐と地点座標は近似値であり、実走評価で校正する。
 
 ### Tab5専用variant
 
@@ -58,9 +58,9 @@
 
 2026-10-01の切り分けでは、GPSを外したバッテリー駆動中にMQTT接続試行を有効にすると、内部DMA用の最大連続空き領域が約1.5 KBまで減り、保存されたクラッシュ情報に`transport_drv_sta_tx ... (copy_buff)`が残った。MQTTだけを停止し、ボタンに触れずに再試験すると、同じバッテリー条件で10分35秒連続稼働し、内部DMA用の最大連続空き領域は約67 KBを維持した。手動Resetでもリセット理由`7`が記録されるため、この番号単独では自動再起動と判定しない。関連する[Espressifの報告](https://github.com/espressif/esp-hosted-mcu/issues/144)がある。現在の対策はTLSのメモリ確保先を変更して送信バッファ用の内部DMAメモリを残すもの。TLSが扱う秘密鍵もPSRAMに置かれるため、実車投入前にメモリ保護要件を確認する。
 
-- 走行戦略は起動時にmicroSDの`/vega/strategy.json`から読み、7周分の経路IDとON/OFF地点を検証する。Waitingで1周目をプレビューし、Mainでは現在周回の橙色のエンジン使用区間、青色の惰性区間、点火/OFF地点を地図へ重ねる。GPSが有効なら次の地点までの距離を表示する。形式とダミーは[走行戦略データREADME](../assets/strategy/README.md)。プランは表示専用で、GPIO出力を変更しない。
+- 走行戦略はWaiting画面からmicroSDの`/vega/strategies/*.json`または互換ファイル`/vega/strategy.json`を選び、選択したコースの周回数・経路ID・ON/OFF地点を検証する。Waitingで1周目をプレビューし、Mainでは現在周回の橙色のエンジン使用区間、青色の惰性区間、点火/OFF地点を地図へ重ねる。GPSが有効なら次の地点までの距離を表示する。形式とダミーは[走行戦略データREADME](../assets/strategy/README.md)。プランは表示専用で、GPIO出力を変更しない。
 - 計測開始から取消/完走までのみ、`/vega/session-0000000001.jsonl`のような個別ファイルをmicroSDへ保存する。NVSの連番と既存ファイルの確認で再起動後も上書きを防ぐ。
-- 最初の行は設定メタデータ（`schema_version:3`）。500 ms周期のサンプルはMQTTの10項目に加え、`gps_seen`、`gps_fix_valid`、`gps_fresh`、`gps_speed_kmh`、`gps_satellites`、`gps_hdop`、`gps_gga_fix_quality`、`gps_utc_ms_of_day`、`gps_age_ms`、`gps_quality_age_ms`を記録する。GGA未受信などで不明な数値は`null`。`gps_age_ms`は最後のRMC受信から、`gps_quality_age_ms`は最後のGGA受信からの経過時間。`gps_utc_ms_of_day`はRMCのUTC時刻を午前0時からのミリ秒で表す。開始・取消・完走・手動補正・電装操作は`type:event`で記録し、取消データも残す。
+- 最初の行はコースID・周回数と設定メタデータ（`schema_version:3`）。500 ms周期のサンプルはMQTTの10項目に加え、`gps_seen`、`gps_fix_valid`、`gps_fresh`、`gps_speed_kmh`、`gps_satellites`、`gps_hdop`、`gps_gga_fix_quality`、`gps_utc_ms_of_day`、`gps_age_ms`、`gps_quality_age_ms`を記録する。GGA未受信などで不明な数値は`null`。`gps_age_ms`は最後のRMC受信から、`gps_quality_age_ms`は最後のGGA受信からの経過時間。`gps_utc_ms_of_day`はRMCのUTC時刻を午前0時からのミリ秒で表す。開始・取消・完走・手動補正・電装操作は`type:event`で記録し、取消データも残す。
 - GPSのNMEA原文と画面上のアイコン座標を記録する一時的な診断機能は撤去した。位置、速度、衛星数、HDOPなどは500 ms周期の通常サンプルに残る。
 - USB接続時にTab5が再起動しても、シリアルの`log`でNVSの記録番号を使って最新のSDセッションを読み出せる。`log-read 番号`で古いセッションも指定できる。
 - SD Writerは別タスク。48件のキューを使い、500 msサンプルだけなら約24秒分（イベント数で減少）。書込、flush/fsync、キューあふれを警告し、計測を継続する。同期はセッション開始時、1秒周期、終了時。エラー表示は次のセッションのファイルを正常に開き、メタデータを同期できた場合に解除する。突然の電源断で直近の未同期データが失われる可能性がある。計測復元は未実装。

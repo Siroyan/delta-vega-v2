@@ -92,13 +92,15 @@ src/
   adapters/
     tab5_runtime.*    GPIO・UART・NVS・SD・MQTT/NTP・タスク構成
     lvgl_view.*       LVGL View・生成オブジェクト・編集操作
-    course_data.h     コースJSONから生成した定数
   ui/                 EEZ生成物
   tab5_lvgl.*         M5ディスプレイ・タッチとLVGLの接続
 variants/m5tab5/       Tab5専用Arduinoピン定義
 include/config/       通信設定例（秘密情報はGit除外）
 scripts/              nativeテスト、EEZ再生成、コース定数生成
- test/native/         中核のテスト
+assets/
+  course_catalog.*    収録コースの登録とコース別の初期設定
+  <course>/            コースJSON・画像・生成済み定数
+test/native/          中核のテスト
 ```
 
 `src/app/ui_navigation.cpp`はナビゲーション専用Adapterとして残し、設定初期化と復帰先の決定はLVGL Viewへ委譲する。EEZの生成先`src/ui/`とネイティブアクションの接続は維持する。生成コードは編集しない。現行10ダッシュボードは状態例であり、実機の状態はレース・GPS・通信・電装の組み合わせとして管理する。表示ページとアプリ状態を1対1の巨大な列挙にしない。

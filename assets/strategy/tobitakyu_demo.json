@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "course_id": "tobitakyu_hospital_loop_test_v2",
+  "plan_id": "tobitakyu-demo-001",
+  "plan_type": "demo",
+  "laps": [
+    {"lap": 1, "route_id": "first_lap", "runs": [{"on_s_m": 0, "off_s_m": 30}]},
+    {"lap": 2, "route_id": "regular_lap", "runs": [{"on_s_m": 0, "off_s_m": 30}]},
+    {"lap": 3, "route_id": "regular_lap", "runs": [{"on_s_m": 0, "off_s_m": 30}]},
+    {"lap": 4, "route_id": "final_lap", "runs": [{"on_s_m": 0, "off_s_m": 30}]}
+  ]
+}

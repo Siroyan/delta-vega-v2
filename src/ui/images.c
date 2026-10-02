@@ -1,7 +1,6 @@
 #include "images.h"
 
-const ext_img_desc_t images[9] = {
-    { "motegi_background_480", &img_motegi_background_480 },
+const ext_img_desc_t images[8] = {
     { "electrical_power_off", &img_electrical_power_off },
     { "electrical_power_on", &img_electrical_power_on },
     { "ignition_flame", &img_ignition_flame },

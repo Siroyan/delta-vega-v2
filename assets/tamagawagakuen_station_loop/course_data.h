@@ -2,7 +2,7 @@
 // Source SHA256: 89f15328c9b8a2adbebc6829a08398dee87625b7a66b0dab4b4bb7cf02c61096
 #pragma once
 #include "domain/course.h"
-namespace tab5 {
+namespace asset_tamagawagakuen_station_loop {
 inline constexpr vega::CoursePoint first_points[] = {
   {-3.078866, 131.2101, 0},
   {-6.628618, 134.590428, 4.90177},

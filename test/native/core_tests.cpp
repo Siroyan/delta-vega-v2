@@ -8,7 +8,9 @@
 #include <limits>
 #include <string>
 
-#include "../../src/adapters/course_data.h"
+#include "../../assets/motegi_oval_full/course_data.h"
+#include "../../assets/tamagawagakuen_station_loop/course_data.h"
+#include "../../assets/tobitakyu_hospital_loop/course_data.h"
 #include "../../src/control_gesture.h"
 #include "application/application.h"
 #include "application/telemetry_json.h"
@@ -695,10 +697,10 @@ void strategyTest() {
   assert(input);
   const std::string json((std::istreambuf_iterator<char>(input)),
                          std::istreambuf_iterator<char>());
-  Course course(tab5::course_data);
+  Course course(asset_motegi_oval_full::course_data);
   Strategy plan;
   char error[80]{};
-  assert(parseStrategy(json.data(), json.size(), course, tab5::course_data.id, plan,
+  assert(parseStrategy(json.data(), json.size(), course, asset_motegi_oval_full::course_data.id, plan,
                        error, sizeof(error)));
   assert(std::strcmp(plan.plan_id, "dummy-race-002") == 0);
   assert(plan.demo);
@@ -744,7 +746,7 @@ void strategyTest() {
   assert(!view.model.plan_loaded && std::strcmp(view.model.plan_status, "PLAN INVALID") == 0);
   auto invalid = [&](std::string altered) {
     Strategy result = plan;
-    assert(!parseStrategy(altered.data(), altered.size(), course, tab5::course_data.id,
+    assert(!parseStrategy(altered.data(), altered.size(), course, asset_motegi_oval_full::course_data.id,
                           result, error, sizeof(error)));
     assert(error[0] && std::strcmp(result.plan_id, plan.plan_id) == 0);
   };
@@ -757,7 +759,7 @@ void strategyTest() {
   original_demo.erase(demo_type, std::strlen("  \"plan_type\": \"demo\",\n"));
   Strategy older_demo;
   assert(parseStrategy(original_demo.data(), original_demo.size(), course,
-                       tab5::course_data.id, older_demo, error, sizeof(error)));
+                       asset_motegi_oval_full::course_data.id, older_demo, error, sizeof(error)));
   assert(older_demo.demo);
   auto unnamed_type = original_demo;
   auto name_at = unnamed_type.find("dummy-race-001");
@@ -781,17 +783,72 @@ void strategyTest() {
   invalid(json + "unexpected");
   invalid(std::string(kMaxStrategyFileBytes + 1, ' '));
 }
+void courseSelectionTest() {
+  Fixture f;
+  Course short_course(asset_tamagawagakuen_station_loop::course_data);
+  Settings local = f.settings;
+  local.start = {35.564980, 139.463466};
+  local.timing = {35.5647900, 139.4640418};
+  local.goal = {35.5633809, 139.4629657};
+  assert(f.app.selectCourse(short_course, 1, local));
+  assert(f.app.snapshot().course_index == 1 && f.app.snapshot().lap_count == 4);
+  assert(f.app.start());
+  assert(!f.app.selectCourse(f.course, 0, f.settings));
+  assert(f.app.snapshot().course_index == 1);
+  assert(f.app.cancel());
+  assert(f.app.selectCourse(f.course, 0, f.settings));
+  assert(f.app.snapshot().course_index == 0 && f.app.snapshot().lap_count == 7);
+  f.app.power(true);
+  assert(!f.app.selectCourse(short_course, 1, local));
+  f.app.power(false);
+}
+void fourLapStrategyTest() {
+  std::ifstream input("assets/strategy/tamagawa_demo.json");
+  assert(input);
+  const std::string json((std::istreambuf_iterator<char>(input)),
+                         std::istreambuf_iterator<char>());
+  Course course(asset_tamagawagakuen_station_loop::course_data);
+  Strategy parsed{};
+  char error[80]{};
+  assert(parseStrategy(json.data(), json.size(), course,
+                       asset_tamagawagakuen_station_loop::course_data.id,
+                       parsed, error, sizeof(error)));
+  assert(parsed.laps[3].route == CourseRoute::Final);
+  const auto pos = json.find("\"lap\": 4");
+  assert(pos != std::string::npos);
+  auto missing = json;
+  missing.replace(pos, std::strlen("\"lap\": 4"), "\"lap\": 5");
+  assert(!parseStrategy(missing.data(), missing.size(), course,
+                        asset_tamagawagakuen_station_loop::course_data.id,
+                        parsed, error, sizeof(error)));
+  assert(std::strcmp(error, "invalid or duplicate lap number") == 0);
+  std::ifstream other_input("assets/strategy/tobitakyu_demo.json");
+  assert(other_input);
+  const std::string other_json((std::istreambuf_iterator<char>(other_input)),
+                               std::istreambuf_iterator<char>());
+  assert(!parseStrategy(other_json.data(), other_json.size(), course,
+                        asset_tamagawagakuen_station_loop::course_data.id,
+                        parsed, error, sizeof(error)));
+  assert(std::strcmp(error, "course_id mismatch") == 0);
+  Course other_course(asset_tobitakyu_hospital_loop::course_data);
+  assert(parseStrategy(other_json.data(), other_json.size(), other_course,
+                       asset_tobitakyu_hospital_loop::course_data.id,
+                       parsed, error, sizeof(error)));
+}
 void realCourseTest() {
   Clock clock;
   Output output;
   Store store;
   Recorder recorder;
   Telemetry telemetry;
-  Course course(tab5::course_data);
+  Course course(asset_motegi_oval_full::course_data);
   Settings settings;
-  auto origin = course.locate(tab5::course_data.origin, settings.course_corridor_m);
-  assert(std::abs(origin.x - tab5::course_data.pixel_matrix[2]) < 1e-9);
-  assert(std::abs(origin.y - tab5::course_data.pixel_matrix[5]) < 1e-9);
+  settings.start = {36.530654, 140.227998};
+  settings.timing = {36.532766, 140.226269};
+  settings.goal = {36.534443, 140.225411};
+  auto origin = course.locate(asset_motegi_oval_full::course_data.origin, settings.course_corridor_m);
+  assert(std::abs(origin.x - asset_motegi_oval_full::course_data.pixel_matrix[2]) < 1e-9);
+  assert(std::abs(origin.y - asset_motegi_oval_full::course_data.pixel_matrix[5]) < 1e-9);
   assert(course.hasRoute(CourseRoute::First) && course.hasRoute(CourseRoute::Final) &&
          course.hasRoute(CourseRoute::FinishApproach));
   assert(std::abs(course.routeLength(CourseRoute::First) - 2124.583905) < 1e-5);
@@ -954,6 +1011,8 @@ int main() {
   settingsFormTest();
   gpsSourceSettingsTest();
   strategyTest();
+  courseSelectionTest();
+  fourLapStrategyTest();
   realCourseTest();
   combinedLapTest();
   controlGestureTest();

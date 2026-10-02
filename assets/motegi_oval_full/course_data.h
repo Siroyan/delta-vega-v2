@@ -2,7 +2,7 @@
 // Source SHA256: 6985868a19f886c6361b87d2338936e88f531b85ad679ed329f2fb4287b4d3f1
 #pragma once
 #include "domain/course.h"
-namespace tab5 {
+namespace asset_motegi_oval_full {
 inline constexpr vega::CoursePoint first_points[] = {
   {-32.686597, -299.071329, 0.0},
   {-35.525416, -307.437276, 8.834476},
@@ -797,6 +797,7 @@ inline const vega::CourseData course_data{
     {final_points, sizeof(final_points)/sizeof(final_points[0]), 2208.099909, false},
     {finish_approach_points, sizeof(finish_approach_points)/sizeof(finish_approach_points[0]), 174.72289, false},
   }},
-  "motegi_oval_2025_full_v2"
+  "motegi_oval_2025_full_v2",
+  7
 };
 }

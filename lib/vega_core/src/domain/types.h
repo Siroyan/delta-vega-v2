@@ -20,9 +20,9 @@ struct Settings {
   uint32_t version = 3;
   uint32_t total_target_s = 42 * 60;
   std::array<uint32_t, kLapCount> lap_target_s{{360, 360, 360, 360, 360, 360, 360}};
-  GeoPoint start{36.530654, 140.227998};
-  GeoPoint timing{36.532766, 140.226269};
-  GeoPoint goal{36.534443, 140.225411};
+  GeoPoint start{};
+  GeoPoint timing{};
+  GeoPoint goal{};
   double wheel_circumference_m = 1.03;
   uint32_t pulses_per_revolution = 1;
   uint32_t ecu_ready_ms = 1000;
@@ -101,6 +101,8 @@ struct MapPosition {
 };
 struct Snapshot {
   Millis now_ms = 0;
+  uint8_t course_index = 0;
+  uint8_t lap_count = kLapCount;
   Settings settings{};
   RaceReading race{};
   EnginePhase engine = EnginePhase::Off;
