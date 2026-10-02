@@ -740,10 +740,6 @@ void openSelection() {
   else text(selection_message, "ELECTRICAL OFF TO CHANGE SELECTION");
 }
 void setupSelectionUi() {
-  auto *menu = selectorButton(objects.waiting_navigation_drawer, 24, 320, 336, 88,
-                              "COURSE / STRATEGY", 0x1769B2);
-  lv_obj_add_event_cb(menu, [](lv_event_t *) { openSelection(); }, LV_EVENT_CLICKED, nullptr);
-
   selection_overlay = lv_obj_create(objects.waiting);
   lv_obj_set_pos(selection_overlay, 0, 0);
   lv_obj_set_size(selection_overlay, 1280, 720);
@@ -811,6 +807,8 @@ void setupSelectionUi() {
   visible(selection_overlay, false);
 }
 }  // namespace
+
+void viewOpenSelection() { openSelection(); }
 
 void viewBegin() {
   // Both live pages have the same free space between race status and clock.

@@ -3,6 +3,7 @@ namespace tab5 {
 void viewBegin();
 void viewUpdate();
 void viewOpenSettings();
+void viewOpenSelection();
 void viewOpenAdvanced();
 void viewCloseAdvanced();
 void viewOpenGeneral();

@@ -153,6 +153,9 @@ typedef struct _objects_t {
     lv_obj_t *waiting_menu_course_button;
     lv_obj_t *waiting_course_icon;
     lv_obj_t *waiting_course_label;
+    lv_obj_t *waiting_menu_selection_button;
+    lv_obj_t *waiting_selection_icon;
+    lv_obj_t *waiting_selection_label;
     lv_obj_t *waiting_cancel_timing_button;
     lv_obj_t *waiting_cancel_timing_button_label;
     lv_obj_t *waiting_live_map_status_label;

@@ -15,6 +15,7 @@ extern const lv_img_dsc_t img_x_dark;
 extern const lv_img_dsc_t img_arrow_left_dark;
 extern const lv_img_dsc_t img_settings_dark;
 extern const lv_img_dsc_t img_course_ignition_flame;
+extern const lv_img_dsc_t img_route_dark;
 
 #ifndef EXT_IMG_DESC_T
 #define EXT_IMG_DESC_T
@@ -24,7 +25,7 @@ typedef struct _ext_img_desc_t {
 } ext_img_desc_t;
 #endif
 
-extern const ext_img_desc_t images[8];
+extern const ext_img_desc_t images[9];
 
 #ifdef __cplusplus
 }

@@ -51,6 +51,8 @@ extern "C" void action_open_menu(lv_event_t *event) {
 
 extern "C" void action_close_menu(lv_event_t *) { close_menus(); }
 
+extern "C" void action_open_selection(lv_event_t *) { tab5::viewOpenSelection(); }
+
 extern "C" void action_open_settings(lv_event_t *) {
   close_menus();
   tab5::viewOpenSettings();

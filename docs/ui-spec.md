@@ -249,7 +249,7 @@ GPS未受信やクラウド未接続は「計測中」に重なる状態とし�
 - 左上の56×56 pxボタンに32 pxのハンバーガーアイコンを置く。10種類のダッシュボードすべてで同じ位置に表示する。
 - タップすると幅384 px・高さ720 pxの白いパネルを左端に表示し、画面の残りを半透明の暗い背景（#202B36、opacity 100/255）で覆う。表示中は背景の操作領域へのタッチを遮断する。
 - パネル上部の閉じるアイコン、またはパネル外の背景をタップすると閉じる。パネル内の余白をタップしても閉じない。
-- メニューに`GENERAL MENU`（24, 112, 336, 88）と`COURSE MENU`（24, 216, 336, 88）を別々に置く。Waiting画面だけは、その下（24, 320, 336, 88）に`COURSE / STRATEGY`を置く。設定アイコンは40 pxとする。PlanDemo等の確認用ページへの切り替え項目は追加しない。
+- メニューに`GENERAL MENU`（24, 112, 336, 88）と`COURSE MENU`（24, 216, 336, 88）を別々に置く。Waiting画面だけは、その下（24, 320, 336, 88）に`COURSE / STRATEGY`を置く。各項目は同じ白いボタンと左側40 pxのアイコンで揃え、前二者は設定、後者は経路のLucideアイコンを使う。PlanDemo等の確認用ページへの切り替え項目は追加しない。
 - `COURSE / STRATEGY`の選択画面も左上（16, 12, 56, 56）に32 pxの戻る矢印を置き、タイトルを他の設定画面と同じ位置・文字サイズに揃える。戻る矢印はWaiting画面へ戻す。右上の`REFRESH`は維持する。
 - `GENERAL MENU`は端末共通の設定画面、`COURSE MENU`は選択中コースの設定画面へ直接遷移する。戻るボタンは（16, 12, 56, 56）で32 pxの矢印アイコン、タイトルは（96, 26, 1100, 43）で48 px文字とする。GENERAL SETTINGSの戻る矢印はコース設定画面を経由せず、ダッシュボードへ戻る。戻る操作は未保存の編集を破棄する。
 - `COURSE SETTINGS`の左側には全体と7周のTARGET、右側にはスタート・周回更新・ゴールの緯度と経度を配置する。左下の`COURSE DETAILS`から回廊幅・最小周回距離・最小周回時間・重複抑制の4項目を開き、その戻る矢印はCOURSE SETTINGSへ戻す。`GENERAL SETTINGS`には車輪・電装・ECU・GPSの9数値項目、`GPS INPUT`の`M5BUS` / `PORT.A`二択、`DISPLAY BRIGHTNESS`のスライダーを置く。
@@ -259,7 +259,7 @@ GPS未受信やクラウド未接続は「計測中」に重なる状態とし�
 - 電装ON中は電装極性・ECU準備時間・点火パルス幅の編集ボタンを無効にし、アプリケーション側でも変更を拒否する。
 - 設定画面の戻るアイコンで、メニューを開いたダッシュボードに戻る。画面を再作成せず、表示値・電装トグルの状態を維持する。
 - ハンバーガー・閉じる・戻る・設定アイコンもLucideのアセットを使い、元SVG・派生画像・ライセンスを既存のアイコン用フォルダで管理する。
-- EEZのCLICKEDイベントに`open_menu`・`close_menu`・`open_settings`・`open_general_menu`・`open_advanced_settings`・`close_advanced_settings`・`close_general_settings`・`return_to_dashboard`のネイティブアクションを設定する。実装は`src/app/ui_navigation.cpp`に置き、EEZ再生成で失われないようにする。
+- EEZのCLICKEDイベントに`open_menu`・`close_menu`・`open_settings`・`open_general_menu`・`open_selection`・`open_advanced_settings`・`close_advanced_settings`・`close_general_settings`・`return_to_dashboard`のネイティブアクションを設定する。実装は`src/app/ui_navigation.cpp`に置き、EEZ再生成で失われないようにする。
 
 ## 7. インジケーター
 
