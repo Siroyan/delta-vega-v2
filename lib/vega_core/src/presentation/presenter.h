@@ -23,6 +23,9 @@ struct DisplayModel {
   StrategyLap plan_lap{};
   bool plan_loaded = false;
   uint8_t plan_lap_number = 0;
+  uint16_t ignition_prepare_permille = 0;
+  uint8_t display_brightness = kDefaultDisplayBrightness;
+  bool ignition_preparing = false;
   bool power_on = false, ignition_enabled = false, lap_enabled = false, finish_mode = false,
        heartbeat = false,
        pulse = false, gps_ok = false;

@@ -35,6 +35,7 @@ Snapshot Application::snapshot() const {
   s.settings = settings_;
   s.race = race_.reading(s.now_ms, wheel_.pulses, settings_);
   s.engine = engine_.phase();
+  s.ecu_prepare_permille = engine_.preparationPermille(s.now_ms, settings_.ecu_ready_ms);
   s.wheel = wheelReading(wheel_, clock_.nowMicros(), settings_);
   s.gps = gps_;
   s.map = map_;

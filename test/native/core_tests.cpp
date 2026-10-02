@@ -116,12 +116,19 @@ void engineTest() {
   assert(!f.app.ignite());
   f.app.power(true);
   assert(f.output.on);
+  assert(f.app.snapshot().engine == EnginePhase::Preparing);
+  assert(f.app.snapshot().ecu_prepare_permille == 0);
   assert(!f.app.ignite());
-  f.clock.time += 999;
+  f.clock.time += 500;
+  assert(f.app.snapshot().ecu_prepare_permille == 500);
+  assert(!f.app.ignite());
+  f.clock.time += 499;
   f.app.tick();
+  assert(f.app.snapshot().ecu_prepare_permille == 999);
   assert(!f.app.ignite());
   ++f.clock.time;
   f.app.tick();
+  assert(f.app.snapshot().ecu_prepare_permille == 0);
   assert(f.app.ignite());
   assert(f.output.triggers == 1 && f.output.duration == 1000);
   assert(!f.app.ignite());
@@ -136,6 +143,12 @@ void engineTest() {
   assert(!f.app.ignite());
   f.app.power(false);
   assert(!f.output.on);
+  assert(f.app.snapshot().ecu_prepare_permille == 0);
+  f.app.power(true);
+  f.clock.time += 250;
+  assert(f.app.snapshot().ecu_prepare_permille == 250);
+  f.app.power(false);
+  assert(f.app.snapshot().ecu_prepare_permille == 0);
   f.app.power(true);
   f.clock.time += 1000;
   f.app.tick();
@@ -501,6 +514,23 @@ void settingsTest() {
   f.app.power(false);
   assert(f.app.configure(cfg));
   assert(!f.output.on && !f.output.active_high);
+  cfg.display_brightness = kMinDisplayBrightness - 1;
+  assert(!f.app.configure(cfg));
+  cfg.display_brightness = kMaxDisplayBrightness + 1;
+  assert(!f.app.configure(cfg));
+  cfg.display_brightness = 200;
+  cfg.ecu_ready_ms = 2000;
+  assert(f.app.configure(cfg));
+  assert(f.app.snapshot().settings.display_brightness == 200);
+  f.app.power(true);
+  f.clock.time += 1000;
+  f.app.tick();
+  assert(f.app.snapshot().ecu_prepare_permille == 500);
+  assert(!f.app.ignite());
+  f.clock.time += 1000;
+  f.app.tick();
+  assert(f.app.snapshot().engine == EnginePhase::Ready);
+  assert(f.app.ignite());
 }
 void presenterTest() {
   Fixture f;
@@ -517,10 +547,15 @@ void presenterTest() {
   Presenter::formatTime(3600123, time, sizeof(time));
   assert(std::strcmp(time, "1:00:00") == 0);
   f.app.power(true);
+  presenter.render(f.app.snapshot(), status);
+  assert(view.model.ignition_preparing && view.model.ignition_prepare_permille == 0);
+  assert(!view.model.ignition_enabled);
+  assert(view.model.display_brightness == kDefaultDisplayBrightness);
   f.clock.time += 1000;
   f.app.tick();
   presenter.render(f.app.snapshot(), status);
   assert(view.model.ignition_enabled);
+  assert(!view.model.ignition_preparing);
   f.app.ignite();
   presenter.render(f.app.snapshot(), status);
   assert(!view.model.ignition_enabled);
@@ -614,7 +649,8 @@ void gpsSourceSettingsTest() {
   std::memcpy(legacy.data(), &old, legacy.size());
   Settings migrated;
   assert(decodeSettingsBlob(legacy.data(), legacy.size(), migrated));
-  assert(migrated.version == 2 && migrated.gps_source == GpsSource::M5Bus);
+  assert(migrated.version == 3 && migrated.gps_source == GpsSource::M5Bus &&
+         migrated.display_brightness == kDefaultDisplayBrightness);
   old.version = 2;
   for (size_t field = 0; field < kSettingsFieldCount; ++field) {
     char before[32], after[32];
@@ -623,12 +659,23 @@ void gpsSourceSettingsTest() {
     assert(std::strcmp(before, after) == 0);
   }
   migrated.gps_source = GpsSource::PortA;
+  migrated.display_brightness = 200;
   Settings restored;
   assert(decodeSettingsBlob(&migrated, sizeof(migrated), restored));
-  assert(restored.gps_source == GpsSource::PortA && restored.total_target_s == 2356);
+  assert(restored.gps_source == GpsSource::PortA && restored.total_target_s == 2356 &&
+         restored.display_brightness == 200);
+  Settings v2 = migrated;
+  v2.version = 2;
+  v2.display_brightness = 0;  // v2 tail padding must never become brightness.
+  assert(decodeSettingsBlob(&v2, sizeof(v2), restored));
+  assert(restored.version == 3 && restored.gps_source == GpsSource::PortA &&
+         restored.display_brightness == kDefaultDisplayBrightness);
   migrated.gps_source = static_cast<GpsSource>(9);
   assert(!decodeSettingsBlob(&migrated, sizeof(migrated), restored));
   assert(restored.gps_source == GpsSource::PortA);
+  migrated.gps_source = GpsSource::PortA;
+  migrated.display_brightness = kMinDisplayBrightness - 1;
+  assert(!decodeSettingsBlob(&migrated, sizeof(migrated), restored));
 
   Fixture f;
   f.fix(500);

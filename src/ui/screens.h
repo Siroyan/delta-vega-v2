@@ -636,6 +636,8 @@ typedef struct _objects_t {
     lv_obj_t *settings_goal_lon_title;
     lv_obj_t *settings_goal_lon_button;
     lv_obj_t *settings_goal_lon_button_label;
+    lv_obj_t *settings_brightness_title;
+    lv_obj_t *settings_brightness_control;
     lv_obj_t *settings_open_advanced_button;
     lv_obj_t *settings_open_advanced_button_label;
     lv_obj_t *settings_save_button;

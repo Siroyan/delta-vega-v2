@@ -129,6 +129,14 @@ struct ControlPage {
   lv_obj_t *screen, *power, *ignition;
 };
 std::array<ControlPage, 10> control_pages{};
+std::array<lv_obj_t *, 10> ignition_progress_arcs{};
+std::array<int16_t, 10> ignition_progress_angles{};
+bool was_ignition_preparing = false;
+bool ignition_finish_mask = false;
+uint32_t ignition_finish_started = 0;
+lv_obj_t *brightness_slider = nullptr;
+lv_obj_t *brightness_value = nullptr;
+bool refreshing_brightness = false;
 uint64_t save_started = 0;
 uint32_t pending_settings_attempt = 0;
 char message[180] = "TARGET / MM:SS - COORDINATES / DEGREES";
@@ -455,6 +463,7 @@ void setMessage(const char *value) {
 }
 bool sameSettings(const vega::Settings &a, const vega::Settings &b) {
   return a.version == b.version && a.gps_source == b.gps_source &&
+         a.display_brightness == b.display_brightness &&
          a.total_target_s == b.total_target_s &&
          a.lap_target_s == b.lap_target_s && a.start.latitude == b.start.latitude &&
          a.start.longitude == b.start.longitude && a.timing.latitude == b.timing.latitude &&
@@ -468,6 +477,16 @@ bool sameSettings(const vega::Settings &a, const vega::Settings &b) {
          a.course_corridor_m == b.course_corridor_m && a.max_gps_step_m == b.max_gps_step_m &&
          a.min_lap_progress_m == b.min_lap_progress_m && a.min_lap_ms == b.min_lap_ms &&
          a.lap_duplicate_ms == b.lap_duplicate_ms;
+}
+void refreshBrightnessControl() {
+  if (!brightness_slider) return;
+  refreshing_brightness = true;
+  lv_slider_set_value(brightness_slider, draft.display_brightness, LV_ANIM_OFF);
+  refreshing_brightness = false;
+  char value[16];
+  std::snprintf(value, sizeof(value), "%lu%%",
+                static_cast<unsigned long>((draft.display_brightness * 100 + 127) / 255));
+  text(brightness_value, value);
 }
 class View final : public vega::IView {
  public:
@@ -492,6 +511,10 @@ class View final : public vega::IView {
                     active == objects.finished))
       loadScreen(live_screen);
     initialized = true;
+    const bool settings_preview = lv_screen_active() == objects.settings &&
+                                  m.phase != vega::RacePhase::Measuring;
+    tab5_lvgl_set_brightness(static_cast<uint8_t>(settings_preview ? draft.display_brightness
+                                                                 : m.display_brightness));
     if (!m.ignition_enabled) ignition_pending = false;
     enabled(objects.start_button, m.phase == vega::RacePhase::Waiting);
     static lv_point_precise_t marker_points[3][5];
@@ -567,7 +590,43 @@ class View final : public vega::IView {
       ++page_index;
     }
     for (auto &map : plan_maps) renderPlanMap(map, m);
-    for (const auto &page : control_pages) checked(page.power, m.power_on);
+    if (m.ignition_preparing) {
+      ignition_finish_mask = false;
+    } else if (was_ignition_preparing && m.ignition_enabled) {
+      // Cover LVGL's disabled-to-enabled color transition with the completed
+      // red disc. The default theme fades for 80 ms after a 70 ms delay.
+      ignition_finish_mask = true;
+      ignition_finish_started = lv_tick_get();
+    } else if (!m.power_on ||
+               (ignition_finish_mask && lv_tick_elaps(ignition_finish_started) >= 200)) {
+      ignition_finish_mask = false;
+    }
+    was_ignition_preparing = m.ignition_preparing;
+    const bool show_ignition_arc = m.ignition_preparing || ignition_finish_mask;
+    for (size_t i = 0; i < control_pages.size(); ++i) {
+      checked(control_pages[i].power, m.power_on);
+      auto *ignition = control_pages[i].ignition;
+      // Keep the 3 px border in the layout so its flame child does not move.
+      const lv_opa_t border_opa = show_ignition_arc ? LV_OPA_TRANSP : LV_OPA_COVER;
+      if (lv_obj_get_style_border_opa(ignition, LV_PART_MAIN) != border_opa)
+        lv_obj_set_style_border_opa(ignition, border_opa, LV_PART_MAIN);
+      auto *arc = ignition_progress_arcs[i];
+      if (!arc) continue;
+      visible(arc, show_ignition_arc);
+      if (show_ignition_arc) {
+        const int16_t angle = m.ignition_preparing
+                                  ? static_cast<int16_t>(std::min<uint32_t>(
+                                        360, (uint32_t(m.ignition_prepare_permille) * 360 + 500) /
+                                                 1000))
+                                  : 360;
+        if (ignition_progress_angles[i] != angle) {
+          lv_arc_set_angles(arc, 0, angle);
+          ignition_progress_angles[i] = angle;
+        }
+      } else {
+        ignition_progress_angles[i] = -1;
+      }
+    }
     finish_mode = m.finish_mode;
     finish_ready = m.lap_enabled;
     if (!finish_mode || m.phase != vega::RacePhase::Measuring) {
@@ -575,6 +634,7 @@ class View final : public vega::IView {
       visible(finish_overlay, false);
     }
     bool editable = m.phase != vega::RacePhase::Measuring && !save_pending;
+    enabled(brightness_slider, editable);
     for (size_t i = 0; i < vega::kSettingsFieldCount; ++i) enabled(fieldButton(i), editable);
     enabled(objects.settings_advanced_gps_m5bus_button, editable);
     enabled(objects.settings_advanced_gps_port_a_button, editable);
@@ -673,14 +733,77 @@ void viewBegin() {
                     {"lap_corrected", objects.lap_corrected,
                      objects.lapcorrected_electrical_standby_switch,
                      objects.lapcorrected_ignition_switch}}};
-  for (const auto &page : control_pages) {
+  for (size_t i = 0; i < control_pages.size(); ++i) {
+    const auto &page = control_pages[i];
     // The model owns CHECKED. Commands use complete touch gestures rather than
     // LVGL's RELEASED/CLICKED, which can be lost after an unrelated indev reset.
     lv_obj_remove_flag(page.power, LV_OBJ_FLAG_CHECKABLE);
     lv_obj_remove_event_cb(page.power, action_electrical_changed);
     lv_obj_remove_event_cb(page.ignition, action_ignite);
+    // Match the disabled button's visible color, then reveal its enabled red
+    // clockwise from 12 o'clock. The child arc must not inherit the disabled
+    // color filter, or the filled portion would stay pale too.
+    auto *flame = lv_obj_get_child(page.ignition, 0);
+    const auto ready_color = lv_obj_get_style_bg_color(page.ignition, LV_PART_MAIN);
+    // LVGL's light default theme gives disabled buttons this 50% grey mix.
+    // Compute it directly, independent of when the button style is resolved.
+    const auto waiting_color =
+        lv_color_mix(lv_palette_lighten(LV_PALETTE_GREY, 2), ready_color, LV_OPA_50);
+    auto *arc = lv_arc_create(page.ignition);
+    ignition_progress_arcs[i] = arc;
+    ignition_progress_angles[i] = -1;
+    // The progress disc covers the whole 208 px button, including its border.
+    // Center alignment avoids an offset from the parent's content origin.
+    lv_obj_set_size(arc, 208, 208);
+    lv_obj_align(arc, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_remove_flag(arc, static_cast<lv_obj_flag_t>(LV_OBJ_FLAG_CLICKABLE |
+                                                    LV_OBJ_FLAG_SCROLLABLE));
+    lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(arc, 0, 0);
+    lv_obj_set_style_color_filter_opa(arc, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_color_filter_opa(arc, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, waiting_color, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, ready_color, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(arc, 104, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 104, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(arc, false, LV_PART_MAIN);
+    lv_obj_set_style_arc_rounded(arc, false, LV_PART_INDICATOR);
+    lv_obj_set_style_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_arc_set_bg_angles(arc, 0, 360);
+    lv_arc_set_angles(arc, 0, 0);
+    lv_arc_set_rotation(arc, 270);
+    visible(arc, false);
+    if (flame) lv_obj_move_foreground(flame);
   }
   tab5_lvgl_set_control_handlers(controlHit, controlAction, controlCleanup);
+  brightness_slider = lv_slider_create(objects.settings_brightness_control);
+  lv_obj_set_pos(brightness_slider, 4, 0);
+  lv_obj_set_size(brightness_slider, 204, 46);
+  lv_slider_set_range(brightness_slider, vega::kMinDisplayBrightness,
+                      vega::kMaxDisplayBrightness);
+  lv_obj_set_style_bg_color(brightness_slider, lv_color_hex(0xDCE5EF), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(brightness_slider, lv_color_hex(0x1769B2), LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(brightness_slider, lv_color_hex(0x1769B2), LV_PART_KNOB);
+  lv_obj_add_event_cb(brightness_slider,
+                      [](lv_event_t *event) {
+                        if (refreshing_brightness || save_pending ||
+                            presenter.phase() == vega::RacePhase::Measuring)
+                          return;
+                        draft.display_brightness =
+                            lv_slider_get_value(lv_event_get_target_obj(event));
+                        refreshBrightnessControl();
+                        tab5_lvgl_set_brightness(static_cast<uint8_t>(draft.display_brightness));
+                        setMessage("BRIGHTNESS PREVIEW - SAVE SETTINGS");
+                      },
+                      LV_EVENT_VALUE_CHANGED, nullptr);
+  brightness_value = lv_label_create(objects.settings_brightness_control);
+  lv_obj_set_pos(brightness_value, 215, 8);
+  lv_obj_set_size(brightness_value, 59, 30);
+  lv_label_set_long_mode(brightness_value, LV_LABEL_LONG_CLIP);
+  lv_obj_remove_flag(brightness_value, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_text_font(brightness_value, &ui_font_ricty_diminished_24, 0);
+  lv_obj_set_style_text_color(brightness_value, lv_color_hex(0x202B36), 0);
+  refreshBrightnessControl();
   // A full-screen confirmation prevents an accidental second touch from
   // finishing the race. The electrical OFF gesture is still handled below.
   finish_overlay = lv_obj_create(lv_display_get_layer_top(lv_display_get_default()));
@@ -849,6 +972,7 @@ void viewOpenSettings() {
   save_pending = false;
   refreshFields();
   refreshGpsSourceSelector();
+  refreshBrightnessControl();
   setMessage(presenter.phase() == vega::RacePhase::Measuring
                  ? "TIMING ACTIVE - SETTINGS LOCKED"
                  : "TARGET / MM:SS - COORDINATES / DEGREES");

@@ -25,22 +25,36 @@ struct SettingsV1 {
   uint32_t min_lap_ms;
   uint32_t lap_duplicate_ms;
 };
+struct SettingsV2 {
+  SettingsV1 previous;
+  GpsSource gps_source;
+};
 static_assert(std::is_trivially_copyable<SettingsV1>::value, "NVS v1 must be a plain blob");
 static_assert(sizeof(SettingsV1) == 160, "NVS v1 layout changed");
 static_assert(offsetof(Settings, gps_source) == sizeof(SettingsV1),
               "NVS v1 prefix no longer matches Settings");
-static_assert(sizeof(Settings) > sizeof(SettingsV1), "NVS v2 must have a distinct size");
+static_assert(sizeof(SettingsV2) == 168, "NVS v2 layout changed");
+static_assert(offsetof(Settings, display_brightness) ==
+                  offsetof(SettingsV2, gps_source) + sizeof(GpsSource),
+              "NVS v2 prefix no longer matches Settings");
+static_assert(sizeof(Settings) >= sizeof(SettingsV2), "NVS v3 must contain the v2 fields");
 }  // namespace
 
 bool decodeSettingsBlob(const void *blob, size_t size, Settings &out) {
-  if (!blob) return false;
+  if (!blob || size < sizeof(uint32_t)) return false;
+  uint32_t version = 0;
+  std::memcpy(&version, blob, sizeof(version));
   Settings candidate;
-  if (size == sizeof(Settings)) {
+  if (version == 3 && size == sizeof(Settings)) {
     std::memcpy(&candidate, blob, size);
-  } else if (size == sizeof(SettingsV1)) {
+  } else if (version == 2 && size == sizeof(SettingsV2)) {
+    // v2's tail padding may have the same blob size as v3. Inspect the version
+    // before copying, and leave the new brightness field at its safe default.
+    std::memcpy(&candidate, blob, offsetof(Settings, display_brightness));
+    candidate.version = 3;
+  } else if (version == 1 && size == sizeof(SettingsV1)) {
     SettingsV1 old;
     std::memcpy(&old, blob, size);
-    if (old.version != 1) return false;
     candidate.total_target_s = old.total_target_s;
     candidate.lap_target_s = old.lap_target_s;
     candidate.start = old.start;
