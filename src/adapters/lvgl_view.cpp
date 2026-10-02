@@ -751,13 +751,28 @@ void setupSelectionUi() {
   lv_obj_set_style_bg_color(selection_overlay, lv_color_hex(0xE6EDF4), 0);
   lv_obj_set_style_border_width(selection_overlay, 0, 0);
   lv_obj_set_style_pad_all(selection_overlay, 0, 0);
-  auto *title = lv_label_create(selection_overlay);
-  lv_obj_set_pos(title, 42, 24);
-  lv_label_set_text_static(title, "COURSE / STRATEGY");
-  lv_obj_set_style_text_font(title, &ui_font_ricty_diminished_32, 0);
-  auto *close = selectorButton(selection_overlay, 1100, 16, 138, 56, "BACK", 0x64748B);
-  lv_obj_add_event_cb(close, [](lv_event_t *) { visible(selection_overlay, false); },
+  auto *back = lv_button_create(selection_overlay);
+  lv_obj_set_pos(back, 16, 12);
+  lv_obj_set_size(back, 56, 56);
+  lv_obj_set_style_pad_all(back, 0, 0);
+  lv_obj_set_style_border_width(back, 0, 0);
+  lv_obj_set_style_radius(back, 12, 0);
+  lv_obj_set_style_shadow_width(back, 0, 0);
+  lv_obj_set_style_bg_color(back, lv_color_hex(0xF0F4F8), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(back, lv_color_hex(0xDCE5EF), LV_STATE_PRESSED);
+  lv_obj_add_event_cb(back, [](lv_event_t *) { visible(selection_overlay, false); },
                       LV_EVENT_CLICKED, nullptr);
+  auto *back_icon = lv_image_create(back);
+  lv_obj_set_pos(back_icon, 12, 12);
+  lv_obj_set_size(back_icon, 32, 32);
+  lv_image_set_src(back_icon, &img_arrow_left_dark);
+  lv_obj_remove_flag(back_icon, LV_OBJ_FLAG_CLICKABLE);
+  auto *title = lv_label_create(selection_overlay);
+  lv_obj_set_pos(title, 96, 26);
+  lv_obj_set_size(title, 760, 43);
+  lv_label_set_text_static(title, "COURSE / STRATEGY");
+  lv_obj_set_style_text_font(title, &ui_font_ricty_diminished_48, 0);
+  lv_obj_set_style_text_color(title, lv_color_hex(0x202B36), 0);
   selection_refresh = selectorButton(selection_overlay, 902, 16, 174, 56, "REFRESH", 0x1769B2);
   lv_obj_add_event_cb(selection_refresh, [](lv_event_t *) { request(CommandKind::RefreshStrategies); },
                       LV_EVENT_CLICKED, nullptr);
