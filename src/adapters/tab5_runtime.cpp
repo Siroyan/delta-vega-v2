@@ -27,6 +27,7 @@
 #include "domain/nmea.h"
 #include "domain/settings_codec.h"
 #include "lvgl_view.h"
+#include "reed_pulse_filter.h"
 #include "settings_migration.h"
 #include "../tab5_lvgl.h"
 #include "presentation/settings_form.h"
@@ -41,6 +42,11 @@ namespace tab5 {
 namespace {
 constexpr gpio_num_t kPower = GPIO_NUM_45, kIgnition = GPIO_NUM_48;
 constexpr int kReed = 16;
+// The car is expected to stay below 60 km/h. Allow a 25% margin for calibration,
+// while rejecting periods that would imply a faster wheel. A reed contact must
+// also be continuously open before another closure can be counted.
+constexpr double kWheelGuardSpeedKmh = 75.0;
+constexpr uint32_t kReedReleaseUs = 10000;
 constexpr int kGpsBusRx = 7, kGpsBusTx = 6;
 // Unit GPS: yellow (unit RX) to G53, white (unit TX) to G54 on Tab5 Port.A.
 constexpr int kGpsPortARx = 54, kGpsPortATx = 53;
@@ -85,8 +91,15 @@ std::atomic<bool> readback{false};
 std::atomic<uint32_t> readback_session{0};
 std::atomic<uint64_t> last_ntp_sync{0};
 std::atomic<uint32_t> debounce_us{3000};
+std::atomic<uint32_t> wheel_interval_us{50000};
 portMUX_TYPE wheel_lock = portMUX_INITIALIZER_UNLOCKED;
 vega::WheelInput wheel_input;
+ReedPulseFilter reed_filter;
+uint32_t wheelIntervalUs(const vega::Settings &settings) {
+  return ::tab5::wheelIntervalUs(settings.wheel_circumference_m,
+                                 settings.pulses_per_revolution, kWheelGuardSpeedKmh,
+                                 settings.pulse_debounce_us);
+}
 struct Diagnostic {
   char text[160];
 };
@@ -272,13 +285,16 @@ class SettingsStore final : public vega::ISettingsStore {
     const auto read_selected = [index](vega::Settings &s) { return readLegacy(index, s); };
     if (!general_loaded_) {
       vega::GeneralSettings stored;
-      if (!readGeneral(stored)) {
+      bool needs_upgrade = false;
+      if (!readGeneral(stored, needs_upgrade)) {
         // Older firmware stored vehicle settings with the selected course.
         // A newly selected course has no blob yet; the old "vega" namespace
         // still carries the vehicle calibration and output polarity.
         stored = migratedGeneralSettings(base, read_selected,
                                          [](vega::Settings &s) { return loadFrom("vega", s); });
         if (saveGeneral(stored)) diagnostic("[SETTINGS] migrated general settings");
+      } else if (needs_upgrade && saveGeneral(stored)) {
+        diagnostic("[SETTINGS] upgraded general settings to v2");
       }
       general_ = stored;
       general_loaded_ = true;
@@ -312,15 +328,20 @@ class SettingsStore final : public vega::ISettingsStore {
     vega::applyCourse(s, courseAsset(index).defaults());
     return s;
   }
-  static bool readGeneral(vega::GeneralSettings &s) {
+  static bool readGeneral(vega::GeneralSettings &s, bool &needs_upgrade) {
     Preferences p;
     if (!p.begin("vega-device", true)) return false;
+    const size_t size = p.getBytesLength("settings");
+    alignas(vega::GeneralSettings) uint8_t blob[sizeof(vega::GeneralSettings)]{};
     vega::GeneralSettings candidate;
-    const bool ok = p.getBytesLength("settings") == sizeof(candidate) &&
-                    p.getBytes("settings", &candidate, sizeof(candidate)) == sizeof(candidate) &&
-                    vega::validGeneralSettings(candidate);
+    const bool ok = size > 0 && size <= sizeof(blob) &&
+                    p.getBytes("settings", blob, size) == size &&
+                    vega::decodeGeneralSettingsBlob(blob, size, candidate);
     p.end();
-    if (ok) s = candidate;
+    if (ok) {
+      s = candidate;
+      needs_upgrade = size != sizeof(vega::GeneralSettings);
+    }
     return ok;
   }
   static bool readCourse(uint8_t index, vega::CourseSettings &s) {
@@ -427,11 +448,15 @@ struct Telemetry final : vega::ITelemetry {
 
 void IRAM_ATTR reedInterrupt() {
   uint64_t now = esp_timer_get_time();
+  const bool high = gpio_get_level(static_cast<gpio_num_t>(kReed)) != 0;
   portENTER_CRITICAL_ISR(&wheel_lock);
-  if (!wheel_input.last_pulse_us ||
-      now - wheel_input.last_pulse_us >= debounce_us.load(std::memory_order_relaxed)) {
+  if (reed_filter.edge(high, now, kReedReleaseUs,
+                       wheel_interval_us.load(std::memory_order_relaxed))) {
     wheel_input.previous_pulse_us = wheel_input.last_pulse_us;
     wheel_input.last_pulse_us = now;
+    for (size_t i = vega::kMaxSpeedAverageIntervals; i > 0; --i)
+      wheel_input.recent_pulse_us[i] = wheel_input.recent_pulse_us[i - 1];
+    wheel_input.recent_pulse_us[0] = now;
     ++wheel_input.pulses;
   }
   portEXIT_CRITICAL_ISR(&wheel_lock);
@@ -949,6 +974,7 @@ void applicationTask(void *) {
                 settings.timing.latitude, settings.timing.longitude,
                 settings.goal.latitude, settings.goal.longitude);
   debounce_us = settings.pulse_debounce_us;
+  wheel_interval_us = wheelIntervalUs(settings);
   vega::Application app(clock_source, engine_output, settings_store, recorder, telemetry, course,
                         settings);
   app.selectCourse(course, initial_index, settings);
@@ -989,7 +1015,10 @@ void applicationTask(void *) {
   };
   openGps(settings.gps_source);
   pinMode(kReed, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(kReed), reedInterrupt, FALLING);
+  portENTER_CRITICAL(&wheel_lock);
+  reed_filter.reset(digitalRead(kReed) != LOW, esp_timer_get_time());
+  portEXIT_CRITICAL(&wheel_lock);
+  attachInterrupt(digitalPinToInterrupt(kReed), reedInterrupt, CHANGE);
   vega::NmeaParser parser;
   diagnostic("[APP] ready; electrical OFF; commands: status/start/cancel/lap/on/off/ignite/log");
   for (;;) {
@@ -1146,6 +1175,7 @@ void applicationTask(void *) {
           ok = app.configure(command.settings, command.scope);
           if (ok) {
             debounce_us = command.settings.pulse_debounce_us;
+            wheel_interval_us = wheelIntervalUs(command.settings);
             if (command.settings.gps_source != old_gps_source) {
               gps_uart.flush();
               openGps(command.settings.gps_source);
@@ -1171,6 +1201,7 @@ void applicationTask(void *) {
               settings_store.select(index);
               active_course = index;
               debounce_us = replacement.pulse_debounce_us;
+              wheel_interval_us = wheelIntervalUs(replacement);
               parser = vega::NmeaParser{};
               openGps(replacement.gps_source);
               xQueueReset(strategies);
@@ -1371,7 +1402,7 @@ void serialPoll() {
               "gps=%u gps_source=%s gps_bytes=%lu gps_rmc=%lu gps_rmc_hz=%lu.%lu pulses=%llu "
               "sd_ready=%u sd_error=%u sd_last_failure=%s sd_record_lost=%lu "
               "wifi=%u mqtt=%u ntp=%u total_target_s=%lu "
-              "lap1_target_s=%lu brightness=%lu\n",
+              "lap1_target_s=%lu brightness=%lu speed_avg_n=%lu\n",
               static_cast<unsigned>(s.race.phase), s.race.lap,
               courseAsset(s.course_index).data->id, s.lap_count, s.race.total_ms,
               static_cast<unsigned>(s.engine), gpio_get_level(kPower), gpio_get_level(kIgnition),
@@ -1386,7 +1417,23 @@ void serialPoll() {
               WiFi.status() == WL_CONNECTED, st.mqtt_connected,
               st.time_valid, static_cast<unsigned long>(s.settings.total_target_s),
               static_cast<unsigned long>(s.settings.lap_target_s[0]),
-              static_cast<unsigned long>(s.settings.display_brightness));
+              static_cast<unsigned long>(s.settings.display_brightness),
+              static_cast<unsigned long>(s.settings.speed_average_intervals));
+      } else if (!strcmp(buffer, "wheel-debug")) {
+        uint64_t raw, rejected_release, rejected_interval, accepted;
+        portENTER_CRITICAL(&wheel_lock);
+        raw = reed_filter.rawFalls();
+        rejected_release = reed_filter.rejectedRelease();
+        rejected_interval = reed_filter.rejectedInterval();
+        accepted = wheel_input.pulses;
+        portEXIT_CRITICAL(&wheel_lock);
+        Serial.printf("[WHEEL] raw_falls=%llu accepted=%llu rejected_release=%llu "
+                      "rejected_interval=%llu level=%d release_us=%lu interval_us=%lu "
+                      "debounce_us=%lu\n",
+                      raw, accepted, rejected_release, rejected_interval, digitalRead(kReed),
+                      static_cast<unsigned long>(kReedReleaseUs),
+                      static_cast<unsigned long>(wheel_interval_us.load(std::memory_order_relaxed)),
+                      static_cast<unsigned long>(debounce_us.load(std::memory_order_relaxed)));
       } else if (!strcmp(buffer, "plan-status")) {
         vega::Strategy current;
         static PlanChoices choices{};
@@ -1480,6 +1527,8 @@ void serialPoll() {
             c.settings.ignition_pulse_ms = number;
           else if (!strcmp(key, "pulse_debounce_us"))
             c.settings.pulse_debounce_us = number;
+          else if (!strcmp(key, "speed_average_intervals"))
+            c.settings.speed_average_intervals = number;
           else if (!strcmp(key, "speed_zero_ms"))
             c.settings.speed_zero_ms = number;
           else if (!strcmp(key, "gps_stale_ms"))

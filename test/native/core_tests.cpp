@@ -13,6 +13,7 @@
 #include "../../assets/tobitakyu_hospital_loop/course_data.h"
 #include "../../src/control_gesture.h"
 #include "../../src/adapters/settings_migration.h"
+#include "../../src/adapters/reed_pulse_filter.h"
 #include "application/application.h"
 #include "application/telemetry_json.h"
 #include "domain/nmea.h"
@@ -408,12 +409,66 @@ void gpsOutageAndManualLapTest() {
   }
 }
 void wheelTest() {
+  const auto guarded_interval = tab5::wheelIntervalUs(1.03, 1, 75.0, 3000);
+  assert(guarded_interval == 49440);
+  assert(tab5::wheelIntervalUs(1.03, 1, 75.0, 100000) == 100000);
+  tab5::ReedPulseFilter filter;
+  filter.reset(true, 0);
+  assert(filter.edge(false, 100000, 10000, guarded_interval));  // First closure.
+  assert(!filter.edge(true, 101000, 10000, guarded_interval));
+  assert(!filter.edge(false, 108000, 10000, guarded_interval));  // 7 ms open: contact bounce.
+  assert(!filter.edge(true, 110000, 10000, guarded_interval));
+  assert(!filter.edge(false, 119999, 10000, guarded_interval));  // Just short of rearm.
+  assert(!filter.edge(true, 120000, 10000, guarded_interval));
+  assert(!filter.edge(false, 149000, 10000, guarded_interval));  // Implausible wheel period.
+  assert(!filter.edge(true, 150000, 10000, guarded_interval));
+  assert(filter.edge(false, 200000, 10000, guarded_interval));  // Next wheel revolution.
+  assert(filter.rawFalls() == 5 && filter.rejectedRelease() == 2 &&
+         filter.rejectedInterval() == 1);
+
+  filter.reset(true, 0);
+  assert(filter.edge(false, 100000, 10000, guarded_interval));
+  assert(!filter.edge(true, 105000, 10000, guarded_interval));
+  assert(filter.edge(false, 161800, 10000, guarded_interval));  // 60 km/h equivalent.
+  filter.reset(true, 0);
+  assert(filter.edge(false, 100000, 10000, 100000));
+  assert(!filter.edge(true, 105000, 10000, 100000));
+  assert(!filter.edge(false, 161800, 10000, 100000));  // 100 ms setting is too long.
+  assert(filter.rejectedInterval() == 1);
+  filter.reset(false, 0);  // A contact already closed at boot is not a new pulse.
+  assert(!filter.edge(false, 100000, 10000, guarded_interval));
+  assert(!filter.edge(true, 110000, 10000, guarded_interval));
+  assert(filter.edge(false, 140000, 10000, guarded_interval));
+
   Settings s;
   assert(!wheelReading({}, 1000000, s).valid);
   auto r = wheelReading({2, 2000000, 1000000}, 2000000, s);
   assert(r.valid && std::abs(r.speed_kmh - 3.708) < 1e-9);
   r = wheelReading({2, 2000000, 1000000}, 6000000, s);
   assert(r.valid && r.speed_kmh == 0 && !r.pulse_recent);
+  WheelInput rolling{};
+  rolling.pulses = 4;
+  rolling.last_pulse_us = 1700000;
+  rolling.previous_pulse_us = 1600000;
+  rolling.recent_pulse_us = {1700000, 1600000, 1400000, 1100000};
+  s.speed_average_intervals = 3;
+  r = wheelReading(rolling, 1700000, s);
+  assert(r.valid && std::abs(r.speed_kmh - 18.54) < 1e-9);
+  r = wheelReading(rolling, 1900000, s);
+  assert(r.valid && std::abs(r.speed_kmh - 18.54) < 1e-9);  // Hold between pulses.
+  s.speed_average_intervals = 1;
+  r = wheelReading(rolling, 1700000, s);
+  assert(r.valid && std::abs(r.speed_kmh - 37.08) < 1e-9);
+  s.speed_average_intervals = 2;
+  r = wheelReading(rolling, 1700000, s);
+  assert(r.valid && std::abs(r.speed_kmh - 24.72) < 1e-9);
+  r = wheelReading(rolling, 4700000, s);
+  assert(r.valid && r.speed_kmh == 0);  // Existing stop timeout still applies.
+  rolling.last_pulse_us = 6000000;
+  rolling.previous_pulse_us = 1700000;
+  rolling.recent_pulse_us[1] = 1700000;
+  rolling.recent_pulse_us[0] = 6000000;
+  assert(!wheelReading(rolling, 6000000, s).valid);  // Restart after a long gap.
   RaceSession race;
   assert(race.start(0, 100));
   assert(race.reading(1000, 105, s).distance_m == 5.15);
@@ -532,9 +587,12 @@ void settingsTest() {
   assert(!f.app.configure(cfg, SettingsScope::General));
   cfg.display_brightness = 200;
   cfg.ecu_ready_ms = 2000;
+  cfg.speed_average_intervals = 5;
   assert(f.app.configure(cfg, SettingsScope::General));
   assert(f.app.snapshot().settings.display_brightness == 200);
+  assert(f.app.snapshot().settings.speed_average_intervals == 5);
   assert(f.store.general.display_brightness == 200);
+  assert(f.store.general.speed_average_intervals == 5);
   assert(f.store.course.total_target_s == 2356);
   f.app.power(true);
   f.clock.time += 1000;
@@ -621,7 +679,7 @@ void settingsFormTest() {
       {20, "4000", "4000"}, {21, "5000", "5000"},
       {22, "55.5", "55.50000000"}, {23, "90.25", "90.25000000"},
       {24, "650.75", "650.75000000"}, {25, "70000", "70000"},
-      {26, "12000", "12000"}};
+      {26, "12000", "12000"}, {27, "5", "5"}};
   for (auto item : advanced) {
     assert(editSetting(s, item.field, item.input));
     settingText(s, item.field, value, sizeof(value));
@@ -636,6 +694,7 @@ void settingsFormTest() {
   assert(!editSetting(s, 21, "30001") && !editSetting(s, 22, "0.9"));
   assert(!editSetting(s, 23, "201") && !editSetting(s, 24, "5001"));
   assert(!editSetting(s, 25, "3600001") && !editSetting(s, 26, "499"));
+  assert(!editSetting(s, 27, "0") && !editSetting(s, 27, "9"));
   assert(!editSetting(s, 25, "4294967296") && !editSetting(s, 22, "1..2"));
 }
 void gpsSourceSettingsTest() {
@@ -663,8 +722,9 @@ void gpsSourceSettingsTest() {
   std::memcpy(legacy.data(), &old, legacy.size());
   Settings migrated;
   assert(decodeSettingsBlob(legacy.data(), legacy.size(), migrated));
-  assert(migrated.version == 3 && migrated.gps_source == GpsSource::M5Bus &&
-         migrated.display_brightness == kDefaultDisplayBrightness);
+  assert(migrated.version == 4 && migrated.gps_source == GpsSource::M5Bus &&
+         migrated.display_brightness == kDefaultDisplayBrightness &&
+         migrated.speed_average_intervals == 3);
   old.version = 2;
   for (size_t field = 0; field < kSettingsFieldCount; ++field) {
     char before[32], after[32];
@@ -681,9 +741,36 @@ void gpsSourceSettingsTest() {
   Settings v2 = migrated;
   v2.version = 2;
   v2.display_brightness = 0;  // v2 tail padding must never become brightness.
-  assert(decodeSettingsBlob(&v2, sizeof(v2), restored));
-  assert(restored.version == 3 && restored.gps_source == GpsSource::PortA &&
-         restored.display_brightness == kDefaultDisplayBrightness);
+  assert(decodeSettingsBlob(&v2, 168, restored));
+  assert(restored.version == 4 && restored.gps_source == GpsSource::PortA &&
+         restored.display_brightness == kDefaultDisplayBrightness &&
+         restored.speed_average_intervals == 3);
+  Settings v3 = migrated;
+  v3.version = 3;
+  v3.speed_average_intervals = 8;
+  assert(decodeSettingsBlob(&v3, 168, restored));
+  assert(restored.version == 4 && restored.display_brightness == 200 &&
+         restored.speed_average_intervals == 3);
+  GeneralSettings old_general = generalSettings(migrated);
+  old_general.version = 1;
+  old_general.power_active_high = false;
+  old_general.pulse_debounce_us = 4321;
+  std::array<uint8_t, 64> old_general_blob{};
+  std::memcpy(old_general_blob.data(), &old_general, old_general_blob.size());
+  GeneralSettings upgraded_general;
+  assert(decodeGeneralSettingsBlob(old_general_blob.data(), old_general_blob.size(),
+                                   upgraded_general));
+  assert(upgraded_general.version == 2 && !upgraded_general.power_active_high &&
+         upgraded_general.pulse_debounce_us == 4321 &&
+         upgraded_general.gps_source == GpsSource::PortA &&
+         upgraded_general.display_brightness == 200 &&
+         upgraded_general.wheel_circumference_m == 1.234 &&
+         upgraded_general.speed_average_intervals == 3);
+  upgraded_general.speed_average_intervals = 8;
+  assert(decodeGeneralSettingsBlob(&upgraded_general, sizeof(upgraded_general), old_general));
+  assert(old_general.speed_average_intervals == 8);
+  upgraded_general.speed_average_intervals = 9;
+  assert(!decodeGeneralSettingsBlob(&upgraded_general, sizeof(upgraded_general), old_general));
   migrated.gps_source = static_cast<GpsSource>(9);
   assert(!decodeSettingsBlob(&migrated, sizeof(migrated), restored));
   assert(restored.gps_source == GpsSource::PortA);

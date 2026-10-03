@@ -8,7 +8,7 @@ enum class SettingsScope : uint8_t { Course, General };
 // Independent NVS records. Settings remains the combined runtime snapshot and
 // the frozen legacy blob layout used only for migration.
 struct GeneralSettings {
-  uint32_t version = 1;
+  uint32_t version = 2;
   double wheel_circumference_m = 1.03;
   uint32_t pulses_per_revolution = 1;
   uint32_t ecu_ready_ms = 1000;
@@ -20,6 +20,7 @@ struct GeneralSettings {
   double max_gps_step_m = 80;
   GpsSource gps_source = GpsSource::M5Bus;
   uint32_t display_brightness = kDefaultDisplayBrightness;
+  uint32_t speed_average_intervals = 3;
 };
 
 struct CourseSettings {
@@ -38,5 +39,7 @@ CourseSettings courseSettings(const Settings &settings);
 void applyGeneral(Settings &settings, const GeneralSettings &general);
 void applyCourse(Settings &settings, const CourseSettings &course);
 bool validGeneralSettings(const GeneralSettings &general);
+// Decode both the current device-wide NVS blob and the version-1 layout.
+bool decodeGeneralSettingsBlob(const void *blob, size_t size, GeneralSettings &out);
 bool validCourseSettings(const CourseSettings &course);
 }  // namespace vega
