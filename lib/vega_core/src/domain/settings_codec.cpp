@@ -38,6 +38,8 @@ static_assert(offsetof(Settings, display_brightness) ==
                   offsetof(SettingsV2, gps_source) + sizeof(GpsSource),
               "NVS v2 prefix no longer matches Settings");
 static_assert(sizeof(Settings) >= sizeof(SettingsV2), "NVS v3 must contain the v2 fields");
+static_assert(offsetof(Settings, speed_average_intervals) == 168,
+              "NVS v3 prefix no longer matches Settings");
 }  // namespace
 
 bool decodeSettingsBlob(const void *blob, size_t size, Settings &out) {
@@ -45,13 +47,16 @@ bool decodeSettingsBlob(const void *blob, size_t size, Settings &out) {
   uint32_t version = 0;
   std::memcpy(&version, blob, sizeof(version));
   Settings candidate;
-  if (version == 3 && size == sizeof(Settings)) {
+  if (version == 4 && size == sizeof(Settings)) {
     std::memcpy(&candidate, blob, size);
+  } else if (version == 3 && size == offsetof(Settings, speed_average_intervals)) {
+    std::memcpy(&candidate, blob, size);
+    candidate.version = 4;
   } else if (version == 2 && size == sizeof(SettingsV2)) {
     // v2's tail padding may have the same blob size as v3. Inspect the version
     // before copying, and leave the new brightness field at its safe default.
     std::memcpy(&candidate, blob, offsetof(Settings, display_brightness));
-    candidate.version = 3;
+    candidate.version = 4;
   } else if (version == 1 && size == sizeof(SettingsV1)) {
     SettingsV1 old;
     std::memcpy(&old, blob, size);
