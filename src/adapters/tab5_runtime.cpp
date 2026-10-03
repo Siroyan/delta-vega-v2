@@ -3,15 +3,18 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 #include <Preferences.h>
-#include <SD_MMC.h>
 #include <WiFi.h>
 #include <driver/gpio.h>
+#include <driver/sdmmc_host.h>
 #include <esp_heap_caps.h>
 #include <esp_sntp.h>
 #include <esp_timer.h>
+#include <esp_vfs_fat.h>
 #include <mbedtls/platform.h>
 #include <mqtt_client.h>
 #include <nvs.h>
+#include <sd_pwr_ctrl_by_on_chip_ldo.h>
+#include <sdmmc_cmd.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -533,6 +536,60 @@ class SdFile {
   FILE *file_ = nullptr;
 };
 
+class SdMedia {
+ public:
+  bool mount() {
+    if (card_) return true;
+    if (!power_) {
+      sd_pwr_ctrl_ldo_config_t config{};
+      config.ldo_chan_id = 4;  // Tab5 SDMMC IO power (LDO_VO4).
+      if (sd_pwr_ctrl_new_on_chip_ldo(&config, &power_) != ESP_OK) return false;
+    }
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    host.slot = SDMMC_HOST_SLOT_0;
+    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
+    host.pwr_ctrl_handle = power_;
+    sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot.width = 4;
+    slot.clk = GPIO_NUM_43;
+    slot.cmd = GPIO_NUM_44;
+    slot.d0 = GPIO_NUM_39;
+    slot.d1 = GPIO_NUM_40;
+    slot.d2 = GPIO_NUM_41;
+    slot.d3 = GPIO_NUM_42;
+    esp_vfs_fat_mount_config_t config{};
+    config.format_if_mount_failed = false;
+    config.max_files = 5;
+    const esp_err_t result = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot, &config, &card_);
+    if (result != ESP_OK) {
+      card_ = nullptr;
+      return false;
+    }
+    return true;
+  }
+  void unmount() {
+    if (!card_) return;
+    const esp_err_t result = esp_vfs_fat_sdcard_unmount("/sdcard", card_);
+    card_ = nullptr;
+    if (result != ESP_OK) Serial.printf("[SD] unmount failed: %s\n", esp_err_to_name(result));
+  }
+  uint64_t cardSize() const {
+    return card_ ? uint64_t(card_->csd.capacity) * card_->csd.sector_size : 0;
+  }
+
+ private:
+  // Keep the LDO handle across mounts. Reacquiring LDO_VO4 after card removal fails.
+  sd_pwr_ctrl_handle_t power_ = nullptr;
+  sdmmc_card_t *card_ = nullptr;
+};
+
+bool sdPathExists(const char *relative) {
+  char path[128];
+  if (snprintf(path, sizeof(path), "/sdcard%s", relative) >= sizeof(path)) return false;
+  struct stat info{};
+  return stat(path, &info) == 0;
+}
+
 bool readPlan(const char *name, uint8_t course_index, vega::Strategy &out,
               char *error, size_t error_size) {
   if (strstr(name, "..") || (strcmp(name, "strategy.json") != 0 &&
@@ -590,7 +647,7 @@ void scanPlans(const PlanRequest &request) {
     }
   };
   if (sd_ready) {
-    if (SD_MMC.exists("/vega/strategy.json")) add("strategy.json");
+    if (sdPathExists("/vega/strategy.json")) add("strategy.json");
     DIR *dir = opendir("/sdcard/vega/strategies");
     if (dir) {
       dirent *entry;
@@ -641,7 +698,7 @@ void installPlan(PlanImport request) {
   vega::Snapshot current;
   if (!sd_ready || !snapshot(current) || current.race.phase != vega::RacePhase::Waiting ||
       current.course_index != active_course.load() ||
-      SD_MMC.exists("/vega/strategy.json")) {
+      sdPathExists("/vega/strategy.json")) {
     Serial.println("[PLAN UPLOAD] rejected: SD unavailable, timing active, or file exists");
     free(request.contents);
     return;
@@ -684,17 +741,18 @@ void installPlan(PlanImport request) {
 }
 
 void sdTask(void *) {
-  SD_MMC.setPins(43, 44, 39, 40, 41, 42);
-  auto mount = []() {
-    bool ready = SD_MMC.begin("/sdcard", false, false, SDMMC_FREQ_DEFAULT);
-    if (ready && !SD_MMC.exists("/vega")) ready = SD_MMC.mkdir("/vega");
+  SdMedia media;
+  auto mount = [&media]() {
+    bool ready = media.mount();
+    if (ready && !sdPathExists("/vega"))
+      ready = mkdir("/sdcard/vega", 0755) == 0;
     sd_ready = ready;
     return ready;
   };
   mount();
   sd_error = !sd_ready || record_loss_count.load(std::memory_order_relaxed) != 0;
   Serial.printf("[SD] mount=%s card_bytes=%llu\n", sd_ready ? "OK" : "FAILED",
-                sd_ready ? SD_MMC.cardSize() : 0ULL);
+                sd_ready ? media.cardSize() : 0ULL);
   plan_state = vega::PlanState::Loading;
   SdFile log;
   char last_path[80]{};
@@ -705,11 +763,22 @@ void sdTask(void *) {
     if (xQueueReceive(plan_imports, &imported, 0) == pdTRUE) installPlan(imported);
     PlanRequest plan_request{};
     if (xQueueReceive(plan_requests, &plan_request, 0) == pdTRUE) {
-      if (!sd_ready) {
-        SD_MMC.end();
-        if (mount()) Serial.println("[SD] mount recovered for strategy scan");
+      if (active || log) {
+        // Finish closing the session file before unmounting the card.
+        xQueueOverwrite(plan_requests, &plan_request);
+      } else {
+        const bool was_ready = sd_ready;
+        const bool media_error_only = sd_error && sd_last_failure == SdFailure::None;
+        // Remount to detect removal or insertion (Tab5 has no card-detect pin).
+        media.unmount();
+        const bool now_ready = mount();
+        if (!now_ready) sd_error = true;
+        else if (media_error_only && record_loss_count.load(std::memory_order_relaxed) == 0)
+          sd_error = false;
+        if (was_ready != now_ready)
+          Serial.printf("[SD] media %s\n", now_ready ? "inserted" : "removed");
+        scanPlans(plan_request);
       }
-      scanPlans(plan_request);
     }
     Record r{};
     if (xQueueReceive(records, &r, pdMS_TO_TICKS(50)) == pdTRUE) {
@@ -718,7 +787,7 @@ void sdTask(void *) {
         active = true;
         failed_session = false;
         if (!sd_ready) {
-          SD_MMC.end();
+          media.unmount();
           if (mount()) Serial.println("[SD] mount recovered");
         }
         // Persistent monotonic ID plus existence checks prevents overwriting on reboot.
@@ -732,7 +801,7 @@ void sdTask(void *) {
         do {
           snprintf(last_path, sizeof(last_path), "/vega/session-%010lu.jsonl",
                    static_cast<unsigned long>(number++));
-        } while (sd_ready && SD_MMC.exists(last_path));
+        } while (sd_ready && sdPathExists(last_path));
         if (sd_ready) log = SdFile(last_path, "w");
         if (!log) {
           failed_session = true;
@@ -845,7 +914,7 @@ void sdTask(void *) {
       if (requested_session)
         snprintf(requested_path, sizeof(requested_path), "/vega/session-%010lu.jsonl",
                  static_cast<unsigned long>(requested_session));
-      else if (sd_ready && (!last_path[0] || !SD_MMC.exists(last_path))) {
+      else if (sd_ready && (!last_path[0] || !sdPathExists(last_path))) {
         // USB serial access can reboot Tab5; recover the most recent file from
         // the persisted session counter so `log` still works after a field run.
         Preferences p;
@@ -857,7 +926,7 @@ void sdTask(void *) {
         for (unsigned attempts = 0; number && attempts < 100; --number, ++attempts) {
           snprintf(last_path, sizeof(last_path), "/vega/session-%010lu.jsonl",
                    static_cast<unsigned long>(number));
-          if (SD_MMC.exists(last_path)) break;
+          if (sdPathExists(last_path)) break;
           last_path[0] = '\0';
         }
       }
@@ -1480,6 +1549,10 @@ void serialPoll() {
                       loaded ? current.plan_id : "-", have_choices ? choices.selected : 255,
                       have_choices ? choices.count : 0,
                       have_choices ? choices.message : "not scanned");
+      } else if (!strcmp(buffer, "plan-refresh")) {
+        Command refresh{};
+        refresh.kind = CommandKind::RefreshStrategies;
+        Serial.printf("[PLAN] refresh queued=%u\n", submit(refresh));
       } else if (!strncmp(buffer, "plan-upload ", 12)) {
         char *end = nullptr;
         unsigned long length = strtoul(buffer + 12, &end, 10);

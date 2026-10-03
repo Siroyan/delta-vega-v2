@@ -54,7 +54,7 @@ CURRENT SPEEDは最新の受理パルスから最大N区間を取り、`N区間�
 
 `platformio.ini`のMCU/パーティションは既存のESP32-P4設定を使用し、Arduinoのピン定義だけを`variants/m5tab5/pins_arduino.h`で置き換える。
 
-汎用EV BoardのvariantはGPIO45をSD電源として操作し、電装出力と競合していた。Tab5ではM5UnifiedがIOエキスパンダからカード電源を供給するため、この定義を除去した。SDはGPIO43/44/39/40/41/42、LDO4、4 bit、20 MHz。Wi-Fi内部SDIOは12/13/11/10/9/8、リセット15で、リードスイッチと競合しない。
+汎用EV BoardのvariantはGPIO45をSD電源として操作し、電装出力と競合していた。Tab5ではM5UnifiedがIOエキスパンダからカード電源を供給するため、この定義を除去した。SDはGPIO43/44/39/40/41/42、LDO4、4 bit、20 MHz。microSDの挿抜検出ピンがないため、選択画面を開いている間は5秒ごとにカードを再マウントして状態を確認する。SDMMCのIO電源用LDO4は起動時に一度確保し、再マウントでも同じハンドルを使う。計測中の記録ファイルを開いている間は再マウントしない。Wi-Fi内部SDIOは12/13/11/10/9/8、リセット15で、リードスイッチと競合しない。
 
 参照: [Tab5](https://docs.m5stack.com/en/core/Tab5)、[M5Stack公式SDMMC実装](https://github.com/m5stack/M5Tab5-UserDemo/blob/main/platforms/tab5/components/m5stack_tab5/m5stack_tab5.c)、[Tab5公式Wi-Fi例](https://docs.m5stack.com/en/arduino/m5tab5/wifi)、[GPS製品](https://akizukidenshi.com/catalog/g/g117980/)。M5Unified/M5GFXは検証したコミットへ固定した。
 

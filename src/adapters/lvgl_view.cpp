@@ -169,6 +169,7 @@ std::array<lv_obj_t *, kMaxPlanChoices> strategy_buttons{};
 uint8_t painted_course_index = 255;
 PlanChoices shown_choices{};
 bool choices_initialized = false;
+uint32_t last_selection_refresh_ms = 0;
 constexpr size_t kPlanLinePoints = 96;
 struct PlanLine {
   lv_obj_t *object = nullptr;
@@ -781,7 +782,9 @@ void openSelection() {
   action_close_menu(nullptr);
   visible(selection_overlay, true);
   lv_obj_move_foreground(selection_overlay);
-  if (s.engine == vega::EnginePhase::Off) request(CommandKind::RefreshStrategies);
+  if (s.engine == vega::EnginePhase::Off) {
+    if (request(CommandKind::RefreshStrategies)) last_selection_refresh_ms = millis();
+  }
   else text(selection_message, "ELECTRICAL OFF TO CHANGE SELECTION");
 }
 void setupSelectionUi() {
@@ -844,7 +847,9 @@ void setupSelectionUi() {
   lv_obj_set_style_text_color(refresh_icon, lv_color_hex(0x202B36), LV_PART_MAIN);
   lv_obj_center(refresh_icon);
   lv_obj_remove_flag(refresh_icon, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(selection_refresh, [](lv_event_t *) { request(CommandKind::RefreshStrategies); },
+  lv_obj_add_event_cb(selection_refresh, [](lv_event_t *) {
+    if (request(CommandKind::RefreshStrategies)) last_selection_refresh_ms = millis();
+  },
                       LV_EVENT_CLICKED, nullptr);
   auto *course_title = lv_label_create(selection_overlay);
   lv_obj_set_pos(course_title, 42, 94);
@@ -1146,6 +1151,12 @@ void viewBegin() {
 void viewUpdate() {
   vega::Snapshot s;
   if (!snapshot(s)) return;
+  // Tab5 has no microSD card-detect pin. Poll only while this selection screen is open.
+  if (selection_overlay && !lv_obj_has_flag(selection_overlay, LV_OBJ_FLAG_HIDDEN) &&
+      s.race.phase == vega::RacePhase::Waiting && s.engine == vega::EnginePhase::Off &&
+      millis() - last_selection_refresh_ms >= 5000) {
+    if (request(CommandKind::RefreshStrategies)) last_selection_refresh_ms = millis();
+  }
   if (s.course_index != displayed_course_index) {
     displayed_course_index = s.course_index;
     for (auto *image : course_images)
