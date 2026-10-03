@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "courses": [
+    {
+      "folder": "tamagawagakuen_station_loop",
+      "source": "tamagawagakuen_course.json",
+      "name": "TAMAGAWA GAKUEN",
+      "short_name": "TAMAGAWA",
+      "settings_namespace": "vega-test4",
+      "legacy_settings_namespace": "vega-test",
+      "legacy_total_target_s": 4200,
+      "pedestrian_gps": true,
+      "total_target_s": 2400,
+      "lap_target_s": 600,
+      "course_corridor_m": 30,
+      "start": [35.564980, 139.463466],
+      "timing": [35.5647900, 139.4640418],
+      "goal": [35.5633809, 139.4629657]
+    },
+    {
+      "folder": "tobitakyu_hospital_loop",
+      "source": "tobitakyu_course.json",
+      "name": "TOBITAKYU",
+      "short_name": "TOBITAKYU",
+      "settings_namespace": "vega-tobi4",
+      "legacy_settings_namespace": "vega-tobi2",
+      "legacy_total_target_s": 8400,
+      "pedestrian_gps": true,
+      "total_target_s": 4800,
+      "lap_target_s": 1200,
+      "course_corridor_m": 30,
+      "start": [35.666947, 139.518721],
+      "timing": [35.6665666, 139.5186953],
+      "goal": [35.6669552, 139.5219829]
+    },
+    {
+      "folder": "motegi_oval_full",
+      "source": "motegi_course_full.json",
+      "name": "MOTEGI OVAL",
+      "short_name": "MOTEGI",
+      "settings_namespace": "vega",
+      "legacy_settings_namespace": "",
+      "legacy_total_target_s": 0,
+      "pedestrian_gps": false,
+      "total_target_s": 2520,
+      "lap_target_s": 360,
+      "course_corridor_m": 60,
+      "start": [36.530654, 140.227998],
+      "timing": [36.532766, 140.226269],
+      "goal": [36.534443, 140.225411]
+    }
+  ]
+}

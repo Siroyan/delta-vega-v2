@@ -4,7 +4,7 @@
 namespace vega {
 enum class CommandKind : uint8_t { Start, Cancel, Lap, PowerOn, PowerOff, Ignite, Configure, Finish,
                                    SelectCourse, SelectStrategy, RefreshStrategies,
-                                   UseUploadedStrategy };
+                                   UseUploadedStrategy, LoadSdCourses };
 struct Command {
   CommandKind kind;
   Settings settings{};

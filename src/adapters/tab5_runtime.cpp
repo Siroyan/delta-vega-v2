@@ -286,7 +286,15 @@ class SettingsStore final : public vega::ISettingsStore {
   vega::Settings load(uint8_t index) {
     const auto &asset = courseAsset(index);
     const vega::Settings base = defaults(index);
-    const auto read_selected = [index](vega::Settings &s) { return readLegacy(index, s); };
+    const auto read_selected = [index](vega::Settings &s) {
+      if (courseCount()) return readLegacy(index, s);
+      // Output polarity must be migrated before M5.begin() and SD mounting.
+      // Only old firmware namespaces are needed at this stage.
+      const SavedSelection selected = loadSelection();
+      const char *current = legacyNamespaceForId(selected.course_id, false);
+      const char *older = legacyNamespaceForId(selected.course_id, true);
+      return (current && loadFrom(current, s)) || (older && loadFrom(older, s));
+    };
     if (!general_loaded_) {
       vega::GeneralSettings stored;
       bool needs_upgrade = false;
@@ -582,6 +590,7 @@ class SdMedia {
   sd_pwr_ctrl_handle_t power_ = nullptr;
   sdmmc_card_t *card_ = nullptr;
 };
+SdMedia media;
 
 bool sdPathExists(const char *relative) {
   char path[128];
@@ -741,8 +750,7 @@ void installPlan(PlanImport request) {
 }
 
 void sdTask(void *) {
-  SdMedia media;
-  auto mount = [&media]() {
+  auto mount = []() {
     bool ready = media.mount();
     if (ready && !sdPathExists("/vega"))
       ready = mkdir("/sdcard/vega", 0755) == 0;
@@ -753,6 +761,7 @@ void sdTask(void *) {
   sd_error = !sd_ready || record_loss_count.load(std::memory_order_relaxed) != 0;
   Serial.printf("[SD] mount=%s card_bytes=%llu\n", sd_ready ? "OK" : "FAILED",
                 sd_ready ? media.cardSize() : 0ULL);
+  Serial.printf("[COURSE] loaded=%u\n", static_cast<unsigned>(courseCount()));
   plan_state = vega::PlanState::Loading;
   SdFile log;
   char last_path[80]{};
@@ -772,6 +781,13 @@ void sdTask(void *) {
         // Remount to detect removal or insertion (Tab5 has no card-detect pin).
         media.unmount();
         const bool now_ready = mount();
+        if (now_ready && !courseCount() && loadCoursesFromSd()) {
+          Serial.printf("[COURSE] loaded=%u after SD insertion\n",
+                        static_cast<unsigned>(courseCount()));
+          Command load{};
+          load.kind = CommandKind::LoadSdCourses;
+          submit(load);
+        }
         if (!now_ready) sd_error = true;
         else if (media_error_only && record_loss_count.load(std::memory_order_relaxed) == 0)
           sd_error = false;
@@ -1241,7 +1257,7 @@ void applicationTask(void *) {
       bool ok = true;
       switch (command.kind) {
         case CommandKind::Start:
-          ok = app.start();
+          ok = sd_ready && courseCount() && app.start();
           break;
         case CommandKind::Cancel:
           ok = app.cancel();
@@ -1279,7 +1295,7 @@ void applicationTask(void *) {
           const uint8_t index = command.choice;
           const auto current = app.snapshot();
           ok = index < courseCount() && current.race.phase == vega::RacePhase::Waiting &&
-               current.engine == vega::EnginePhase::Off;
+               current.engine == vega::EnginePhase::Off && sd_ready;
           if (ok && index != current.course_index) {
             const auto replacement = settings_store.load(index);
             ok = vega::validSettings(replacement) &&
@@ -1309,7 +1325,7 @@ void applicationTask(void *) {
           const auto current = app.snapshot();
           static PlanChoices choices{};
           ok = current.race.phase == vega::RacePhase::Waiting &&
-               current.engine == vega::EnginePhase::Off &&
+               current.engine == vega::EnginePhase::Off && sd_ready &&
                xQueuePeek(plan_choices, &choices, 0) == pdTRUE &&
                choices.course_index == current.course_index &&
                command.choice < choices.count && choices.items[command.choice].valid;
@@ -1358,6 +1374,30 @@ void applicationTask(void *) {
           }
           break;
         }
+        case CommandKind::LoadSdCourses: {
+          const auto current = app.snapshot();
+          ok = courseCount() && current.race.phase == vega::RacePhase::Waiting &&
+               current.engine == vega::EnginePhase::Off && sd_ready;
+          if (ok) {
+            const uint8_t index = savedCourseIndex();
+            const auto replacement = settings_store.load(index);
+            course = vega::Course(*courseAsset(index).data);
+            ok = app.selectCourse(course, index, replacement);
+            if (ok) {
+              settings_store.select(index);
+              active_course = index;
+              debounce_us = replacement.pulse_debounce_us;
+              wheel_interval_us = wheelIntervalUs(replacement);
+              parser = vega::NmeaParser{};
+              openGps(replacement.gps_source);
+              PlanRequest request{};
+              request.course_index = index;
+              savedPlanName(request.filename, sizeof(request.filename));
+              xQueueOverwrite(plan_requests, &request);
+            }
+          }
+          break;
+        }
       }
       diagnostic("[APP] command=%u accepted=%u", static_cast<unsigned>(command.kind), ok);
     }
@@ -1371,6 +1411,9 @@ void applicationTask(void *) {
 
 bool begin() {
   if (!outputs_prepared && !prepareOutputs()) return false;
+  sd_ready = media.mount();
+  if (sd_ready && !loadCoursesFromSd())
+    Serial.println("[COURSE] no valid course catalog on microSD");
   if (VEGA_ENABLE_MQTT &&
       mbedtls_platform_set_calloc_free(tlsPsramCalloc, tlsPsramFree) != 0) {
     Serial.println("[MQTT] unable to route TLS allocations to PSRAM");
