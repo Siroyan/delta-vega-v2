@@ -77,7 +77,7 @@ typedef struct _objects_t {
     lv_obj_t *next_action_label;
     lv_obj_t *next_action_detail_label;
     lv_obj_t *clock_label;
-    lv_obj_t *ntp_status_label;
+    lv_obj_t *battery_status_label;
     lv_obj_t *electrical_standby_switch;
     lv_obj_t *ignition_switch;
     lv_obj_t *ignition_flame_icon;
@@ -137,7 +137,7 @@ typedef struct _objects_t {
     lv_obj_t *start_button;
     lv_obj_t *start_button_text;
     lv_obj_t *waiting_clock_label;
-    lv_obj_t *waiting_ntp_status_label;
+    lv_obj_t *waiting_battery_status_label;
     lv_obj_t *waiting_electrical_standby_switch;
     lv_obj_t *waiting_ignition_switch;
     lv_obj_t *waiting_ignition_flame_icon;
@@ -200,7 +200,7 @@ typedef struct _objects_t {
     lv_obj_t *finished_next_action_label;
     lv_obj_t *finished_next_action_detail_label;
     lv_obj_t *finished_clock_label;
-    lv_obj_t *finished_ntp_status_label;
+    lv_obj_t *finished_battery_status_label;
     lv_obj_t *finished_electrical_standby_switch;
     lv_obj_t *finished_ignition_switch;
     lv_obj_t *finished_ignition_flame_icon;
@@ -261,7 +261,7 @@ typedef struct _objects_t {
     lv_obj_t *gpsstale_next_action_label;
     lv_obj_t *gpsstale_next_action_detail_label;
     lv_obj_t *gpsstale_clock_label;
-    lv_obj_t *gpsstale_ntp_status_label;
+    lv_obj_t *gpsstale_battery_status_label;
     lv_obj_t *gpsstale_electrical_standby_switch;
     lv_obj_t *gpsstale_ignition_switch;
     lv_obj_t *gpsstale_ignition_flame_icon;
@@ -316,7 +316,7 @@ typedef struct _objects_t {
     lv_obj_t *missingdata_next_action_label;
     lv_obj_t *missingdata_next_action_detail_label;
     lv_obj_t *missingdata_clock_label;
-    lv_obj_t *missingdata_ntp_status_label;
+    lv_obj_t *missingdata_battery_status_label;
     lv_obj_t *missingdata_electrical_standby_switch;
     lv_obj_t *missingdata_ignition_switch;
     lv_obj_t *missingdata_ignition_flame_icon;
@@ -372,7 +372,7 @@ typedef struct _objects_t {
     lv_obj_t *overtime_next_action_label;
     lv_obj_t *overtime_next_action_detail_label;
     lv_obj_t *overtime_clock_label;
-    lv_obj_t *overtime_ntp_status_label;
+    lv_obj_t *overtime_battery_status_label;
     lv_obj_t *overtime_electrical_standby_switch;
     lv_obj_t *overtime_ignition_switch;
     lv_obj_t *overtime_ignition_flame_icon;
@@ -433,7 +433,7 @@ typedef struct _objects_t {
     lv_obj_t *plandemo_next_action_label;
     lv_obj_t *plandemo_next_action_detail_label;
     lv_obj_t *plandemo_clock_label;
-    lv_obj_t *plandemo_ntp_status_label;
+    lv_obj_t *plandemo_battery_status_label;
     lv_obj_t *plandemo_electrical_standby_switch;
     lv_obj_t *plandemo_ignition_switch;
     lv_obj_t *plandemo_ignition_flame_icon;
@@ -494,7 +494,7 @@ typedef struct _objects_t {
     lv_obj_t *cachedplan_next_action_label;
     lv_obj_t *cachedplan_next_action_detail_label;
     lv_obj_t *cachedplan_clock_label;
-    lv_obj_t *cachedplan_ntp_status_label;
+    lv_obj_t *cachedplan_battery_status_label;
     lv_obj_t *cachedplan_electrical_standby_switch;
     lv_obj_t *cachedplan_ignition_switch;
     lv_obj_t *cachedplan_ignition_flame_icon;
@@ -550,7 +550,7 @@ typedef struct _objects_t {
     lv_obj_t *expiredplan_next_action_label;
     lv_obj_t *expiredplan_next_action_detail_label;
     lv_obj_t *expiredplan_clock_label;
-    lv_obj_t *expiredplan_ntp_status_label;
+    lv_obj_t *expiredplan_battery_status_label;
     lv_obj_t *expiredplan_electrical_standby_switch;
     lv_obj_t *expiredplan_ignition_switch;
     lv_obj_t *expiredplan_ignition_flame_icon;
@@ -606,7 +606,7 @@ typedef struct _objects_t {
     lv_obj_t *lapcorrected_next_action_label;
     lv_obj_t *lapcorrected_next_action_detail_label;
     lv_obj_t *lapcorrected_clock_label;
-    lv_obj_t *lapcorrected_ntp_status_label;
+    lv_obj_t *lapcorrected_battery_status_label;
     lv_obj_t *lapcorrected_electrical_standby_switch;
     lv_obj_t *lapcorrected_ignition_switch;
     lv_obj_t *lapcorrected_ignition_flame_icon;

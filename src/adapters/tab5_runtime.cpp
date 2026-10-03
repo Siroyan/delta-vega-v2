@@ -1,6 +1,7 @@
 #include "tab5_runtime.h"
 
 #include <Arduino.h>
+#include <M5Unified.h>
 #include <Preferences.h>
 #include <SD_MMC.h>
 #include <WiFi.h>
@@ -1355,6 +1356,18 @@ bool planChoices(PlanChoices &out) {
 }
 vega::UiStatus status() {
   vega::UiStatus s;
+  static uint32_t last_battery_sample_ms = 0;
+  static int16_t battery_percent = -1;
+  static bool battery_sampled = false;
+  const uint32_t now_ms = millis();
+  if (!battery_sampled || now_ms - last_battery_sample_ms >= 2000) {
+    last_battery_sample_ms = now_ms;
+    battery_sampled = true;
+    const int voltage_mv = M5.Power.getBatteryVoltage();
+    const int level = voltage_mv > 0 ? M5.Power.getBatteryLevel() : -1;
+    battery_percent = level >= 0 && level <= 100 ? level : -1;
+  }
+  s.battery_percent = battery_percent;
   s.sd_ready = sd_ready;
   s.sd_error = sd_error;
   s.plan_state = plan_state.load();

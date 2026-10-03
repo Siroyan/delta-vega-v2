@@ -774,9 +774,9 @@ void create_screen_main() {
             lv_label_set_text_static(obj, "13:45:08 JST");
         }
         {
-            // ntp_status_label
+            // battery_status_label
             lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.ntp_status_label = obj;
+            objects.battery_status_label = obj;
             lv_obj_set_pos(obj, 1000, 48);
             lv_obj_set_size(obj, 256, 24);
             lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
@@ -790,7 +790,7 @@ void create_screen_main() {
             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0x596775), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text_static(obj, "NTP SYNCED");
+            lv_label_set_text_static(obj, "BATTERY --%");
         }
         {
             // electrical_standby_switch
@@ -1942,9 +1942,9 @@ void create_screen_waiting() {
             lv_label_set_text_static(obj, "--:--:-- JST");
         }
         {
-            // waiting_ntp_status_label
+            // waiting_battery_status_label
             lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.waiting_ntp_status_label = obj;
+            objects.waiting_battery_status_label = obj;
             lv_obj_set_pos(obj, 1000, 48);
             lv_obj_set_size(obj, 256, 24);
             lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
@@ -1958,7 +1958,7 @@ void create_screen_waiting() {
             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0xb66a13), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text_static(obj, "NTP UNSYNCED");
+            lv_label_set_text_static(obj, "BATTERY --%");
         }
         {
             // waiting_electrical_standby_switch
@@ -3162,9 +3162,9 @@ void create_screen_finished() {
             lv_label_set_text_static(obj, "13:45:08 JST");
         }
         {
-            // finished_ntp_status_label
+            // finished_battery_status_label
             lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.finished_ntp_status_label = obj;
+            objects.finished_battery_status_label = obj;
             lv_obj_set_pos(obj, 1000, 48);
             lv_obj_set_size(obj, 256, 24);
             lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
@@ -3178,7 +3178,7 @@ void create_screen_finished() {
             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0x596775), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text_static(obj, "NTP SYNCED");
+            lv_label_set_text_static(obj, "BATTERY --%");
         }
         {
             // finished_electrical_standby_switch
@@ -4342,9 +4342,9 @@ void create_screen_gps_stale() {
             lv_label_set_text_static(obj, "13:45:08 JST");
         }
         {
-            // gpsstale_ntp_status_label
+            // gpsstale_battery_status_label
             lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.gpsstale_ntp_status_label = obj;
+            objects.gpsstale_battery_status_label = obj;
             lv_obj_set_pos(obj, 1000, 48);
             lv_obj_set_size(obj, 256, 24);
             lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
@@ -4358,7 +4358,7 @@ void create_screen_gps_stale() {
             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0x596775), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text_static(obj, "NTP SYNCED");
+            lv_label_set_text_static(obj, "BATTERY --%");
         }
         {
             // gpsstale_electrical_standby_switch
@@ -5399,9 +5399,9 @@ void create_screen_missing_data() {
             lv_label_set_text_static(obj, "13:45:08 JST");
         }
         {
-            // missingdata_ntp_status_label
+            // missingdata_battery_status_label
             lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.missingdata_ntp_status_label = obj;
+            objects.missingdata_battery_status_label = obj;
             lv_obj_set_pos(obj, 1000, 48);
             lv_obj_set_size(obj, 256, 24);
             lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
@@ -5415,7 +5415,7 @@ void create_screen_missing_data() {
             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0x596775), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text_static(obj, "NTP SYNCED");
+            lv_label_set_text_static(obj, "BATTERY --%");
         }
         {
             // missingdata_electrical_standby_switch
@@ -6478,9 +6478,9 @@ void create_screen_overtime() {
             lv_label_set_text_static(obj, "13:45:08 JST");
         }
         {
-            // overtime_ntp_status_label
+            // overtime_battery_status_label
             lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.overtime_ntp_status_label = obj;
+            objects.overtime_battery_status_label = obj;
             lv_obj_set_pos(obj, 1000, 48);
             lv_obj_set_size(obj, 256, 24);
             lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
@@ -6494,7 +6494,7 @@ void create_screen_overtime() {
             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0x596775), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text_static(obj, "NTP SYNCED");
+            lv_label_set_text_static(obj, "BATTERY --%");
         }
         {
             // overtime_electrical_standby_switch
@@ -7737,9 +7737,9 @@ void create_screen_plan_demo() {
             lv_label_set_text_static(obj, "13:45:08 JST");
         }
         {
-            // plandemo_ntp_status_label
+            // plandemo_battery_status_label
             lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.plandemo_ntp_status_label = obj;
+            objects.plandemo_battery_status_label = obj;
             lv_obj_set_pos(obj, 1000, 48);
             lv_obj_set_size(obj, 256, 24);
             lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
@@ -7753,7 +7753,7 @@ void create_screen_plan_demo() {
             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0x596775), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text_static(obj, "NTP SYNCED");
+            lv_label_set_text_static(obj, "BATTERY --%");
         }
         {
             // plandemo_electrical_standby_switch
@@ -8996,9 +8996,9 @@ void create_screen_cached_plan() {
             lv_label_set_text_static(obj, "13:45:08 JST");
         }
         {
-            // cachedplan_ntp_status_label
+            // cachedplan_battery_status_label
             lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.cachedplan_ntp_status_label = obj;
+            objects.cachedplan_battery_status_label = obj;
             lv_obj_set_pos(obj, 1000, 48);
             lv_obj_set_size(obj, 256, 24);
             lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
@@ -9012,7 +9012,7 @@ void create_screen_cached_plan() {
             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0xb66a13), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text_static(obj, "NTP HOLDOVER");
+            lv_label_set_text_static(obj, "BATTERY --%");
         }
         {
             // cachedplan_electrical_standby_switch
@@ -10075,9 +10075,9 @@ void create_screen_expired_plan() {
             lv_label_set_text_static(obj, "13:45:08 JST");
         }
         {
-            // expiredplan_ntp_status_label
+            // expiredplan_battery_status_label
             lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.expiredplan_ntp_status_label = obj;
+            objects.expiredplan_battery_status_label = obj;
             lv_obj_set_pos(obj, 1000, 48);
             lv_obj_set_size(obj, 256, 24);
             lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
@@ -10091,7 +10091,7 @@ void create_screen_expired_plan() {
             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0xb66a13), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text_static(obj, "NTP HOLDOVER");
+            lv_label_set_text_static(obj, "BATTERY --%");
         }
         {
             // expiredplan_electrical_standby_switch
@@ -11154,9 +11154,9 @@ void create_screen_lap_corrected() {
             lv_label_set_text_static(obj, "13:45:08 JST");
         }
         {
-            // lapcorrected_ntp_status_label
+            // lapcorrected_battery_status_label
             lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.lapcorrected_ntp_status_label = obj;
+            objects.lapcorrected_battery_status_label = obj;
             lv_obj_set_pos(obj, 1000, 48);
             lv_obj_set_size(obj, 256, 24);
             lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
@@ -11170,7 +11170,7 @@ void create_screen_lap_corrected() {
             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0x596775), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_label_set_text_static(obj, "NTP SYNCED");
+            lv_label_set_text_static(obj, "BATTERY --%");
         }
         {
             // lapcorrected_electrical_standby_switch

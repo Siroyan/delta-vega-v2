@@ -11,6 +11,7 @@
 #define LV_MEM_POOL_INCLUDE <esp_heap_caps.h>
 #define LV_MEM_POOL_ALLOC(size) heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
 
+#define LV_FONT_MONTSERRAT_32 1
 #define LV_FONT_MONTSERRAT_48 1
 #define LV_FONT_DEFAULT &lv_font_montserrat_48
 

@@ -80,10 +80,10 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
                 : m.phase == RacePhase::Finished ? "FINISHED"
                                                  : "RUNNING");
   std::snprintf(m.clock, sizeof(m.clock), "%s", status.clock);
-  std::snprintf(m.ntp, sizeof(m.ntp), "%s",
-                !status.time_valid    ? "NTP UNSYNCED"
-                : status.ntp_holdover ? "NTP HOLDOVER"
-                                      : "NTP SYNCED");
+  if (status.battery_percent >= 0 && status.battery_percent <= 100)
+    std::snprintf(m.battery, sizeof(m.battery), "BATTERY %d%%", status.battery_percent);
+  else
+    std::snprintf(m.battery, sizeof(m.battery), "BATTERY --%%");
   std::snprintf(m.action, sizeof(m.action), "%s",
                 m.phase == RacePhase::Waiting    ? "START TIMING"
                 : m.phase == RacePhase::Finished ? "TIMING COMPLETE"
