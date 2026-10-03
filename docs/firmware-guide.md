@@ -60,9 +60,11 @@ CURRENT SPEEDは最新の受理パルスから最大N区間を取り、`N区間�
 
 ## 保存・通信
 
-現在のビルドは`platformio.ini`の`VEGA_ENABLE_MQTT=1`でAWS/MQTT送信を有効にしている。起動時にmbedTLSの動的メモリ確保先をPSRAMへ変更し、TLS接続中もESP-Hosted Wi-Fiが使う内部DMAメモリを確保する。Wi-FiがIPを取得した後にMQTTを開始し、Wi-Fi切断時は停止、復旧時に再開する。USB給電の実機でMQTT接続とNTP同期、約6秒の計測と取消、AWS IoT Coreでの新着JSON受信を確認した。GPSを外したバッテリー駆動では、ボタンに触れない10分間で水色画面・再起動が起きなかった。正式版の長時間エージングは[試験計画](release-test-plan.md)に従って別途行う。
+現在のビルドは`platformio.ini`の`VEGA_ENABLE_MQTT=1`でAWS/MQTT送信を有効にしている。起動時にmbedTLSの動的メモリ確保先をPSRAMへ変更し、LVGLの画面部品用1 MiBプールと描画バッファもPSRAMに置いて、ESP-Hosted Wi-Fiが使う内部DMAメモリを確保する。Wi-FiがIPを取得した後にMQTTを開始し、Wi-Fi切断時は停止、復旧時に再開する。シリアルの`net-mem`で内部/DMAメモリの空き量と最大連続領域を確認できる。USB給電の実機でMQTT接続とNTP同期、約6秒の計測と取消、AWS IoT Coreでの新着JSON受信を確認した。GPSを外したバッテリー駆動では、ボタンに触れない10分間で水色画面・再起動が起きなかった。正式版の長時間エージングは[試験計画](release-test-plan.md)に従って別途行う。
 
-2026-10-01の切り分けでは、GPSを外したバッテリー駆動中にMQTT接続試行を有効にすると、内部DMA用の最大連続空き領域が約1.5 KBまで減り、保存されたクラッシュ情報に`transport_drv_sta_tx ... (copy_buff)`が残った。MQTTだけを停止し、ボタンに触れずに再試験すると、同じバッテリー条件で10分35秒連続稼働し、内部DMA用の最大連続空き領域は約67 KBを維持した。手動Resetでもリセット理由`7`が記録されるため、この番号単独では自動再起動と判定しない。関連する[Espressifの報告](https://github.com/espressif/esp-hosted-mcu/issues/144)がある。現在の対策はTLSのメモリ確保先を変更して送信バッファ用の内部DMAメモリを残すもの。TLSが扱う秘密鍵もPSRAMに置かれるため、実車投入前にメモリ保護要件を確認する。
+2026-10-01の切り分けでは、GPSを外したバッテリー駆動中にMQTT接続試行を有効にすると、内部DMA用の最大連続空き領域が約1.5 KBまで減り、保存されたクラッシュ情報に`transport_drv_sta_tx ... (copy_buff)`が残った。MQTTだけを停止し、ボタンに触れずに再試験すると、同じバッテリー条件で10分35秒連続稼働し、内部DMA用の最大連続空き領域は約67 KBを維持した。手動Resetでもリセット理由`7`が記録されるため、この番号単独では自動再起動と判定しない。関連する[Espressifの報告](https://github.com/espressif/esp-hosted-mcu/issues/144)がある。この時点ではTLSのメモリ確保先を変更して送信バッファ用の内部DMAメモリを残した。TLSが扱う秘密鍵もPSRAMに置かれるため、実車投入前にメモリ保護要件を確認する。
+
+2026-10-03にはWi-FiがIPを取得しMQTTを開始した直後、`sdio_push_data_to_queue sdio_drv.c:705 (pkt_rxbuff)`でassertして再起動する現象を実機で捕捉した。TLSの確保先をPSRAMにしていても、LVGLの画面部品は内部ヒープを使っていた。変更前のMQTT開始直後は内部DMA空き約25 KB、最大連続領域約12 KB。LVGLの画面部品をPSRAMへ移した後は、MQTT接続時の内部DMA空き約309 KB、最大連続領域約303 KBになった。Wi-Fi受信バッファの確保失敗を直接防ぐための変更であり、正式版では通信と表示を同時に使う長時間試験が必要。
 
 - 走行戦略はWaiting画面からmicroSDの`/vega/strategies/*.json`または互換ファイル`/vega/strategy.json`を選び、選択したコースの周回数・経路ID・ON/OFF地点を検証する。Waitingで1周目をプレビューし、Mainでは現在周回の橙色のエンジン使用区間、青色の惰性区間、点火/OFF地点を地図へ重ねる。GPSが有効なら次の地点までの距離を表示する。形式とダミーは[走行戦略データREADME](../assets/strategy/README.md)。プランは表示専用で、GPIO出力を変更しない。
 - 計測開始から取消/完走までのみ、`/vega/session-0000000001.jsonl`のような個別ファイルをmicroSDへ保存する。NVSの連番と既存ファイルの確認で再起動後も上書きを防ぐ。
@@ -102,6 +104,7 @@ Walking modeで玉川学園コースを歩いたセッション50は約10分45�
 | コマンド | 動作 |
 |---|---|
 | `status` | 計測・指令・GPIO読み取り・GPS・パルス・SD・通信・TARGET。`sd_last_failure`は最後のSD異常種類、`sd_record_lost`は記録の欠落件数 |
+| `net-mem` | 内部RAM、DMA対応RAM、PSRAMの空き量と最大連続領域。接続時のメモリ不足を切り分ける |
 | `settings` | UIで編集可能な28項目の現在値 |
 | `plan-status` | 走行戦略の読込状態と採用したID |
 | `plan-upload BYTES` | 4096バイト以内のJSONを後続の生バイトで受け取り、SDに`/vega/strategy.json`がない場合だけ検証・保存。通常は`scripts/upload_strategy.py`から実行 |

@@ -885,14 +885,26 @@ void sdTask(void *) {
   }
 }
 
+void netMemory(const char *stage);
 void mqttEvent(void *, esp_event_base_t, int32_t id, void *) {
   if (id == MQTT_EVENT_CONNECTED) {
     mqtt_connected = true;
     Serial.println("[MQTT] connected");
+    netMemory("MQTT connected");
   } else if (id == MQTT_EVENT_DISCONNECTED || id == MQTT_EVENT_ERROR)
     mqtt_connected = false;
 }
 void ntpSynced(struct timeval *) { last_ntp_sync = clock_source.now(); }
+void netMemory(const char *stage) {
+  const uint32_t internal = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+  const uint32_t dma = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
+  Serial.printf("[NET MEM] %s int=%u/%u dma=%u/%u psram=%u\n", stage,
+                static_cast<unsigned>(heap_caps_get_free_size(internal)),
+                static_cast<unsigned>(heap_caps_get_largest_free_block(internal)),
+                static_cast<unsigned>(heap_caps_get_free_size(dma)),
+                static_cast<unsigned>(heap_caps_get_largest_free_block(dma)),
+                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
+}
 void networkTask(void *) {
   constexpr vega::Millis kWifiRetryMs = 10000;
   const bool wifi_configured = network_config::ssid[0];
@@ -900,7 +912,9 @@ void networkTask(void *) {
                                network_config::client_cert[0] && network_config::client_key[0];
   esp_mqtt_client_handle_t client = nullptr;
   bool mqtt_started = false;
+  bool previous_wifi_ready = false;
   vega::Millis last_wifi_attempt = clock_source.now();
+  netMemory("before Wi-Fi");
   if (wifi_configured) {
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
@@ -915,6 +929,10 @@ void networkTask(void *) {
     // Arduino marks WL_CONNECTED only after the STA_GOT_IP event.
     const bool wifi_ready = wifi_configured && WiFi.status() == WL_CONNECTED;
     const auto now = clock_source.now();
+    if (wifi_ready != previous_wifi_ready) {
+      netMemory(wifi_ready ? "Wi-Fi got IP" : "Wi-Fi lost IP");
+      previous_wifi_ready = wifi_ready;
+    }
     if (wifi_ready)
       last_wifi_attempt = now;
     else if (wifi_configured && now - last_wifi_attempt >= kWifiRetryMs) {
@@ -931,6 +949,7 @@ void networkTask(void *) {
       Serial.println("[MQTT] stopped; Wi-Fi IP unavailable");
     } else if (wifi_ready && mqtt_configured && !mqtt_started) {
       if (!client) {
+        netMemory("before MQTT init");
         esp_mqtt_client_config_t cfg{};
         cfg.broker.address.uri = network_config::endpoint;
         cfg.broker.verification.certificate = network_config::root_ca;
@@ -941,11 +960,13 @@ void networkTask(void *) {
         cfg.session.disable_clean_session = false;
         cfg.outbox.limit = 4096;
         client = esp_mqtt_client_init(&cfg);
+        netMemory("after MQTT init");
         if (client) esp_mqtt_client_register_event(client, MQTT_EVENT_ANY, mqttEvent, nullptr);
       }
       if (client && esp_mqtt_client_start(client) == ESP_OK) {
         mqtt_started = true;
         Serial.println("[MQTT] starting after Wi-Fi got IP");
+        netMemory("after MQTT start");
       }
     }
     vega::Snapshot s{};
@@ -1419,6 +1440,8 @@ void serialPoll() {
               static_cast<unsigned long>(s.settings.lap_target_s[0]),
               static_cast<unsigned long>(s.settings.display_brightness),
               static_cast<unsigned long>(s.settings.speed_average_intervals));
+      } else if (!strcmp(buffer, "net-mem")) {
+        netMemory("serial request");
       } else if (!strcmp(buffer, "wheel-debug")) {
         uint64_t raw, rejected_release, rejected_interval, accepted;
         portENTER_CRITICAL(&wheel_lock);
