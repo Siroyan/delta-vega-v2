@@ -215,21 +215,32 @@ bool readCoordinateSystem(JsonReader &json, Course &course) {
          fabs(course.origin_lon) <= 180 && course.east_per_lon > 0 && course.north_per_lat > 0;
 }
 
-bool readRaceSequence(JsonReader &json, char sequence[7][16], uint8_t &count) {
-  return json.array([&]() {
-    if (count >= 7) return false;
-    bool found = false;
+bool readRaceSequence(JsonReader &json, uint8_t &count) {
+  char previous[16]{};
+  const bool parsed_sequence = json.array([&]() {
+    if (count >= kMaxLaps) return false;
+    char route[16]{};
+    bool found_route = false, found_lap = false;
     const bool parsed = json.object([&](const char *key) {
       if (!strcmp(key, "route_id")) {
-        found = json.string(sequence[count], sizeof(sequence[count]));
-        return found;
+        found_route = json.string(route, sizeof(route));
+        return found_route;
+      }
+      if (!strcmp(key, "lap")) {
+        int number = 0;
+        found_lap = json.integer(number) && number == count + 1;
+        return found_lap;
       }
       return json.skip();
     });
-    if (!parsed || !found) return false;
+    if (!parsed || !found_route || !found_lap ||
+        (count && strcmp(previous, count == 1 ? "first_lap" : "regular_lap")))
+      return false;
+    strcpy(previous, route);
     ++count;
     return true;
   });
+  return parsed_sequence && count >= 2 && !strcmp(previous, "final_lap");
 }
 
 void release(Course &course) {
@@ -252,7 +263,6 @@ bool readCourseFile(const char *folder, Course &course) {
   JsonReader json(file);
   bool schema = false, coordinates = false, routes = false, laps = false, sequence_found = false;
   uint8_t sequence_count = 0;
-  char sequence[7][16]{};
   const bool parsed = json.object([&](const char *key) {
     if (!strcmp(key, "schema_version")) {
       int version = 0;
@@ -262,12 +272,12 @@ bool readCourseFile(const char *folder, Course &course) {
       return (coordinates = readCoordinateSystem(json, course));
     if (!strcmp(key, "lap_count")) {
       int count = 0;
-      if (!json.integer(count) || count < 2 || count > 7) return false;
+      if (!json.integer(count) || count < 2 || count > kMaxLaps) return false;
       course.lap_count = count;
       return (laps = true);
     }
     if (!strcmp(key, "race_sequence"))
-      return (sequence_found = readRaceSequence(json, sequence, sequence_count));
+      return (sequence_found = readRaceSequence(json, sequence_count));
     if (!strcmp(key, "routes")) {
       bool first = false, regular = false, final = false;
       const bool ok = json.object([&](const char *route_id) {
@@ -294,18 +304,13 @@ bool readCourseFile(const char *folder, Course &course) {
   });
   if (!laps && sequence_found) course.lap_count = sequence_count;
   if (!parsed || !json.finished() || !schema || !coordinates || !routes ||
-      !sequence_found || sequence_count < 2 || sequence_count > 7 ||
+      !sequence_found || sequence_count < 2 || sequence_count > kMaxLaps ||
       sequence_count != course.lap_count) {
     Serial.printf("[SIM] invalid course %s offset=%u parsed=%u schema=%u coord=%u "
                   "routes=%u laps=%u sequence=%u count=%u/%u free_heap=%u\n",
                   folder, file.position(), parsed, schema, coordinates, routes, laps,
                   sequence_found, sequence_count, course.lap_count, ESP.getFreeHeap());
     return false;
-  }
-  for (uint8_t i = 0; i < sequence_count; ++i) {
-    const char *expected = i == 0 ? "first_lap" :
-                           i + 1 == sequence_count ? "final_lap" : "regular_lap";
-    if (strcmp(sequence[i], expected)) return false;
   }
   return true;
 }

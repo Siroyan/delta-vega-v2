@@ -8,6 +8,8 @@ namespace vega {
 
 using Millis = uint64_t;
 constexpr size_t kLapCount = 7;
+// Course/race limit; per-lap settings and strategies retain their seven-slot format.
+constexpr uint8_t kMaxRaceLaps = 100;
 constexpr size_t kMaxSpeedAverageIntervals = 8;
 constexpr uint32_t kMinDisplayBrightness = 64;
 constexpr uint32_t kMaxDisplayBrightness = 255;

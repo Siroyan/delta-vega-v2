@@ -154,7 +154,7 @@ bool loadOne(const cJSON *entry, CourseAsset &asset) {
         !number(root, "schema_version", n) || n != 2) break;
     const cJSON *laps = item(root, "lap_count");
     n = laps ? laps->valuedouble : 7;
-    if ((laps && !cJSON_IsNumber(laps)) || n < 2 || n > 7 || floor(n) != n) break;
+    if ((laps && !cJSON_IsNumber(laps)) || n < 2 || n > vega::kMaxRaceLaps || floor(n) != n) break;
     asset.data_storage.lap_count = n;
     asset.data_storage.id = asset.id_storage;
     const cJSON *cs = item(root, "coordinate_system");

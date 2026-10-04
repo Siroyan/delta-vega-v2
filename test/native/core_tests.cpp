@@ -306,6 +306,71 @@ void fourLapCourseTest() {
   assert(gps_app.snapshot().race.phase == RacePhase::Finished);
   assert(gps_recorder.finished_events == 1);
 }
+void hundredLapCourseTest() {
+  CourseData hundred_lap_data = course_data;
+  hundred_lap_data.lap_count = 100;
+  Course course(hundred_lap_data);
+  assert(course.lapCount() == 100);
+  Clock clock;
+  Output output;
+  Store store;
+  Recorder recorder;
+  Telemetry telemetry;
+  Settings settings = Fixture::makeSettings();
+  settings.lap_target_s[6] = 321;
+  Application app(clock, output, store, recorder, telemetry, course, settings);
+  View view;
+  Presenter presenter(view, course.lapCount());
+  UiStatus status;
+  assert(app.start());
+  for (int lap = 2; lap <= 100; ++lap) {
+    clock.time += 10000;
+    assert(app.manualLap());
+    const auto snapshot = app.snapshot();
+    assert(snapshot.race.lap == lap);
+    presenter.render(snapshot, status);
+    assert(view.model.finish_mode == (lap == 100));
+    if (lap == 8 || lap == 100)
+      assert(std::strcmp(view.model.lap_target, "TARGET 05:21") == 0);
+    if (lap == 99) assert(!app.manualFinish());
+  }
+  assert(std::strcmp(view.model.lap, "100 / 100") == 0);
+  assert(!app.manualLap());
+  assert(app.manualFinish());
+  assert(app.snapshot().race.phase == RacePhase::Finished);
+  assert(recorder.manual_finish_events == 1);
+
+  Clock gps_clock;
+  Output gps_output;
+  Store gps_store;
+  Recorder gps_recorder;
+  Telemetry gps_telemetry;
+  Application gps_app(gps_clock, gps_output, gps_store, gps_recorder,
+                      gps_telemetry, course, settings);
+  auto fix = [&](double distance) {
+    GpsFix gps;
+    gps.valid = true;
+    gps.position = course.pointAt(distance);
+    gps.received_ms = gps_clock.time;
+    gps_app.gps(gps);
+  };
+  auto travel = [&](double from, double to) {
+    for (double distance = from; distance <= to; distance += 20) {
+      gps_clock.time += 1000;
+      fix(distance);
+    }
+  };
+  assert(gps_app.start());
+  fix(700);
+  for (int lap = 0; lap < 99; ++lap) {
+    travel(720 + lap * 4000, 4700 + lap * 4000);
+    assert(gps_app.snapshot().race.lap == lap + 2);
+    assert(gps_app.snapshot().race.phase == RacePhase::Measuring);
+  }
+  travel(396720, 399600);
+  assert(gps_app.snapshot().race.phase == RacePhase::Finished);
+  assert(gps_recorder.finished_events == 1);
+}
 void gpsRaceTest() {
   Fixture f;
   assert(f.app.start());
@@ -1248,6 +1313,7 @@ int main() {
   raceTest();
   manualFinishTest();
   fourLapCourseTest();
+  hundredLapCourseTest();
   gpsRaceTest();
   passageTest();
   gpsOutageAndManualLapTest();

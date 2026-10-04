@@ -1,6 +1,8 @@
 # AtomS3 GPS・車速シミュレーター
 
-Tab5の長時間試験用対向機です。`assets/course_manifest.json` に登録された各 `assets/<コース>/course.json` をAtomS3のLittleFSへ配置し、起動時に**Tab5と同じJSON**を読み込みます。生成されたC++のコース配列は使いません。同じ走行距離からGPSのNMEA文と車輪パルスを生成します。Tab5本体のファームウェアは変更しません。
+Tab5の長時間試験用対向機です。`assets/course_manifest.json` に登録された各 `assets/<コース>/course.json` をAtomS3のLittleFSへ配置し、起動時に**Tab5と同じJSON**を読み込みます。生成されたC++のコース配列は使いません。同じ走行距離からGPSのNMEA文と車輪パルスを生成します。
+
+100周エージング試験には`motegi_oval_full_100`を選びます。[コースの定義](../../assets/motegi_oval_full_100/README.md)とrace-emulatorの`aging-motegi-100`試験ケースを使えます。コースの変更後は下記の`uploadfs`を行い、Tab5側にも更新したmicroSDコース一式と100周対応ファームウェアを用意してください。
 
 AtomS3の画面には、コース名、走行状態、現在の周回、設定速度、走行距離、送出した車速パルス数、GPSの異常注入状態、送出遅れのパルス数を表示します。画面下端の細いバーは現在のルートの進行率です。`READY`、`RUN`、`PAUSE`、`GOAL` は本体ボタンまたはUSBシリアルからの走行操作と連動します。`MISS` が0以外ならパルス送出が間に合っていないため、試験結果を確認してください。
 

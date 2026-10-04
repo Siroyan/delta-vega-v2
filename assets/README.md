@@ -25,8 +25,11 @@ python3 scripts/package_courses.py sdcard-package
 | `tamagawagakuen_station_loop/` | 4 | `vega-test4` |
 | `tobitakyu_hospital_loop/` | 4 | `vega-tobi4` |
 | `motegi_oval_full/` | 7 | `vega` |
+| `motegi_oval_full_100/` | 100 | `vega-motegi100` |
 | `misato_loop/` | 5 | `vega-misato5` |
 
 新しいコースは`<コース>/course.json`として同じschema 2のJSONと480×480 RGB565画像を用意し、`course_manifest.json`へID、表示名、NVS領域、初期座標とTARGETを追加して再生成します。短いコースでは`min_lap_progress_m`、`min_lap_ms`、`lap_duplicate_ms`もマニフェストで初期設定できます。旧アセットの`course_image.c`または新規アセットの`map.rgb565`をパッケージ生成元に使えます。個別コースの形状をC++へ再生成する必要はありません。
+
+対応周回数は2〜100です。コース別TARGET設定には7枠があり、8周目以降は7周目の値を共用します。戦略ファイルは最大7周まで対応します。100周版の用途と制約は[`motegi_oval_full_100/README.md`](motegi_oval_full_100/README.md)を参照してください。
 
 戦略JSONはmicroSDの`/vega/strategies/`に配置します。詳細は[走行戦略データ](strategy/README.md)を参照してください。

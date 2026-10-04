@@ -24,7 +24,7 @@ for entry in manifest["courses"]:
         raise ValueError(f"course source must be course.json: {folder}")
     course_json = source_dir / entry["source"]
     data = json.loads(course_json.read_text())
-    if data["schema_version"] != 2 or not 2 <= data.get("lap_count", 7) <= 7:
+    if data["schema_version"] != 2 or not 2 <= data.get("lap_count", 7) <= 100:
         raise ValueError(f"invalid course: {course_json}")
     raw_image = source_dir / "map.rgb565"
     if raw_image.exists():

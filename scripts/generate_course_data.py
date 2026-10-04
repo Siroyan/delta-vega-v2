@@ -17,8 +17,8 @@ data = json.loads(source.read_text())
 if data["schema_version"] != 2:
     raise ValueError("Expected the full course schema (version 2)")
 lap_count = data.get("lap_count", 7)
-if not isinstance(lap_count, int) or isinstance(lap_count, bool) or not 2 <= lap_count <= 7:
-    raise ValueError("lap_count must be an integer from 2 to 7")
+if not isinstance(lap_count, int) or isinstance(lap_count, bool) or not 2 <= lap_count <= 100:
+    raise ValueError("lap_count must be an integer from 2 to 100")
 expected_sequence = ["first_lap"] + ["regular_lap"] * (lap_count - 2) + ["final_lap"]
 if (len(data["race_sequence"]) != lap_count or
         [entry["lap"] for entry in data["race_sequence"]] != list(range(1, lap_count + 1)) or

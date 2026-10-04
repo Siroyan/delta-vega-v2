@@ -573,9 +573,22 @@ class View final : public vega::IView {
       text(p.speed, m.speed);
       text(p.average, m.average);
       text(p.lap, m.lap);
+      const auto *lap_font = m.lap_count > 9 ? &ui_font_ricty_diminished_32
+                                            : &ui_font_ricty_diminished_64;
+      if (lv_obj_get_style_text_font(p.lap, LV_PART_MAIN) != lap_font)
+        lv_obj_set_style_text_font(p.lap, lap_font, LV_PART_MAIN);
       text(p.total, m.total);
+      const auto *total_font = std::strlen(m.total) > 7 ? &ui_font_ricty_diminished_64
+                                                        : &ui_font_ricty_diminished_96;
+      if (lv_obj_get_style_text_font(p.total, LV_PART_MAIN) != total_font)
+        lv_obj_set_style_text_font(p.total, total_font, LV_PART_MAIN);
       text(p.lap_time, m.lap_time);
       text(p.total_target, m.total_target);
+      const auto *total_target_font = std::strlen(m.total_target) > 13
+                                          ? &ui_font_ricty_diminished_32
+                                          : &ui_font_ricty_diminished_48;
+      if (lv_obj_get_style_text_font(p.total_target, LV_PART_MAIN) != total_target_font)
+        lv_obj_set_style_text_font(p.total_target, total_target_font, LV_PART_MAIN);
       text(p.lap_target, m.lap_target);
       text(p.notice, m.notice);
       text(p.gps_status, m.gps_status);
@@ -1243,6 +1256,8 @@ void viewUpdate() {
     visible(extra_lap_fields[i * 2], s.lap_count > i + 4);
     visible(extra_lap_fields[i * 2 + 1], s.lap_count > i + 4);
   }
+  text(objects.settings_lap7_title, s.lap_count > vega::kLapCount
+                                       ? "LAP 7+ TARGET" : "LAP 7 TARGET");
   if (painted_course_index != s.course_index) {
     for (size_t i = 0; i < courseCount() && i < 8; ++i)
       if (course_buttons[i]) styleSelectionButton(course_buttons[i], i == s.course_index);
@@ -1280,7 +1295,7 @@ void viewUpdate() {
   if (s.race.phase != vega::RacePhase::Measuring) {
     strategy_warning.reset();
   } else if (plan_loaded && ui_status.plan_state == vega::PlanState::Ready &&
-             s.race.lap > 0 && s.race.lap <= s.lap_count) {
+             s.race.lap > 0 && s.race.lap <= vega::kLapCount) {
     vega::StrategyCue cue;
     if (strategy_warning.update(
             s.race.session, s.race.lap, s.gps_fresh && s.route_map.on_course,
@@ -1385,7 +1400,11 @@ void editField(size_t index) {
   editing_field = index;
   char value[32];
   vega::settingText(draft, index, value, sizeof(value));
-  text(objects.settings_editor_title, vega::settingTitle(index));
+  vega::Snapshot current;
+  const bool extended_laps = snapshot(current) && current.lap_count > vega::kLapCount;
+  text(objects.settings_editor_title,
+       index == 7 && extended_laps
+           ? "LAP 7+ TARGET" : vega::settingTitle(index));
   // set_text filters each character using the current accepted_chars.
   lv_textarea_set_accepted_chars(objects.settings_editor_input,
                                  index < 8                          ? "0123456789:"

@@ -30,7 +30,7 @@
 START: <緯度>, <経度>
 LAP更新地点: <緯度>, <経度>
 GOAL: <緯度>, <経度>
-周回数: <2〜7>
+周回数: <2〜100>
 周回方向: <北が上の地図で時計回り／反時計回り>
 道順: <STARTから曲がる角を順に記載。GPS軌跡や地図のリンクがあれば添付>
 想定する走行: <徒歩／自転車／車両、速度の目安>
@@ -69,7 +69,7 @@ PCでパッケージ生成と必要な周回判定テストを実施してくだ
 | 項目 | 決め方 |
 |---|---|
 | コースID・フォルダ名 | 例: `misato_loop_v1`・`misato_loop`。他コースと重複させない |
-| 周回数 | 2〜7周。計測開始時がLAP 1で、最後のLAP表示でGOALを判定する |
+| 周回数 | 2〜100周。計測開始時がLAP 1で、最後のLAP表示でGOALを判定する |
 | START | ドライバーが手動で計測を開始する目安。GPSでは自動開始しない |
 | LAP | 1周目から最終周の一つ前まで、通過を検出する地点 |
 | GOAL | 最終周だけ完走を検出する地点 |
@@ -121,7 +121,7 @@ START、LAP、GOALの3点だけでは走る道は一意に決まりません。�
 | `render.local_to_pixel_matrix_2x3` | 地理座標から480×480画像座標への変換行列 |
 | `routes.first_lap` / `regular_lap` / `final_lap` | 各経路の`closed`、`length_m`、進行順の`points` |
 | `segments` | 通常は`{}`。ゴール分岐がある場合だけ`finish_approach`を追加 |
-| `lap_count` | 2〜7の整数 |
+| `lap_count` | 2〜100の整数。8周目以降のTARGETは7周目の設定値を共用する。走行戦略ファイルは最大7周まで対応 |
 | `race_sequence` | 1周目`first_lap`、中間`regular_lap`、最終`final_lap`の順 |
 | `race_length_m` | `first_lap.length_m + (N-2) × regular_lap.length_m + final_lap.length_m` |
 
