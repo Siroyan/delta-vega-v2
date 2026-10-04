@@ -76,13 +76,9 @@ function renderState() {
   const active = run && ["preparing", "running"].includes(run.state);
   const label = run ? ({preparing:"準備中",running:"実行中",finished:"終了"}[run.state] || run.state) : "待機中";
   $("#run-state").textContent = label;
-  $("#run-pill").innerHTML = `<span class="status-dot ${active ? "online" : "idle"}"></span><span>${run ? esc(run.state.toUpperCase()) : "READY"}</span>`;
   $("#start-run").disabled = !selected || active || !state.devices.atom.connected ||
     (tab5Mode === "usb" && !state.devices.tab5.connected);
   $("#start-run").textContent = tab5Mode === "standalone" ? "▶ AtomS3走行開始" : "▶ 試験開始";
-  $("#intro-description").textContent = tab5Mode === "standalone"
-    ? "AtomS3の走行と異常注入を操作します。Tab5はバッテリーで動作し、実機で操作します。"
-    : "AtomS3の走行と異常注入を操作し、Tab5の応答・再起動を同じ時刻で記録します。";
   $("#run-note").textContent = tab5Mode === "standalone"
     ? "Tab5で計測を開始してから押してください。ブラウザはAtomS3を走行させます。Tab5の終了・取消も実機で操作します。"
     : "試験開始時にAtomS3の条件を設定し、Tab5の計測を開始します。停止時はAtomS3のみ止めます。Tab5の計測は実機で終了・取消してください。";

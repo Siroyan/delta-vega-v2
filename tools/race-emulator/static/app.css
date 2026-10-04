@@ -98,40 +98,12 @@ main {
   margin:0 auto;
   padding:34px 28px 54px
 }
-.intro {
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin-bottom:27px
-}
-.intro h1 {
-  font-size:30px;
-  letter-spacing:-1.1px;
-  margin:3px 0 8px
-}
-.intro p:last-child {
-  color:#63758a;
-  margin:0;
-  font-size:14px
-}
 .eyebrow {
   font-size:10px;
   font-weight:800;
   letter-spacing:1.7px;
   color:#5182aa;
   margin:0 0 5px
-}
-.run-pill {
-  display:flex;
-  align-items:center;
-  gap:9px;
-  background:#fff;
-  padding:12px 16px;
-  border-radius:30px;
-  box-shadow:0 3px 12px #17395c0d;
-  font-size:11px;
-  font-weight:800;
-  letter-spacing:1.2px
 }
 .card {
   background:#fff;
@@ -618,9 +590,6 @@ dialog::backdrop {
   .device-grid {
     grid-template-columns:1fr
   }
-  .intro h1 {
-    font-size:24px
-  }
 }
 @media(max-width:600px) {
   main {
@@ -631,15 +600,6 @@ dialog::backdrop {
   }
   .top-status #clock,.top-separator {
     display:none
-  }
-  .intro {
-    align-items:start
-  }
-  .intro h1 {
-    font-size:22px
-  }
-  .run-pill {
-    padding:8px
   }
   .form-grid {
     grid-template-columns:1fr
