@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">
+  <rect width="480" height="480" fill="white"/>
+  <polyline points="85.35,389.61 92.93,397.04 128.00,431.42 171.92,416.35 263.71,385.21 326.86,348.10 388.54,293.47 435.00,215.76 402.40,165.68 337.68,112.54 266.39,54.00 233.71,48.58 188.36,60.37 157.52,101.21 127.56,196.45 71.02,255.23 45.00,324.38 58.60,363.40 85.35,389.61" fill="none" stroke="#8095a6" stroke-width="9" stroke-linejoin="round" stroke-linecap="round"/>
+  <metadata>Road geometry: © OpenStreetMap contributors, ODbL 1.0. Source: https://api.openstreetmap.org/api/0.6/map?bbox=139.1605,36.1565,139.1655,36.1605</metadata>
+</svg>

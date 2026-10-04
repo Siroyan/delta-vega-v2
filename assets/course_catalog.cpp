@@ -116,6 +116,18 @@ bool loadOne(const cJSON *entry, CourseAsset &asset) {
   if (!number(entry, "lap_target_s", n) || n <= 0 || n > 86400) return false;
   defaults.lap_target_s.fill(n);
   if (!number(entry, "course_corridor_m", defaults.course_corridor_m)) return false;
+  if (item(entry, "min_lap_progress_m") &&
+      !number(entry, "min_lap_progress_m", defaults.min_lap_progress_m)) return false;
+  if (item(entry, "min_lap_ms")) {
+    if (!number(entry, "min_lap_ms", n) || n < 0 || n > 3600000 || floor(n) != n)
+      return false;
+    defaults.min_lap_ms = static_cast<uint32_t>(n);
+  }
+  if (item(entry, "lap_duplicate_ms")) {
+    if (!number(entry, "lap_duplicate_ms", n) || n < 0 || n > 60000 || floor(n) != n)
+      return false;
+    defaults.lap_duplicate_ms = static_cast<uint32_t>(n);
+  }
   vega::GeoPoint *positions[] = {&defaults.start, &defaults.timing, &defaults.goal};
   const char *keys[] = {"start", "timing", "goal"};
   for (int i = 0; i < 3; ++i) {
@@ -208,6 +220,9 @@ bool loadCoursesFromSd() {
   hooks.free_fn = jsonFree;
   cJSON_InitHooks(&hooks);
   char *contents = readJson("/sdcard/vega/courses/catalog.json", 16 * 1024);
+  // An interrupted serial replacement may leave the previous catalog here.
+  if (!contents)
+    contents = readJson("/sdcard/vega/courses/catalog.json.bak", 16 * 1024);
   if (!contents) {
     printf("[COURSE] catalog.json missing or unreadable\n");
     return false;

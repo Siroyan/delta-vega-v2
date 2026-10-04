@@ -9,6 +9,7 @@
 #include <string>
 
 #include "../../assets/motegi_oval_full/course_data.h"
+#include "../../assets/misato_loop/course_data.h"
 #include "../../assets/tamagawagakuen_station_loop/course_data.h"
 #include "../../assets/tobitakyu_hospital_loop/course_data.h"
 #include "../../src/control_gesture.h"
@@ -1196,6 +1197,52 @@ void strategyWarningTest() {
   warning.reset();
   assert(warning.update(2, 1, true, lap, 75, cue) && cue == StrategyCue::Off);
 }
+void misatoCourseTest() {
+  Course course(asset_misato_loop::course_data);
+  assert(course.lapCount() == 5);
+  Settings settings;
+  settings.start = {36.158741, 139.163142};
+  settings.timing = {36.158129, 139.162450};
+  settings.goal = {36.158181, 139.163041};
+  settings.course_corridor_m = 18;
+  settings.min_lap_progress_m = 80;
+  settings.min_lap_ms = 8000;
+  settings.lap_duplicate_ms = 5000;
+  Clock clock;
+  Output output;
+  Store store;
+  Recorder recorder;
+  Telemetry telemetry;
+  Application app(clock, output, store, recorder, telemetry, course, settings);
+  auto travel = [&](CourseRoute route) {
+    const double length = course.routeLength(route);
+    for (double s = 0; s < length; s += 5) {
+      GpsFix fix;
+      fix.valid = true;
+      clock.time += 1000;
+      fix.received_ms = clock.time;
+      fix.position = course.pointAtOn(s, route);
+      app.gps(fix);
+    }
+    GpsFix fix;
+    fix.valid = true;
+    clock.time += 1000;
+    fix.received_ms = clock.time;
+    fix.position = course.pointAtOn(length, route);
+    app.gps(fix);
+  };
+  assert(app.start());
+  travel(CourseRoute::First);
+  assert(app.snapshot().race.lap == 2);
+  for (int lap = 3; lap <= 5; ++lap) {
+    travel(CourseRoute::Regular);
+    assert(app.snapshot().race.lap == lap);
+    assert(app.snapshot().race.phase == RacePhase::Measuring);
+  }
+  travel(CourseRoute::Final);
+  assert(app.snapshot().race.phase == RacePhase::Finished);
+  assert(recorder.finished_events == 1);
+}
 int main() {
   engineTest();
   raceTest();
@@ -1213,6 +1260,7 @@ int main() {
   gpsSourceSettingsTest();
   strategyTest();
   strategyWarningTest();
+  misatoCourseTest();
   courseSelectionTest();
   settingsMigrationTest();
   fourLapStrategyTest();

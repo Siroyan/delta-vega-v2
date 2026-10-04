@@ -24,12 +24,17 @@ for entry in manifest["courses"]:
     data = json.loads(course_json.read_text())
     if data["schema_version"] != 2 or not 2 <= data.get("lap_count", 7) <= 7:
         raise ValueError(f"invalid course: {course_json}")
-    image_c = (source_dir / "course_image.c").read_text()
-    pixels_match = re.search(r"(?:static\s+const\s+)?uint8_t\s+\w+\[\]\s*=\s*\{(.*?)\};", image_c, re.S)
-    if not pixels_match:
-        raise ValueError(f"RGB565 pixel array missing: {folder}")
-    pixels_section = pixels_match.group(1)
-    pixels = bytes(int(value, 16) for value in re.findall(r"0x([0-9a-fA-F]{2})", pixels_section))
+    raw_image = source_dir / "map.rgb565"
+    if raw_image.exists():
+        pixels = raw_image.read_bytes()
+    else:
+        # Older assets store the same bytes in a generated C array.
+        image_c = (source_dir / "course_image.c").read_text()
+        pixels_match = re.search(r"(?:static\s+const\s+)?uint8_t\s+\w+\[\]\s*=\s*\{(.*?)\};", image_c, re.S)
+        if not pixels_match:
+            raise ValueError(f"RGB565 pixel array missing: {folder}")
+        pixels_section = pixels_match.group(1)
+        pixels = bytes(int(value, 16) for value in re.findall(r"0x([0-9a-fA-F]{2})", pixels_section))
     if len(pixels) != 480 * 480 * 2:
         raise ValueError(f"expected 480x480 RGB565 image: {folder}")
     folder_target = target / folder

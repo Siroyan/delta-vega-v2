@@ -9,6 +9,7 @@
 #include <esp_heap_caps.h>
 #include <esp_sntp.h>
 #include <esp_timer.h>
+#include <esp_system.h>
 #include <esp_vfs_fat.h>
 #include <mbedtls/platform.h>
 #include <mqtt_client.h>
@@ -63,7 +64,7 @@ void *tlsPsramCalloc(size_t count, size_t bytes) {
 }
 void tlsPsramFree(void *ptr) { heap_caps_free(ptr); }
 QueueHandle_t commands, snapshots, records, transmissions, diagnostics, strategies,
-    plan_imports, plan_requests, plan_choices;
+    plan_imports, course_imports, plan_requests, plan_choices;
 std::atomic<uint8_t> active_course{0};
 struct PlanRequest {
   uint8_t course_index;
@@ -111,6 +112,35 @@ struct PlanImport {
   char *contents;
   size_t length;
 };
+struct CourseImport {
+  uint8_t *contents;
+  size_t length;
+  uint32_t crc32;
+  char folder[41];
+  char filename[16];
+};
+bool safeCourseFolder(const char *folder) {
+  if (!folder[0] || strlen(folder) > 40) return false;
+  for (const char *p = folder; *p; ++p)
+    if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '_'))
+      return false;
+  return true;
+}
+bool safeCourseFile(const char *folder, const char *filename, size_t length) {
+  if (!strcmp(folder, "root")) return !strcmp(filename, "catalog.json") && length <= 16384;
+  return safeCourseFolder(folder) &&
+         ((!strcmp(filename, "course.json") && length <= 256 * 1024) ||
+          (!strcmp(filename, "map.rgb565") && length == 480 * 480 * 2));
+}
+uint32_t courseCrc32(const uint8_t *bytes, size_t length) {
+  uint32_t crc = 0xffffffffU;
+  for (size_t i = 0; i < length; ++i) {
+    crc ^= bytes[i];
+    for (int bit = 0; bit < 8; ++bit)
+      crc = (crc >> 1) ^ (0xedb88320U & -(crc & 1U));
+  }
+  return ~crc;
+}
 void diagnostic(const char *format, ...) {
   if (!diagnostics) return;
   Diagnostic message{};
@@ -749,6 +779,70 @@ void installPlan(PlanImport request) {
   else Serial.printf("[PLAN UPLOAD] installed id=%s\n", parsed.plan_id);
 }
 
+void installCourseFile(CourseImport request) {
+  vega::Snapshot current;
+  if (!sd_ready || !snapshot(current) || current.race.phase != vega::RacePhase::Waiting ||
+      current.engine != vega::EnginePhase::Off ||
+      !safeCourseFile(request.folder, request.filename, request.length) ||
+      courseCrc32(request.contents, request.length) != request.crc32) {
+    Serial.println("[COURSE UPLOAD] rejected: state, path, size, or checksum");
+    free(request.contents);
+    return;
+  }
+  constexpr const char *base = "/sdcard/vega/courses";
+  if (!sdPathExists("/vega/courses") && mkdir(base, 0755) != 0) {
+    Serial.println("[COURSE UPLOAD] rejected: cannot create courses directory");
+    free(request.contents);
+    return;
+  }
+  char directory[112];
+  snprintf(directory, sizeof(directory), "%s%s%s", base,
+           !strcmp(request.folder, "root") ? "" : "/",
+           !strcmp(request.folder, "root") ? "" : request.folder);
+  char relative[112];
+  snprintf(relative, sizeof(relative), "/vega/courses/%s", request.folder);
+  if (strcmp(request.folder, "root") && !sdPathExists(relative) &&
+      mkdir(directory, 0755) != 0) {
+    Serial.println("[COURSE UPLOAD] rejected: cannot create course directory");
+    free(request.contents);
+    return;
+  }
+  char final[144], temporary[152], backup[152];
+  snprintf(final, sizeof(final), "%s/%s", directory, request.filename);
+  snprintf(temporary, sizeof(temporary), "%s.tmp", final);
+  snprintf(backup, sizeof(backup), "%s.bak", final);
+  FILE *file = fopen(temporary, "wb");
+  bool written = file && fwrite(request.contents, 1, request.length, file) == request.length;
+  if (file) {
+    written = written && fflush(file) == 0 && fsync(fileno(file)) == 0;
+    if (fclose(file) != 0) written = false;
+  }
+  free(request.contents);
+  if (!written) {
+    remove(temporary);
+    Serial.println("[COURSE UPLOAD] rejected: SD write failed");
+    return;
+  }
+  bool had_final = access(final, F_OK) == 0;
+  if (had_final) {
+    remove(backup);
+    if (rename(final, backup) != 0) {
+      remove(temporary);
+      Serial.println("[COURSE UPLOAD] rejected: backup failed");
+      return;
+    }
+  }
+  if (rename(temporary, final) != 0) {
+    if (had_final) rename(backup, final);
+    remove(temporary);
+    Serial.println("[COURSE UPLOAD] rejected: install failed");
+    return;
+  }
+  if (had_final) remove(backup);
+  Serial.printf("[COURSE UPLOAD] saved %s/%s bytes=%u\n", request.folder,
+                request.filename, static_cast<unsigned>(request.length));
+}
+
 void sdTask(void *) {
   auto mount = []() {
     bool ready = media.mount();
@@ -770,6 +864,13 @@ void sdTask(void *) {
   for (;;) {
     PlanImport imported{};
     if (xQueueReceive(plan_imports, &imported, 0) == pdTRUE) installPlan(imported);
+    CourseImport course_import{};
+    if (xQueueReceive(course_imports, &course_import, 0) == pdTRUE) {
+      if (active || log) {
+        free(course_import.contents);
+        Serial.println("[COURSE UPLOAD] rejected: recording active");
+      } else installCourseFile(course_import);
+    }
     PlanRequest plan_request{};
     if (xQueueReceive(plan_requests, &plan_request, 0) == pdTRUE) {
       if (active || log) {
@@ -1426,10 +1527,11 @@ bool begin() {
   diagnostics = xQueueCreate(16, sizeof(Diagnostic));
   strategies = xQueueCreate(1, sizeof(vega::Strategy));
   plan_imports = xQueueCreate(1, sizeof(PlanImport));
+  course_imports = xQueueCreate(1, sizeof(CourseImport));
   plan_requests = xQueueCreate(1, sizeof(PlanRequest));
   plan_choices = xQueueCreate(1, sizeof(PlanChoices));
   if (!commands || !snapshots || !records || !transmissions || !diagnostics || !strategies ||
-      !plan_imports || !plan_requests || !plan_choices)
+      !plan_imports || !course_imports || !plan_requests || !plan_choices)
     return false;
   if (xTaskCreate(diagnosticTask, "vega_log", 3072, nullptr, 1, nullptr) != pdPASS ||
       xTaskCreate(sdTask, "vega_sd", 8192, nullptr, 1, nullptr) != pdPASS ||
@@ -1502,11 +1604,14 @@ void requestLogReadback(uint32_t session) {
   readback = true;
 }
 void serialPoll() {
-  static char buffer[64];
+  static char buffer[96];
   static size_t count = 0;
   static char *incoming_plan = nullptr;
   static size_t incoming_expected = 0, incoming_received = 0;
   static uint32_t incoming_last_ms = 0;
+  static CourseImport incoming_course{};
+  static size_t course_received = 0;
+  static uint32_t course_last_ms = 0;
   if (incoming_plan && millis() - incoming_last_ms > 15000) {
     Serial.printf("[PLAN UPLOAD] timeout received=%u expected=%u\n",
                   static_cast<unsigned>(incoming_received),
@@ -1515,8 +1620,31 @@ void serialPoll() {
     incoming_plan = nullptr;
     incoming_expected = incoming_received = 0;
   }
+  if (incoming_course.contents && millis() - course_last_ms > 15000) {
+    Serial.printf("[COURSE UPLOAD] timeout received=%u expected=%u\n",
+                  static_cast<unsigned>(course_received),
+                  static_cast<unsigned>(incoming_course.length));
+    free(incoming_course.contents);
+    incoming_course = {};
+    course_received = 0;
+  }
   for (unsigned budget = 0; budget < 128 && Serial.available(); ++budget) {
     char c = Serial.read();
+    if (incoming_course.contents) {
+      incoming_course.contents[course_received++] = static_cast<uint8_t>(c);
+      course_last_ms = millis();
+      if (course_received == incoming_course.length) {
+        if (xQueueSend(course_imports, &incoming_course, 0) == pdTRUE)
+          Serial.println("[COURSE UPLOAD] queued");
+        else {
+          free(incoming_course.contents);
+          Serial.println("[COURSE UPLOAD] queue full");
+        }
+        incoming_course = {};
+        course_received = 0;
+      }
+      continue;
+    }
     if (incoming_plan) {
       incoming_plan[incoming_received++] = c;
       incoming_last_ms = millis();
@@ -1613,6 +1741,58 @@ void serialPoll() {
             Serial.printf("[PLAN UPLOAD] ready bytes=%lu\n", length);
           } else Serial.println("[PLAN UPLOAD] allocation failed");
         }
+      } else if (!strncmp(buffer, "course-upload ", 14)) {
+        char folder[41]{}, filename[16]{};
+        unsigned long length = 0, crc = 0;
+        int consumed = 0;
+        vega::Snapshot current;
+        const bool parsed = sscanf(buffer + 14, "%40s %15s %lu %lu %n", folder,
+                                   filename, &length, &crc, &consumed) == 4 &&
+                            buffer[14 + consumed] == 0;
+        if (!parsed || !length || !safeCourseFile(folder, filename, length) ||
+            !sd_ready || !snapshot(current) ||
+            current.race.phase != vega::RacePhase::Waiting ||
+            current.engine != vega::EnginePhase::Off) {
+          Serial.println("[COURSE UPLOAD] rejected: state, path, or size");
+        } else {
+          incoming_course.contents = static_cast<uint8_t *>(
+              heap_caps_malloc(length, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+          if (!incoming_course.contents)
+            Serial.println("[COURSE UPLOAD] allocation failed");
+          else {
+            incoming_course.length = length;
+            incoming_course.crc32 = static_cast<uint32_t>(crc);
+            snprintf(incoming_course.folder, sizeof(incoming_course.folder), "%s", folder);
+            snprintf(incoming_course.filename, sizeof(incoming_course.filename), "%s", filename);
+            course_received = 0;
+            course_last_ms = millis();
+            Serial.printf("[COURSE UPLOAD] ready bytes=%lu\n", length);
+          }
+        }
+      } else if (!strcmp(buffer, "course-list")) {
+        Serial.printf("[COURSE LIST] count=%u\n", static_cast<unsigned>(courseCount()));
+        for (size_t i = 0; i < courseCount(); ++i)
+          Serial.printf("[COURSE LIST] %u %s\n", static_cast<unsigned>(i),
+                        courseAsset(i).data->id);
+      } else if (!strncmp(buffer, "course-select ", 14)) {
+        bool queued = false;
+        for (size_t i = 0; i < courseCount(); ++i)
+          if (!strcmp(buffer + 14, courseAsset(i).data->id)) {
+            Command select{};
+            select.kind = CommandKind::SelectCourse;
+            select.choice = i;
+            queued = submit(select);
+            break;
+          }
+        Serial.printf("[COURSE SELECT] queued=%u\n", queued);
+      } else if (!strcmp(buffer, "course-reboot")) {
+        vega::Snapshot current;
+        if (snapshot(current) && current.race.phase == vega::RacePhase::Waiting &&
+            current.engine == vega::EnginePhase::Off) {
+          Serial.println("[COURSE] rebooting to load microSD catalog");
+          Serial.flush();
+          esp_restart();
+        } else Serial.println("[COURSE] reboot rejected: timing or electrical active");
       } else if (!strcmp(buffer, "settings")) {
         vega::Snapshot s;
         if (snapshot(s))
