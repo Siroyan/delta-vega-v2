@@ -3,6 +3,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp
 const fmtTime = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 let state = null, cases = [], selected = null, editOriginal = null, socket = null;
 let draftPorts = {}, lastSeq = 0, shownEvents = [], toastTimer = null;
+let tab5Mode = localStorage.getItem("race-emulator-tab5-mode") === "usb" ? "usb" : "standalone";
 
 async function api(path, method = "GET", data = undefined) {
   const response = await fetch(path, {method, headers: data === undefined ? {} : {"Content-Type": "application/json"}, body: data === undefined ? undefined : JSON.stringify(data)});
@@ -23,6 +24,14 @@ function renderDevice(name) {
   const device = state.devices[name];
   const element = $(name === "atom" ? "#atom-device" : "#tab5-device");
   if (element.contains(document.activeElement) && document.activeElement.tagName === "SELECT") return;
+  if (name === "tab5" && tab5Mode === "standalone") {
+    const runActive = state.run && ["preparing", "running"].includes(state.run.state);
+    element.innerHTML = `<div class="device-head"><div class="device-title"><div class="device-icon">T5</div><div><h2>Tab5 / バッテリー運用</h2><p class="device-sub">USBログなし · 実機で操作</p></div></div><div class="device-state"><span class="status-dot idle"></span>手動</div></div>
+      <div class="device-connect"><label class="mode-label">接続方式<select id="tab5-mode" ${runActive ? "disabled" : ""}><option value="standalone" selected>バッテリー単体</option><option value="usb">USB接続・ログ取得</option></select></label></div>
+      <p class="standalone-note">Tab5で同じコースとGPS INPUT = PORT.Aを選び、計測開始後にブラウザでAtomS3をスタートしてください。Tab5の再起動・SDログはPCから確認できません。</p>`;
+    element.querySelector("select").onchange = event => setTab5Mode(event.target.value);
+    return;
+  }
   const symbol = name === "atom" ? "A3" : "T5";
   const title = name === "atom" ? "AtomS3 / 信号発生" : "Tab5 / 試験対象";
   const active = device.connected;
@@ -32,20 +41,31 @@ function renderDevice(name) {
   const tags = name === "atom"
     ? [["MODE", status.mode], ["COURSE", status.course], ["LAP", status.lap], ["PULSES", status.pulses], ["MISSED", status.missed]]
     : [["PHASE", status.phase], ["COURSE", status.course], ["GPS", status.gps], ["PULSES", status.pulses], ["SD", status.sd_ready === undefined ? undefined : status.sd_ready === "1" ? "OK" : "NG"], ["BOOTS", device.boot_count]];
-  element.innerHTML = `<div class="device-head"><div class="device-title"><div class="device-icon">${symbol}</div><div><h2>${title}</h2><p class="device-sub">115200 bps · USB SERIAL</p></div></div><div class="device-state"><span class="status-dot ${active ? "online" : "offline"}"></span>${active ? "接続中" : "未接続"}</div></div>
+  const runActive = state.run && ["preparing", "running"].includes(state.run.state);
+  const modeControl = name === "tab5" ? `<label class="mode-label">接続方式<select id="tab5-mode" ${runActive ? "disabled" : ""}><option value="standalone">バッテリー単体</option><option value="usb" selected>USB接続・ログ取得</option></select></label>` : "";
+  element.innerHTML = `<div class="device-head"><div class="device-title"><div class="device-icon">${symbol}</div><div><h2>${title}</h2><p class="device-sub">115200 bps · USB SERIAL</p></div></div><div class="device-state"><span class="status-dot ${active ? "online" : "offline"}"></span>${active ? "接続中" : "未接続"}</div></div>${modeControl}
     <div class="device-connect"><select aria-label="${title} のUSBポート"><option value="">USBポートを選択</option>${ports}</select><button class="${active ? "secondary" : "primary"} small" data-action="${active ? "disconnect" : "connect"}">${active ? "切断" : "接続"}</button></div>
     <div class="device-meta">${tags.filter(([,v]) => v !== undefined).map(([k,v]) => `<span class="${k === "MISSED" && Number(v) > 0 ? "alert" : ""}">${k} ${esc(v)}</span>`).join("") || "<span>状態取得待ち</span>"}</div>`;
-  element.querySelector("select").onchange = event => { draftPorts[name] = event.target.value; };
+  element.querySelector("select[aria-label]").onchange = event => { draftPorts[name] = event.target.value; };
+  if (name === "tab5") element.querySelector("#tab5-mode").onchange = event => setTab5Mode(event.target.value);
   element.querySelector("button").onclick = async event => {
     try {
       if (event.target.dataset.action === "connect") {
-        const port = element.querySelector("select").value;
+        const port = element.querySelector("select[aria-label]").value;
         if (!port) throw new Error("USBポートを選択してください");
         await api(`/api/devices/${name}/connect`, "POST", {port});
       } else await api(`/api/devices/${name}/disconnect`, "POST", {});
       state = await api("/api/state"); renderState();
     } catch (error) { handleError(error); }
   };
+}
+
+function setTab5Mode(value) {
+  if (!["usb", "standalone"].includes(value)) return;
+  tab5Mode = value;
+  localStorage.setItem("race-emulator-tab5-mode", value);
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  renderState();
 }
 
 function renderState() {
@@ -56,7 +76,15 @@ function renderState() {
   const label = run ? ({preparing:"準備中",running:"実行中",finished:"終了"}[run.state] || run.state) : "待機中";
   $("#run-state").textContent = label;
   $("#run-pill").innerHTML = `<span class="status-dot ${active ? "online" : "idle"}"></span><span>${run ? esc(run.state.toUpperCase()) : "READY"}</span>`;
-  $("#start-run").disabled = !selected || active || !state.devices.atom.connected || !state.devices.tab5.connected;
+  $("#start-run").disabled = !selected || active || !state.devices.atom.connected ||
+    (tab5Mode === "usb" && !state.devices.tab5.connected);
+  $("#start-run").textContent = tab5Mode === "standalone" ? "▶ AtomS3走行開始" : "▶ 試験開始";
+  $("#intro-description").textContent = tab5Mode === "standalone"
+    ? "AtomS3の走行と異常注入を操作します。Tab5はバッテリーで動作し、実機で操作します。"
+    : "AtomS3の走行と異常注入を操作し、Tab5の応答・再起動を同じ時刻で記録します。";
+  $("#run-note").textContent = tab5Mode === "standalone"
+    ? "Tab5で計測を開始してから押してください。ブラウザはAtomS3を走行させます。Tab5の終了・取消も実機で操作します。"
+    : "試験開始時にAtomS3の条件を設定し、Tab5の計測を開始します。停止時はAtomS3のみ止めます。Tab5の計測は実機で終了・取消してください。";
   $("#stop-run").disabled = !active;
   const elapsed = run?.elapsed_s || 0;
   $("#elapsed").textContent = fmtTime(elapsed);
@@ -152,7 +180,7 @@ $("#delete-case").onclick = async () => {
 };
 $("#start-run").onclick = async () => {
   if (!selected) return;
-  try { await api("/api/devices/refresh", "POST", {}); await api("/api/runs/start", "POST", {case_id:selected.id}); toast("試験を開始しています"); }
+  try { await api("/api/devices/refresh", "POST", {}); await api("/api/runs/start", "POST", {case_id:selected.id, tab5_mode:tab5Mode}); toast("試験を開始しています"); }
   catch (error) { handleError(error); }
 };
 $("#stop-run").onclick = async () => { try { await api("/api/runs/stop", "POST", {}); toast("AtomS3を停止しました。Tab5の計測は実機で終了してください"); } catch (error) { handleError(error); } };

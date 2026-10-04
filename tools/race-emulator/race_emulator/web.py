@@ -118,7 +118,7 @@ def refresh():
 @app.post("/api/runs/start")
 def start(data: dict):
     try:
-        return controller.start(data.get("case_id"))
+        return controller.start(data.get("case_id"), data.get("tab5_mode", "usb"))
     except (ValueError, FileNotFoundError) as exc:
         bad_request(exc)
 

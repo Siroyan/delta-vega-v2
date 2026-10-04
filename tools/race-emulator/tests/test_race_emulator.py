@@ -25,10 +25,11 @@ class FakeLink:
         self.callback = callback
         self.wanted = name
         self.port = name
+        self.available = True
         self.commands = []
 
     def connected(self):
-        return True
+        return self.available
 
     def send(self, command):
         self.commands.append(command)
@@ -82,6 +83,33 @@ class CaseTests(unittest.TestCase):
                 self.assertTrue(any(e["source"] == "tab5" and e["kind"] == "boot" for e in events), events)
                 self.assertTrue(any(e["source"] == "host" and e["kind"] == "action" for e in events))
                 self.assertEqual(json.loads((run_dir / "result.json").read_text())["outcome"], "stopped")
+            finally:
+                controller.close()
+
+    def test_standalone_tab5_needs_no_usb_and_receives_no_commands(self):
+        with tempfile.TemporaryDirectory() as directory, patch(
+                "race_emulator.controller.SerialLink", FakeLink):
+            controller = Controller(directory)
+            controller.links["tab5"].available = False
+            try:
+                controller.cases.save(CASE)
+                with self.assertRaisesRegex(ValueError, "connect Tab5"):
+                    controller.start("smoke-case", "usb")
+                controller.start("smoke-case", "standalone")
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and controller.snapshot()["run"]["state"] != "running":
+                    time.sleep(0.05)
+                self.assertEqual(controller.snapshot()["run"]["state"], "running")
+                self.assertEqual(controller.links["tab5"].commands, [])
+                controller._on_serial("atom", "line", "[SIM] GOAL course=misato_loop")
+                with controller.lock:
+                    controller.run["atom_goal_at"] = time.monotonic() - 5
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline and controller.snapshot()["run"]["state"] != "finished":
+                    time.sleep(0.05)
+                result = json.loads((Path(controller.run["run_dir"]) / "result.json").read_text())
+                self.assertEqual(result["tab5_mode"], "standalone")
+                self.assertEqual(result["reason"], "AtomS3 GOAL; Tab5 phase=unobserved")
             finally:
                 controller.close()
 

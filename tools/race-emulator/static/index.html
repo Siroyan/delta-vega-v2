@@ -13,7 +13,7 @@
   </header>
   <main>
     <section class="intro">
-      <div><p class="eyebrow">LOCAL TEST CONTROL</p><h1>走行試験を、再現できる形で。</h1><p>AtomS3の走行と異常注入を操作し、Tab5の応答・再起動を同じ時刻で記録します。</p></div>
+      <div><p class="eyebrow">LOCAL TEST CONTROL</p><h1>走行試験を、再現できる形で。</h1><p id="intro-description">AtomS3の走行と異常注入を操作します。Tab5はバッテリーで動作し、実機で操作します。</p></div>
       <div class="run-pill" id="run-pill"><span class="status-dot idle"></span><span>READY</span></div>
     </section>
     <section class="device-grid" aria-label="Devices">
@@ -31,7 +31,7 @@
         <div class="selected-case" id="selected-case"><p>左から試験ケースを選択してください。</p></div>
         <div class="run-progress"><div class="progress-track"><span id="progress-fill"></span></div><div><span id="elapsed">0:00</span><span id="max-duration">—</span></div></div>
         <div class="run-actions"><button class="primary" id="start-run">▶ 試験開始</button><button class="danger" id="stop-run" disabled>■ 停止</button></div>
-        <p class="run-note">試験開始時にAtomS3の条件を設定し、Tab5の計測を開始します。停止時はAtomS3のみ止めます。Tab5の計測は実機で終了・取消してください。</p>
+        <p class="run-note" id="run-note">Tab5で計測を開始してから押してください。ブラウザはAtomS3を走行させます。Tab5の終了・取消も実機で操作します。</p>
         <div id="run-result" class="run-result" hidden></div>
       </section>
     </div>

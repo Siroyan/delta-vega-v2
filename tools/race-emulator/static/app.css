@@ -635,3 +635,24 @@ dialog::backdrop {
   font-size:16px;
   letter-spacing:-1px
 }
+.mode-label {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-top:14px;
+  color:#6f8294;
+  font-size:11px;
+  font-weight:700
+}
+.mode-label select {
+  flex:1;
+}
+.mode-label:has(+ .device-connect) {
+  margin-top:10px;
+}
+.standalone-note {
+  margin:13px 0 0;
+  color:#627b90;
+  font-size:12px;
+  line-height:1.55
+}

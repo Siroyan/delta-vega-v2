@@ -121,7 +121,7 @@ class Controller:
     def _public_run(self):
         if not self.run:
             return None
-        fields = ("id", "case_id", "case_name", "state", "outcome", "reason",
+        fields = ("id", "case_id", "case_name", "tab5_mode", "state", "outcome", "reason",
                   "started_at", "ended_at", "run_dir")
         result = {key: self.run.get(key) for key in fields}
         if self.run.get("start_monotonic"):
@@ -135,23 +135,28 @@ class Controller:
         with self.lock:
             return [event for event in self.events if event["seq"] > after]
 
-    def start(self, case_id):
+    def start(self, case_id, tab5_mode="usb"):
         case = self.cases.get(case_id)
+        if tab5_mode not in ("usb", "standalone"):
+            raise ValueError("tab5_mode must be usb or standalone")
         with self.lock:
             if self.run and self.run["state"] in ("preparing", "running"):
                 raise ValueError("a run is already active")
-            if not all(link.connected() for link in self.links.values()):
-                raise ValueError("connect both AtomS3 and Tab5")
-            if self.statuses["tab5"].get("course") != case["course_id"]:
-                raise ValueError("select {} on Tab5 first".format(case["course_id"]))
-            if self.statuses["tab5"].get("phase") != "0":
-                raise ValueError("Tab5 must be on the Waiting screen")
-            if self.statuses["tab5"].get("gps_source") != "PORT_A":
-                raise ValueError("set Tab5 GPS INPUT to PORT.A")
-            if self.statuses["tab5"].get("sd_ready") != "1":
-                raise ValueError("Tab5 microSD is not ready")
-            if time.monotonic() - self.status_times["tab5"] > 10:
-                raise ValueError("Tab5 status is stale; refresh device status")
+            if not self.links["atom"].connected():
+                raise ValueError("connect AtomS3")
+            if tab5_mode == "usb":
+                if not self.links["tab5"].connected():
+                    raise ValueError("connect Tab5 or select standalone mode")
+                if self.statuses["tab5"].get("course") != case["course_id"]:
+                    raise ValueError("select {} on Tab5 first".format(case["course_id"]))
+                if self.statuses["tab5"].get("phase") != "0":
+                    raise ValueError("Tab5 must be on the Waiting screen")
+                if self.statuses["tab5"].get("gps_source") != "PORT_A":
+                    raise ValueError("set Tab5 GPS INPUT to PORT.A")
+                if self.statuses["tab5"].get("sd_ready") != "1":
+                    raise ValueError("Tab5 microSD is not ready")
+                if time.monotonic() - self.status_times["tab5"] > 10:
+                    raise ValueError("Tab5 status is stale; refresh device status")
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
             run_id = "{}-{}".format(stamp, case_id)
             directory = self.runs_dir / run_id
@@ -160,6 +165,7 @@ class Controller:
                 json.dumps(case, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             self.event_file = (directory / "events.jsonl").open("a", encoding="utf-8", buffering=1)
             self.run = {"id": run_id, "case_id": case_id, "case_name": case["name"],
+                        "tab5_mode": tab5_mode,
                         "case": case, "state": "preparing", "outcome": None, "reason": None,
                         "started_at": utc_now(), "ended_at": None,
                         "run_dir": str(directory), "next_action": 0,
@@ -199,27 +205,31 @@ class Controller:
                 time.sleep(0.1)
             else:
                 raise RuntimeError("AtomS3 did not confirm the selected course")
-            tab = self.links["tab5"]
-            tab.send("start")
-            tab.send("status")
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline:
-                with self.lock:
-                    if not self.run or self.run["id"] != run_id or self.run["state"] != "preparing":
-                        return
-                    if self.statuses["tab5"].get("phase") == "1":
-                        break
-                time.sleep(0.1)
-                if time.monotonic() + 0.1 < deadline:
-                    tab.send("status")
+            if self.run["tab5_mode"] == "usb":
+                tab = self.links["tab5"]
+                tab.send("start")
+                tab.send("status")
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    with self.lock:
+                        if not self.run or self.run["id"] != run_id or self.run["state"] != "preparing":
+                            return
+                        if self.statuses["tab5"].get("phase") == "1":
+                            break
+                    time.sleep(0.1)
+                    if time.monotonic() + 0.1 < deadline:
+                        tab.send("status")
+                else:
+                    raise RuntimeError("Tab5 did not confirm timing start; AtomS3 remains idle")
             else:
-                raise RuntimeError("Tab5 did not confirm timing start; AtomS3 remains idle")
-            atom.send("start")
+                self._record("host", "note", "Tab5 standalone: timing and logs are not observed")
             with self.lock:
-                if self.run and self.run["id"] == run_id and self.run["state"] == "preparing":
-                    self.run["start_monotonic"] = time.monotonic()
-                    self.run["state"] = "running"
-                    self._record("host", "run", "Run started")
+                if not self.run or self.run["id"] != run_id or self.run["state"] != "preparing":
+                    return
+                atom.send("start")
+                self.run["start_monotonic"] = time.monotonic()
+                self.run["state"] = "running"
+                self._record("host", "run", "Run started")
         except (RuntimeError, ValueError, OSError) as exc:
             with self.lock:
                 if self.run and self.run["id"] == run_id and self.run["state"] == "preparing":
@@ -285,7 +295,8 @@ class Controller:
                 if run["state"] != "running":
                     continue
                 if run["atom_goal_at"] and now - run["atom_goal_at"] >= 5:
-                    phase = self.statuses["tab5"].get("phase", "unknown")
+                    phase = (self.statuses["tab5"].get("phase", "unknown")
+                             if run["tab5_mode"] == "usb" else "unobserved")
                     self._finish("completed", "AtomS3 GOAL; Tab5 phase=" + phase)
                 elif elapsed >= run["case"]["max_duration_s"]:
                     try:

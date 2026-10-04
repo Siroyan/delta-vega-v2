@@ -6,7 +6,7 @@ AtomS3の画面には、コース名、走行状態、現在の周回、設定�
 
 ## 接続
 
-ブラウザから試験を管理する場合は**Tab5とAtomS3をそれぞれPCのUSBにつなぎ**、[race-emulator](../race-emulator/README.md)で両方のシリアルを監視します。Tab5だけが再起動してもAtomS3の走行は続き、両機のログを同じPC時刻で記録できます。単体運用ではAtomS3を独立したUSBモバイルバッテリーで給電することもできます。AtomS3をTab5のPort.Aの5Vから給電するとTab5の電源変動が対向機にも波及するため、この試験では使用しません。両機の**GNDを共通化**します。AtomS3のPort.CUSTOMの**白（G1、UART TX）**をTab5のPort.Aの**白（G54、UART RX）**へ接続します。Tab5の設定で `GPS INPUT = PORT.A` を選びます。必要ならAtomS3の黄（G2、UART RX）とTab5 Port.Aの黄（G53、UART TX）も接続できます。GPS出力は9600 bps、8N1、RMC 5 Hz、GGA 1 Hzです。
+ブラウザから試験を管理する現在の標準構成では、**AtomS3をPCのUSBへ接続し、Tab5をバッテリーで動かし**、[race-emulator](../race-emulator/README.md)からAtomS3を操作します。Tab5の計測開始・終了は実機で行い、PCはTab5のログや再起動を監視しません。両機をPCへUSB接続できる場合は、race-emulatorをUSBログ取得方式に切り替えられます。単体運用ではAtomS3を独立したUSBモバイルバッテリーで給電することもできます。AtomS3をTab5のPort.Aの5Vから給電するとTab5の電源変動が対向機にも波及するため、この試験では使用しません。両機の**GNDを共通化**します。AtomS3のPort.CUSTOMの**白（G1、UART TX）**をTab5のPort.Aの**白（G54、UART RX）**へ接続します。Tab5の設定で `GPS INPUT = PORT.A` を選びます。必要ならAtomS3の黄（G2、UART RX）とTab5 Port.Aの黄（G53、UART TX）も接続できます。GPS出力は9600 bps、8N1、RMC 5 Hz、GGA 1 Hzです。
 
 車速用にはAtomS3底面の **G5** をTab5 M5Busの **G16** に直結します。G5はオープンドレイン出力で、パルス中だけGNDへ引き下げ、通常は解放します。両機器の5V線は接続しません。AtomS3のG5が3.3Vロジックであり、Tab5側G16が現行ファームのプルアップ入力である前提です。実車のECU・リレー・実GPSを同時に接続しないでください。異なる電圧の車両回路を接続する場合は、この直結方式を使わず絶縁してください。
 
@@ -20,14 +20,14 @@ AtomS3の画面には、コース名、走行状態、現在の周回、設定�
 ### Tab5と接続するスモークテスト
 
 1. 両機の電源を切って配線する。AtomS3 Port.CUSTOMの黒GNDをTab5 Port.Aの黒GND、白G1をTab5 Port.Aの白G54へ接続する。車速はAtomS3底面G5をTab5 M5BusのG16（**2番ピン**）へ接続する。M5Busの1番ピンもGNDとして使える。**赤い5V線は接続しない**。4芯ケーブルを使うなら赤線を確実に絶縁し、コネクタの向きとピン番号を確認する。実GPS・車両回路は外しておく。
-2. 初回設定ではAtomS3をPCのUSBにつなぎ、シリアルモニター（115200 bps）から `course misato_loop`、`speed 30`、`wheel 1.03 1`、`reset`、`status` の順に送る。画面が `MISATO / READY` になり、位置が約 `36.158748, 139.163149` なら準備完了。コース・速度・車輪設定はNVSに保存され、再起動しても残る。設定後、AtomS3を独立したUSBモバイルバッテリーへつなぎ替える。
-3. Tab5をUSBに接続し、GENERAL SETTINGSの `GPS INPUT` を `PORT.A` にする。車輪外周と1回転あたりのパルス数をAtomS3の `wheel` コマンドと一致させる。COURSE / STRATEGYで `MISATO` を選び、Waiting画面のGPS FIXと座標を確認する。Tab5のファームウェアとmicroSDにMISATOがない場合は、両機に共通する別のコースを選び、AtomS3へその `course <id>` を送る。
-4. Tab5で `START TIMING` を押した直後、AtomS3の画面ボタンを短く押す。AtomS3が `RUN` になり、Tab5で速度・自己位置・LAPが進むことを確認する。30 km/hならMISATOの全5周は約2分。AtomS3はGOALで自動停止する。まず短時間だけ試す場合は、Tab5で計測を取り消し、AtomS3のボタンを2秒以上押して停止する。次回はSTOP画面で短押ししてリセットする。電装・点火ボタンは使わない。
-5. 異常があればAtomS3の `status` と、Tab5のUSBシリアルの `status`・`wheel-debug` を照合する。AtomS3の `MISS` はパルス送出遅れ、Tab5の `gps_bytes` / `gps_rmc` はUART受信、`pulses` は採用パルスの確認に使う。
+2. AtomS3をPCのUSBへ接続し、race-emulatorでAtomS3のポートを選ぶ。`MISATO 基本走行`の試験ケースを選ぶ。ケースに記載されたコース・速度・車輪条件は、試験開始時にAtomS3へ送られる。
+3. Tab5をバッテリーで起動し、GENERAL SETTINGSの `GPS INPUT` を `PORT.A` にする。車輪外周と1回転あたりのパルス数を試験ケースの設定と一致させる。COURSE / STRATEGYで `MISATO` を選び、Waiting画面のGPS FIXと座標を確認する。Tab5のファームウェアとmicroSDにMISATOがない場合は、両機に共通する別のコースの試験ケースを選ぶ。
+4. Tab5で `START TIMING` を押した後、race-emulatorの `AtomS3走行開始` を押す。AtomS3が `RUN` になり、Tab5で速度・自己位置・LAPが進むことを確認する。試験ケースの速度が12 km/hの場合、終了時間は30 km/hの手動試験より長い。AtomS3はGOALで自動停止する。短時間だけ試す場合はブラウザでAtomS3を停止し、Tab5で計測を取り消す。電装・点火ボタンは使わない。
+5. 異常があればrace-emulatorのAtomS3ログとTab5の画面を照合する。AtomS3の `MISSED` はパルス送出遅れを示す。Tab5の詳細は後でmicroSDログを読む。バッテリー運用中のTab5の再起動・シリアルログはPCからは確認できない。
 
 Tab5はPort.Aの実GPS向けにCASIC設定コマンドも送る。このシミュレーターはNMEA送信だけを実装しているため、歩行モード設定の応答待ちがタイムアウトすることがある。NMEA受信と周回判定には影響しないが、`gps_bytes` と `gps_rmc` が増え、画面でGPS FIXになることを確認する。
 
-### Tab5の再起動を記録する
+### Tab5をUSB接続できる場合の再起動記録
 
 Tab5だけをPCのUSBへ接続し、VS Codeなど他のシリアルモニターを閉じてから、以下を実行する。ポート名は `pio device list` で確認する。ログは `tools/atoms3-simulator/logs/` に保存される。
 
@@ -35,7 +35,7 @@ Tab5だけをPCのUSBへ接続し、VS Codeなど他のシリアルモニター�
 ~/.platformio/penv/bin/python tools/atoms3-simulator/scripts/monitor_tab5.py --port /dev/cu.usbmodemXXXX
 ```
 
-各シリアル行にPC側の日時が付き、USB切断・再接続を `DISCONNECTED` / `CONNECTED` として記録する。起動メッセージを検出すると `BOOT MARKER` も記録する。Tab5の再起動でポート名が変わっても、USBシリアル番号が取得できる場合は自動追跡する。終了はCtrl+C。AtomS3はモバイルバッテリー給電のため、Tab5側の再起動に伴って走行を止めない。
+各シリアル行にPC側の日時が付き、USB切断・再接続を `DISCONNECTED` / `CONNECTED` として記録する。起動メッセージを検出すると `BOOT MARKER` も記録する。Tab5の再起動でポート名が変わっても、USBシリアル番号が取得できる場合は自動追跡する。終了はCtrl+C。この方法ではAtomS3を独立したUSBモバイルバッテリーで給電する。両機をPCへUSB接続できる場合は、race-emulatorのUSBログ取得方式を使う。
 
 ### AtomS3画面ボタン
 
