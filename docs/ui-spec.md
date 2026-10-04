@@ -39,6 +39,7 @@ UI統合コミット: `8869552`（PR #1、承認済みUI・仕様・アイコン
 | `src/ui/screens.h` | EEZ生成オブジェクトの参照 |
 | `eez/fonts/` | Ricty Diminishedの元フォントとライセンス |
 | `assets/motegi_oval_full/` | 進入路・周回路・ゴール分岐のJSON、480×480背景PNG、編集用SVG |
+| `assets/motegi_oval_full_100/` | 同じ地図・経路を使う100周エージング試験用コース |
 | `assets/icons/lucide/` | 操作・メニュー・地図上点火アイコンの元SVG、派生SVG・PNG、ライセンス |
 | `src/app/ui_navigation.cpp` | メニュー開閉、Settingsへの遷移、元のダッシュボードへの復帰 |
 | `README.md` | ビルド手順、EEZ生成先、生成コードを直接編集しない方針 |
@@ -394,7 +395,7 @@ EEZはレイアウト・固定スタイル・静的アセットの編集元と�
 | `eez/fonts/` | 元フォントとライセンス。既存 |
 | `assets/icons/lucide/` | 電源・炎・メニュー等の原本SVG、派生SVG・PNG、ライセンス、取得元 |
 | `assets/motegi_oval_full/` | 収録コースの一つ。JSON・背景PNG・編集用SVG・組込用画像 |
-| `assets/motegi_oval/` | 旧周回路データ。現行ファームウェアからは参照しない |
+| `assets/motegi_oval_full_100/` | 茂木コースから生成する100周エージング試験用データ |
 | `src/ui/` | EEZ生成物。既存。生成先は`../src/ui`を維持 |
 | `src/app/ui_navigation.cpp` | メニュー開閉、設定画面への遷移、元の画面への復帰。EEZ生成コードの外に実装 |
 | `lib/vega_core/src/presentation/` | Presenter・表示モデル・Viewインターフェース。実装済み。LVGLに依存しない |
