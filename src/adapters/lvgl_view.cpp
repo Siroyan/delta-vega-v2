@@ -18,7 +18,9 @@
 #include "../control_gesture.h"
 #include "course_catalog.h"
 #include "domain/course.h"
+#include "domain/strategy_warning.h"
 #include "presentation/settings_form.h"
+#include "tab5_audio.h"
 #include "tab5_runtime.h"
 
 
@@ -173,6 +175,22 @@ uint8_t painted_course_index = 255;
 PlanChoices shown_choices{};
 bool choices_initialized = false;
 uint32_t last_selection_refresh_ms = 0;
+vega::StrategyWarning strategy_warning;
+bool button_sounds_installed = false;
+
+void buttonSound(lv_event_t *) { audioButton(); }
+void installButtonSound(lv_obj_t *button) {
+  if (button) lv_obj_add_event_cb(button, buttonSound, LV_EVENT_CLICKED, nullptr);
+}
+lv_obj_tree_walk_res_t installGeneratedButtonSound(lv_obj_t *obj, void *) {
+  if (lv_obj_check_type(obj, &lv_button_class)) {
+    bool is_control = false;
+    for (const auto &page : control_pages)
+      is_control |= obj == page.power || obj == page.ignition;
+    if (!is_control) installButtonSound(obj);
+  }
+  return LV_OBJ_TREE_WALK_NEXT;
+}
 constexpr size_t kPlanLinePoints = 96;
 struct PlanLine {
   lv_obj_t *object = nullptr;
@@ -701,6 +719,7 @@ constexpr uint32_t kSelectionIdle = 0xE6EDF4;
 lv_obj_t *selectorButton(lv_obj_t *parent, int x, int y, int w, int h,
                          const char *caption, uint32_t color) {
   auto *button = lv_button_create(parent);
+  if (button_sounds_installed) installButtonSound(button);
   lv_obj_set_pos(button, x, y);
   lv_obj_set_size(button, w, h);
   lv_obj_set_style_bg_color(button, lv_color_hex(color), 0);
@@ -1178,6 +1197,13 @@ void viewBegin() {
     if (position_arrows[i]) lv_obj_move_foreground(position_arrows[i]);
   }
   setupSelectionUi();
+  for (auto *screen : {objects.main, objects.waiting, objects.finished, objects.gps_stale,
+                       objects.missing_data, objects.overtime, objects.plan_demo,
+                       objects.cached_plan, objects.expired_plan, objects.lap_corrected,
+                       objects.settings})
+    lv_obj_tree_walk(screen, installGeneratedButtonSound, nullptr);
+  lv_obj_tree_walk(finish_overlay, installGeneratedButtonSound, nullptr);
+  button_sounds_installed = true;
   course_markers_positioned = false;
   loadScreen(SCREEN_ID_WAITING);
 }
@@ -1251,6 +1277,20 @@ void viewUpdate() {
   vega::Strategy strategy_data;
   const bool plan_loaded = strategy(strategy_data);
   const auto ui_status = status();
+  if (s.race.phase != vega::RacePhase::Measuring) {
+    strategy_warning.reset();
+  } else if (plan_loaded && ui_status.plan_state == vega::PlanState::Ready &&
+             s.race.lap > 0 && s.race.lap <= s.lap_count) {
+    vega::StrategyCue cue;
+    if (strategy_warning.update(
+            s.race.session, s.race.lap, s.gps_fresh && s.route_map.on_course,
+            strategy_data.laps[s.race.lap - 1], s.route_map.s_m, cue)) {
+      audioStrategyWarning();
+      Serial.printf("[AUDIO] strategy %s warning lap=%u position=%.1f m\n",
+                    cue == vega::StrategyCue::On ? "ON" : "OFF", s.race.lap,
+                    s.route_map.s_m);
+    }
+  }
   presenter.render(s, ui_status, plan_loaded ? &strategy_data : nullptr);
   enabled(objects.start_button, s.race.phase == vega::RacePhase::Waiting &&
                                 ui_status.sd_ready && courseCount() != 0);
@@ -1485,12 +1525,14 @@ void controlAction(lv_obj_t *control) {
       if (request(next == PowerRequest::On ? CommandKind::PowerOn : CommandKind::PowerOff)) {
         ++power_taps;
         power_intent.accepted(next);
+        audioButton();
       }
       return;
     }
     if (control == page.ignition && !lv_obj_has_state(control, LV_STATE_DISABLED)) {
       ++ignition_taps;
       ignite();
+      audioButton();
       return;
     }
   }

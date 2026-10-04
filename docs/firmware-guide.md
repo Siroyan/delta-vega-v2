@@ -67,6 +67,7 @@ CURRENT SPEEDは最新の受理パルスから最大N区間を取り、`N区間�
 2026-10-03にはWi-FiがIPを取得しMQTTを開始した直後、`sdio_push_data_to_queue sdio_drv.c:705 (pkt_rxbuff)`でassertして再起動する現象を実機で捕捉した。TLSの確保先をPSRAMにしていても、LVGLの画面部品は内部ヒープを使っていた。変更前のMQTT開始直後は内部DMA空き約25 KB、最大連続領域約12 KB。LVGLの画面部品をPSRAMへ移した後は、MQTT接続時の内部DMA空き約309 KB、最大連続領域約303 KBになった。Wi-Fi受信バッファの確保失敗を直接防ぐための変更であり、正式版では通信と表示を同時に使う長時間試験が必要。
 
 - 走行戦略はWaiting画面からmicroSDの`/vega/strategies/*.json`または互換ファイル`/vega/strategy.json`を選び、選択したコースの周回数・経路ID・ON/OFF地点を検証する。Waitingで1周目をプレビューし、Mainでは現在周回の橙色のエンジン使用区間、青色の惰性区間、点火/OFF地点を地図へ重ねる。GPSが有効なら次の地点までの距離を表示する。形式とダミーは[走行戦略データREADME](../assets/strategy/README.md)。プランは表示専用で、GPIO出力を変更しない。
+- Tab5内蔵スピーカーは、画面のボタン操作で短い1音を鳴らす。電装・点火の大きなボタンも同様。戦略を読み込んで計測している間は、GPS位置がコース内で有効な場合に限り、各エンジンON/OFF地点の30 m手前に入ると「ピピ、ピピ」と予告する。同じ地点は同一周回・計測セッション内で一度だけ予告し、GPSの一時的な欠落や位置の揺れでは鳴り直さない。0 mの始動地点には手前の予告地点がないため鳴らない。音声処理は別タスクに送り、タッチや画面描画を待たせない。予告音は運転操作の補助であり、エンジン出力を自動操作しない。
 - 計測開始から取消/完走までのみ、`/vega/session-0000000001.jsonl`のような個別ファイルをmicroSDへ保存する。NVSの連番と既存ファイルの確認で再起動後も上書きを防ぐ。
 - 最初の行はコースID・周回数と設定メタデータ（`schema_version:3`）。500 ms周期のサンプルはMQTTの10項目に加え、`gps_seen`、`gps_fix_valid`、`gps_fresh`、`gps_speed_kmh`、`gps_satellites`、`gps_hdop`、`gps_gga_fix_quality`、`gps_utc_ms_of_day`、`gps_age_ms`、`gps_quality_age_ms`を記録する。GGA未受信などで不明な数値は`null`。`gps_age_ms`は最後のRMC受信から、`gps_quality_age_ms`は最後のGGA受信からの経過時間。`gps_utc_ms_of_day`はRMCのUTC時刻を午前0時からのミリ秒で表す。開始・取消・完走・手動補正・電装操作は`type:event`で記録し、取消データも残す。
 - GPSのNMEA原文と画面上のアイコン座標を記録する一時的な診断機能は撤去した。位置、速度、衛星数、HDOPなどは500 ms周期の通常サンプルに残る。
