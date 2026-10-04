@@ -34,6 +34,25 @@
       "goal": [35.6669552, 139.5219829]
     },
     {
+      "folder": "misato_loop",
+      "source": "misato_course.json",
+      "name": "MISATO",
+      "short_name": "MISATO",
+      "settings_namespace": "vega-misato5",
+      "legacy_settings_namespace": "",
+      "legacy_total_target_s": 0,
+      "pedestrian_gps": true,
+      "total_target_s": 900,
+      "lap_target_s": 180,
+      "course_corridor_m": 18,
+      "min_lap_progress_m": 80,
+      "min_lap_ms": 8000,
+      "lap_duplicate_ms": 5000,
+      "start": [36.158741, 139.163142],
+      "timing": [36.158129, 139.162450],
+      "goal": [36.158181, 139.163041]
+    },
+    {
       "folder": "motegi_oval_full",
       "source": "motegi_course_full.json",
       "name": "MOTEGI OVAL",

@@ -227,8 +227,14 @@ void Application::gps(const GpsFix &fix) {
 
   if (!course_->hasRoute(CourseRoute::FinishApproach)) {
     const auto goal_gate = course_->locate(settings_.goal, settings_.course_corridor_m);
+    // Some short courses place GOAL soon after LAP. Require travel over most
+    // of that final section, while retaining the original 100 m guard on
+    // longer courses. At least 20 m protects a very short section from GPS noise.
+    const double goal_progress_m =
+        std::min(100.0, std::max(20.0, goal_gate.s_m * 0.6));
     if (goal_gate.on_course &&
-        goal_.update(map_, fix.received_ms, goal_gate.s_m, 100, *course_, settings_))
+        goal_.update(map_, fix.received_ms, goal_gate.s_m, goal_progress_m,
+                     *course_, settings_))
       finish(fix.received_ms);
     return;
   }
