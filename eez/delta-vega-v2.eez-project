@@ -2535,7 +2535,7 @@
             {
               "objID": "458e51b4-2f35-4468-8f78-11ac686e46cd",
               "type": "LVGLLabelWidget",
-              "identifier": "ntp_status_label",
+              "identifier": "battery_status_label",
               "left": 1000,
               "top": 48,
               "width": 256,
@@ -2580,7 +2580,7 @@
                 }
               },
               "groupIndex": 0,
-              "text": "NTP SYNCED",
+              "text": "BATTERY --%",
               "textType": "literal",
               "longMode": "CLIP",
               "recolor": false,
@@ -5886,7 +5886,7 @@
             {
               "objID": "8357919f-9a6d-4c5a-a059-3e8848831037",
               "type": "LVGLLabelWidget",
-              "identifier": "waiting_ntp_status_label",
+              "identifier": "waiting_battery_status_label",
               "left": 1000,
               "top": 48,
               "width": 256,
@@ -5931,7 +5931,7 @@
                 }
               },
               "groupIndex": 0,
-              "text": "NTP UNSYNCED",
+              "text": "BATTERY --%",
               "textType": "literal",
               "longMode": "CLIP",
               "recolor": false,
@@ -9402,7 +9402,7 @@
             {
               "objID": "a7f0e7b8-2a0f-4a70-9525-c03d103ff585",
               "type": "LVGLLabelWidget",
-              "identifier": "finished_ntp_status_label",
+              "identifier": "finished_battery_status_label",
               "left": 1000,
               "top": 48,
               "width": 256,
@@ -9447,7 +9447,7 @@
                 }
               },
               "groupIndex": 0,
-              "text": "NTP SYNCED",
+              "text": "BATTERY --%",
               "textType": "literal",
               "longMode": "CLIP",
               "recolor": false,
@@ -12790,7 +12790,7 @@
             {
               "objID": "1459e53c-c827-44cb-80ea-3f8cf1a0fc23",
               "type": "LVGLLabelWidget",
-              "identifier": "gpsstale_ntp_status_label",
+              "identifier": "gpsstale_battery_status_label",
               "left": 1000,
               "top": 48,
               "width": 256,
@@ -12835,7 +12835,7 @@
                 }
               },
               "groupIndex": 0,
-              "text": "NTP SYNCED",
+              "text": "BATTERY --%",
               "textType": "literal",
               "longMode": "CLIP",
               "recolor": false,
@@ -15839,7 +15839,7 @@
             {
               "objID": "a62b1500-ef1a-4121-aba0-c12662b28a00",
               "type": "LVGLLabelWidget",
-              "identifier": "missingdata_ntp_status_label",
+              "identifier": "missingdata_battery_status_label",
               "left": 1000,
               "top": 48,
               "width": 256,
@@ -15884,7 +15884,7 @@
                 }
               },
               "groupIndex": 0,
-              "text": "NTP SYNCED",
+              "text": "BATTERY --%",
               "textType": "literal",
               "longMode": "CLIP",
               "recolor": false,
@@ -18934,7 +18934,7 @@
             {
               "objID": "92c6cc25-46d4-4411-8844-deda00459e2b",
               "type": "LVGLLabelWidget",
-              "identifier": "overtime_ntp_status_label",
+              "identifier": "overtime_battery_status_label",
               "left": 1000,
               "top": 48,
               "width": 256,
@@ -18979,7 +18979,7 @@
                 }
               },
               "groupIndex": 0,
-              "text": "NTP SYNCED",
+              "text": "BATTERY --%",
               "textType": "literal",
               "longMode": "CLIP",
               "recolor": false,
@@ -22286,7 +22286,7 @@
             {
               "objID": "b02375e1-7bab-44b0-9b5c-ab63223123ac",
               "type": "LVGLLabelWidget",
-              "identifier": "plandemo_ntp_status_label",
+              "identifier": "plandemo_battery_status_label",
               "left": 1000,
               "top": 48,
               "width": 256,
@@ -22331,7 +22331,7 @@
                 }
               },
               "groupIndex": 0,
-              "text": "NTP SYNCED",
+              "text": "BATTERY --%",
               "textType": "literal",
               "longMode": "CLIP",
               "recolor": false,
@@ -25638,7 +25638,7 @@
             {
               "objID": "f70078f0-aedc-4a52-9ee0-ffbc93ba4708",
               "type": "LVGLLabelWidget",
-              "identifier": "cachedplan_ntp_status_label",
+              "identifier": "cachedplan_battery_status_label",
               "left": 1000,
               "top": 48,
               "width": 256,
@@ -25683,7 +25683,7 @@
                 }
               },
               "groupIndex": 0,
-              "text": "NTP HOLDOVER",
+              "text": "BATTERY --%",
               "textType": "literal",
               "longMode": "CLIP",
               "recolor": false,
@@ -28733,7 +28733,7 @@
             {
               "objID": "5f137c67-bb45-4f39-8160-467271d9f134",
               "type": "LVGLLabelWidget",
-              "identifier": "expiredplan_ntp_status_label",
+              "identifier": "expiredplan_battery_status_label",
               "left": 1000,
               "top": 48,
               "width": 256,
@@ -28778,7 +28778,7 @@
                 }
               },
               "groupIndex": 0,
-              "text": "NTP HOLDOVER",
+              "text": "BATTERY --%",
               "textType": "literal",
               "longMode": "CLIP",
               "recolor": false,
@@ -31828,7 +31828,7 @@
             {
               "objID": "abf672de-966a-4a39-aa67-f3a07c9fcd3e",
               "type": "LVGLLabelWidget",
-              "identifier": "lapcorrected_ntp_status_label",
+              "identifier": "lapcorrected_battery_status_label",
               "left": 1000,
               "top": 48,
               "width": 256,
@@ -31873,7 +31873,7 @@
                 }
               },
               "groupIndex": 0,
-              "text": "NTP SYNCED",
+              "text": "BATTERY --%",
               "textType": "literal",
               "longMode": "CLIP",
               "recolor": false,

@@ -8,3 +8,4 @@
 include/config/network_secrets.h
 __pycache__/
 *.pyc
+/sdcard-package/

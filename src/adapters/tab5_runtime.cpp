@@ -1,16 +1,20 @@
 #include "tab5_runtime.h"
 
 #include <Arduino.h>
+#include <M5Unified.h>
 #include <Preferences.h>
-#include <SD_MMC.h>
 #include <WiFi.h>
 #include <driver/gpio.h>
+#include <driver/sdmmc_host.h>
 #include <esp_heap_caps.h>
 #include <esp_sntp.h>
 #include <esp_timer.h>
+#include <esp_vfs_fat.h>
 #include <mbedtls/platform.h>
 #include <mqtt_client.h>
 #include <nvs.h>
+#include <sd_pwr_ctrl_by_on_chip_ldo.h>
+#include <sdmmc_cmd.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -282,7 +286,15 @@ class SettingsStore final : public vega::ISettingsStore {
   vega::Settings load(uint8_t index) {
     const auto &asset = courseAsset(index);
     const vega::Settings base = defaults(index);
-    const auto read_selected = [index](vega::Settings &s) { return readLegacy(index, s); };
+    const auto read_selected = [index](vega::Settings &s) {
+      if (courseCount()) return readLegacy(index, s);
+      // Output polarity must be migrated before M5.begin() and SD mounting.
+      // Only old firmware namespaces are needed at this stage.
+      const SavedSelection selected = loadSelection();
+      const char *current = legacyNamespaceForId(selected.course_id, false);
+      const char *older = legacyNamespaceForId(selected.course_id, true);
+      return (current && loadFrom(current, s)) || (older && loadFrom(older, s));
+    };
     if (!general_loaded_) {
       vega::GeneralSettings stored;
       bool needs_upgrade = false;
@@ -532,6 +544,61 @@ class SdFile {
   FILE *file_ = nullptr;
 };
 
+class SdMedia {
+ public:
+  bool mount() {
+    if (card_) return true;
+    if (!power_) {
+      sd_pwr_ctrl_ldo_config_t config{};
+      config.ldo_chan_id = 4;  // Tab5 SDMMC IO power (LDO_VO4).
+      if (sd_pwr_ctrl_new_on_chip_ldo(&config, &power_) != ESP_OK) return false;
+    }
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    host.slot = SDMMC_HOST_SLOT_0;
+    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
+    host.pwr_ctrl_handle = power_;
+    sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot.width = 4;
+    slot.clk = GPIO_NUM_43;
+    slot.cmd = GPIO_NUM_44;
+    slot.d0 = GPIO_NUM_39;
+    slot.d1 = GPIO_NUM_40;
+    slot.d2 = GPIO_NUM_41;
+    slot.d3 = GPIO_NUM_42;
+    esp_vfs_fat_mount_config_t config{};
+    config.format_if_mount_failed = false;
+    config.max_files = 5;
+    const esp_err_t result = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot, &config, &card_);
+    if (result != ESP_OK) {
+      card_ = nullptr;
+      return false;
+    }
+    return true;
+  }
+  void unmount() {
+    if (!card_) return;
+    const esp_err_t result = esp_vfs_fat_sdcard_unmount("/sdcard", card_);
+    card_ = nullptr;
+    if (result != ESP_OK) Serial.printf("[SD] unmount failed: %s\n", esp_err_to_name(result));
+  }
+  uint64_t cardSize() const {
+    return card_ ? uint64_t(card_->csd.capacity) * card_->csd.sector_size : 0;
+  }
+
+ private:
+  // Keep the LDO handle across mounts. Reacquiring LDO_VO4 after card removal fails.
+  sd_pwr_ctrl_handle_t power_ = nullptr;
+  sdmmc_card_t *card_ = nullptr;
+};
+SdMedia media;
+
+bool sdPathExists(const char *relative) {
+  char path[128];
+  if (snprintf(path, sizeof(path), "/sdcard%s", relative) >= sizeof(path)) return false;
+  struct stat info{};
+  return stat(path, &info) == 0;
+}
+
 bool readPlan(const char *name, uint8_t course_index, vega::Strategy &out,
               char *error, size_t error_size) {
   if (strstr(name, "..") || (strcmp(name, "strategy.json") != 0 &&
@@ -589,7 +656,7 @@ void scanPlans(const PlanRequest &request) {
     }
   };
   if (sd_ready) {
-    if (SD_MMC.exists("/vega/strategy.json")) add("strategy.json");
+    if (sdPathExists("/vega/strategy.json")) add("strategy.json");
     DIR *dir = opendir("/sdcard/vega/strategies");
     if (dir) {
       dirent *entry;
@@ -640,7 +707,7 @@ void installPlan(PlanImport request) {
   vega::Snapshot current;
   if (!sd_ready || !snapshot(current) || current.race.phase != vega::RacePhase::Waiting ||
       current.course_index != active_course.load() ||
-      SD_MMC.exists("/vega/strategy.json")) {
+      sdPathExists("/vega/strategy.json")) {
     Serial.println("[PLAN UPLOAD] rejected: SD unavailable, timing active, or file exists");
     free(request.contents);
     return;
@@ -683,17 +750,18 @@ void installPlan(PlanImport request) {
 }
 
 void sdTask(void *) {
-  SD_MMC.setPins(43, 44, 39, 40, 41, 42);
   auto mount = []() {
-    bool ready = SD_MMC.begin("/sdcard", false, false, SDMMC_FREQ_DEFAULT);
-    if (ready && !SD_MMC.exists("/vega")) ready = SD_MMC.mkdir("/vega");
+    bool ready = media.mount();
+    if (ready && !sdPathExists("/vega"))
+      ready = mkdir("/sdcard/vega", 0755) == 0;
     sd_ready = ready;
     return ready;
   };
   mount();
   sd_error = !sd_ready || record_loss_count.load(std::memory_order_relaxed) != 0;
   Serial.printf("[SD] mount=%s card_bytes=%llu\n", sd_ready ? "OK" : "FAILED",
-                sd_ready ? SD_MMC.cardSize() : 0ULL);
+                sd_ready ? media.cardSize() : 0ULL);
+  Serial.printf("[COURSE] loaded=%u\n", static_cast<unsigned>(courseCount()));
   plan_state = vega::PlanState::Loading;
   SdFile log;
   char last_path[80]{};
@@ -704,11 +772,29 @@ void sdTask(void *) {
     if (xQueueReceive(plan_imports, &imported, 0) == pdTRUE) installPlan(imported);
     PlanRequest plan_request{};
     if (xQueueReceive(plan_requests, &plan_request, 0) == pdTRUE) {
-      if (!sd_ready) {
-        SD_MMC.end();
-        if (mount()) Serial.println("[SD] mount recovered for strategy scan");
+      if (active || log) {
+        // Finish closing the session file before unmounting the card.
+        xQueueOverwrite(plan_requests, &plan_request);
+      } else {
+        const bool was_ready = sd_ready;
+        const bool media_error_only = sd_error && sd_last_failure == SdFailure::None;
+        // Remount to detect removal or insertion (Tab5 has no card-detect pin).
+        media.unmount();
+        const bool now_ready = mount();
+        if (now_ready && !courseCount() && loadCoursesFromSd()) {
+          Serial.printf("[COURSE] loaded=%u after SD insertion\n",
+                        static_cast<unsigned>(courseCount()));
+          Command load{};
+          load.kind = CommandKind::LoadSdCourses;
+          submit(load);
+        }
+        if (!now_ready) sd_error = true;
+        else if (media_error_only && record_loss_count.load(std::memory_order_relaxed) == 0)
+          sd_error = false;
+        if (was_ready != now_ready)
+          Serial.printf("[SD] media %s\n", now_ready ? "inserted" : "removed");
+        scanPlans(plan_request);
       }
-      scanPlans(plan_request);
     }
     Record r{};
     if (xQueueReceive(records, &r, pdMS_TO_TICKS(50)) == pdTRUE) {
@@ -717,7 +803,7 @@ void sdTask(void *) {
         active = true;
         failed_session = false;
         if (!sd_ready) {
-          SD_MMC.end();
+          media.unmount();
           if (mount()) Serial.println("[SD] mount recovered");
         }
         // Persistent monotonic ID plus existence checks prevents overwriting on reboot.
@@ -731,7 +817,7 @@ void sdTask(void *) {
         do {
           snprintf(last_path, sizeof(last_path), "/vega/session-%010lu.jsonl",
                    static_cast<unsigned long>(number++));
-        } while (sd_ready && SD_MMC.exists(last_path));
+        } while (sd_ready && sdPathExists(last_path));
         if (sd_ready) log = SdFile(last_path, "w");
         if (!log) {
           failed_session = true;
@@ -844,7 +930,7 @@ void sdTask(void *) {
       if (requested_session)
         snprintf(requested_path, sizeof(requested_path), "/vega/session-%010lu.jsonl",
                  static_cast<unsigned long>(requested_session));
-      else if (sd_ready && (!last_path[0] || !SD_MMC.exists(last_path))) {
+      else if (sd_ready && (!last_path[0] || !sdPathExists(last_path))) {
         // USB serial access can reboot Tab5; recover the most recent file from
         // the persisted session counter so `log` still works after a field run.
         Preferences p;
@@ -856,7 +942,7 @@ void sdTask(void *) {
         for (unsigned attempts = 0; number && attempts < 100; --number, ++attempts) {
           snprintf(last_path, sizeof(last_path), "/vega/session-%010lu.jsonl",
                    static_cast<unsigned long>(number));
-          if (SD_MMC.exists(last_path)) break;
+          if (sdPathExists(last_path)) break;
           last_path[0] = '\0';
         }
       }
@@ -1171,7 +1257,7 @@ void applicationTask(void *) {
       bool ok = true;
       switch (command.kind) {
         case CommandKind::Start:
-          ok = app.start();
+          ok = sd_ready && courseCount() && app.start();
           break;
         case CommandKind::Cancel:
           ok = app.cancel();
@@ -1209,7 +1295,7 @@ void applicationTask(void *) {
           const uint8_t index = command.choice;
           const auto current = app.snapshot();
           ok = index < courseCount() && current.race.phase == vega::RacePhase::Waiting &&
-               current.engine == vega::EnginePhase::Off;
+               current.engine == vega::EnginePhase::Off && sd_ready;
           if (ok && index != current.course_index) {
             const auto replacement = settings_store.load(index);
             ok = vega::validSettings(replacement) &&
@@ -1239,7 +1325,7 @@ void applicationTask(void *) {
           const auto current = app.snapshot();
           static PlanChoices choices{};
           ok = current.race.phase == vega::RacePhase::Waiting &&
-               current.engine == vega::EnginePhase::Off &&
+               current.engine == vega::EnginePhase::Off && sd_ready &&
                xQueuePeek(plan_choices, &choices, 0) == pdTRUE &&
                choices.course_index == current.course_index &&
                command.choice < choices.count && choices.items[command.choice].valid;
@@ -1288,6 +1374,30 @@ void applicationTask(void *) {
           }
           break;
         }
+        case CommandKind::LoadSdCourses: {
+          const auto current = app.snapshot();
+          ok = courseCount() && current.race.phase == vega::RacePhase::Waiting &&
+               current.engine == vega::EnginePhase::Off && sd_ready;
+          if (ok) {
+            const uint8_t index = savedCourseIndex();
+            const auto replacement = settings_store.load(index);
+            course = vega::Course(*courseAsset(index).data);
+            ok = app.selectCourse(course, index, replacement);
+            if (ok) {
+              settings_store.select(index);
+              active_course = index;
+              debounce_us = replacement.pulse_debounce_us;
+              wheel_interval_us = wheelIntervalUs(replacement);
+              parser = vega::NmeaParser{};
+              openGps(replacement.gps_source);
+              PlanRequest request{};
+              request.course_index = index;
+              savedPlanName(request.filename, sizeof(request.filename));
+              xQueueOverwrite(plan_requests, &request);
+            }
+          }
+          break;
+        }
       }
       diagnostic("[APP] command=%u accepted=%u", static_cast<unsigned>(command.kind), ok);
     }
@@ -1301,6 +1411,9 @@ void applicationTask(void *) {
 
 bool begin() {
   if (!outputs_prepared && !prepareOutputs()) return false;
+  sd_ready = media.mount();
+  if (sd_ready && !loadCoursesFromSd())
+    Serial.println("[COURSE] no valid course catalog on microSD");
   if (VEGA_ENABLE_MQTT &&
       mbedtls_platform_set_calloc_free(tlsPsramCalloc, tlsPsramFree) != 0) {
     Serial.println("[MQTT] unable to route TLS allocations to PSRAM");
@@ -1355,6 +1468,18 @@ bool planChoices(PlanChoices &out) {
 }
 vega::UiStatus status() {
   vega::UiStatus s;
+  static uint32_t last_battery_sample_ms = 0;
+  static int16_t battery_percent = -1;
+  static bool battery_sampled = false;
+  const uint32_t now_ms = millis();
+  if (!battery_sampled || now_ms - last_battery_sample_ms >= 2000) {
+    last_battery_sample_ms = now_ms;
+    battery_sampled = true;
+    const int voltage_mv = M5.Power.getBatteryVoltage();
+    const int level = voltage_mv > 0 ? M5.Power.getBatteryLevel() : -1;
+    battery_percent = level >= 0 && level <= 100 ? level : -1;
+  }
+  s.battery_percent = battery_percent;
   s.sd_ready = sd_ready;
   s.sd_error = sd_error;
   s.plan_state = plan_state.load();
@@ -1467,6 +1592,10 @@ void serialPoll() {
                       loaded ? current.plan_id : "-", have_choices ? choices.selected : 255,
                       have_choices ? choices.count : 0,
                       have_choices ? choices.message : "not scanned");
+      } else if (!strcmp(buffer, "plan-refresh")) {
+        Command refresh{};
+        refresh.kind = CommandKind::RefreshStrategies;
+        Serial.printf("[PLAN] refresh queued=%u\n", submit(refresh));
       } else if (!strncmp(buffer, "plan-upload ", 12)) {
         char *end = nullptr;
         unsigned long length = strtoul(buffer + 12, &end, 10);

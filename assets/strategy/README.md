@@ -4,9 +4,9 @@
 
 ## Tab5に読み込ませる
 
-microSDに`/vega/strategies/`フォルダを作り、戦略JSONを置きます。Waiting画面のメニューから`COURSE / STRATEGY`を開き、コースと適合する戦略を選びます。`NO STRATEGY`も選択できます。画面の`REFRESH`でSDの再検出と一覧の再読込を行えます。選択したコースと戦略のファイル名はNVSに保存され、再起動後に復元します。選択は電装OFFのWaiting中に行います。計測開始後は変更できず、計測を取り消すと再選択できます。
+microSDに`/vega/strategies/`フォルダを作り、戦略JSONを置きます。Waiting画面のメニューから`COURSE / STRATEGY`を開き、コースと適合する戦略を選びます。`NO STRATEGY`も選択できます。画面上部に`SD OK` / `SD NG`を表示し、その横の更新アイコンでSDの再検出と一覧の再読込を行えます。選択したコースと戦略のファイル名はNVSに保存され、再起動後に復元します。選択は電装OFFのWaiting中に行います。計測開始後は変更できず、計測を取り消すと再選択できます。
 
-一覧にはコースID、周回数、経路、距離の検証結果を反映します。不適合なファイルは理由を表示して選択できません。SDがない場合、保存済みファイルがない場合、破損した場合も`NO STRATEGY`で走行できます。最大11ファイルを一覧表示します。`/vega/strategy.json`も旧版との互換性のため読み込み対象です。初回起動時の選択は`NO STRATEGY`です。
+一覧にはコースID、周回数、経路、距離の検証に合格した戦略だけを表示します。不適合なファイルは選択画面に並べず、理由はシリアル診断に残します。有効な戦略がない場合は一覧エリア中央に灰色の`NO STRATEGY`をラベルとして表示します。有効な戦略がある場合は`NO STRATEGY`を選択肢として残します。保存済み戦略がない場合は戦略なしで走行できます。microSDがない場合はコースも利用できず、新規計測を開始できません。最大11ファイルを一覧表示します。`/vega/strategy.json`も旧版との互換性のため読み込み対象です。初回起動時の選択は`NO STRATEGY`です。
 
 同梱の[`motegi_demo.json`](motegi_demo.json)、[`tamagawa_demo.json`](tamagawa_demo.json)、[`tobitakyu_demo.json`](tobitakyu_demo.json)は各コース用の**表示デモ**です。各JSONを`/vega/strategies/`へコピーし、Waiting画面で対応するコースと戦略を選びます。テストコース用デモのON/OFF地点は画面と選択機能の確認用の仮値です。戦略は案内と地図表示専用で、GPIOを自動操作しません。
 
@@ -39,7 +39,7 @@ python3 scripts/upload_strategy.py assets/strategy/motegi_demo.json --port /dev/
 | 項目 | 意味 |
 |---|---|
 | `schema_version` | 現在は`1`のみ |
-| `course_id` | ファームウェアに組み込んだコースのIDと完全一致させる |
+| `course_id` | microSDから読み込んだコースのIDと完全一致させる |
 | `plan_id` | 戦略の識別子。英数字、`_`、`-`、`.`のみ、39文字以内 |
 | `plan_type` | `demo`なら画面に`PLAN DEMO`と表示。実戦略は`race` |
 | `lap` | 1〜コースの周回数。順序は自由だが全周必須 |

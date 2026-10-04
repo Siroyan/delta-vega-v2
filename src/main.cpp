@@ -3,6 +3,7 @@
 #include <lvgl.h>
 
 #include "adapters/lvgl_view.h"
+#include "adapters/tab5_audio.h"
 #include "adapters/tab5_runtime.h"
 #include "tab5_lvgl.h"
 #include "ui/ui.h"
@@ -13,6 +14,7 @@ void setup() {
   auto config = M5.config();
   config.serial_baudrate = 115200;
   M5.begin(config);
+  if (!tab5::audioBegin()) Serial.println("[AUDIO] initialization failed");
   M5.Display.setRotation(1);
   Serial.println("[BOOT] Delta Vega v2 / Ports and Adapters / MVP");
   if (!outputs_ready || !tab5::begin()) {

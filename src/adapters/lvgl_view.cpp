@@ -18,7 +18,9 @@
 #include "../control_gesture.h"
 #include "course_catalog.h"
 #include "domain/course.h"
+#include "domain/strategy_warning.h"
 #include "presentation/settings_form.h"
+#include "tab5_audio.h"
 #include "tab5_runtime.h"
 
 
@@ -72,7 +74,7 @@ void checked(lv_obj_t *o, bool value) {
 struct PageWidgets {
   lv_obj_t *screen, *speed, *average, *lap, *total, *lap_time, *total_target, *lap_target;
   lv_obj_t *notice, *gps_status, *link, *plan_status, *race_status, *action, *detail,
-      *clock, *ntp;
+      *clock, *battery;
   lv_obj_t *power, *ignition, *lap_button, *lap_title, *lap_action, *heartbeat, *pulse, *gps,
       *marker, *marker_backing, *cancel_button;
 };
@@ -93,7 +95,7 @@ struct PageWidgets {
    action_obj,                                            \
    detail_obj,                                            \
    objects.prefix##clock_label,                           \
-   objects.prefix##ntp_status_label,                      \
+   objects.prefix##battery_status_label,                  \
    objects.prefix##electrical_standby_switch,             \
    objects.prefix##ignition_switch,                       \
    objects.prefix##manual_lap_button,                     \
@@ -159,12 +161,36 @@ std::array<lv_obj_t *, kCourseMapCount> course_images{};
 uint8_t displayed_course_index = 0;
 const vega::CourseData &courseData() { return *courseAsset(displayed_course_index).data; }
 lv_obj_t *selection_overlay = nullptr;
+lv_obj_t *selection_course_list = nullptr;
 lv_obj_t *selection_list = nullptr;
 lv_obj_t *selection_message = nullptr;
 lv_obj_t *selection_refresh = nullptr;
+lv_obj_t *selection_sd_indicator = nullptr;
+lv_obj_t *selection_sd_status = nullptr;
 lv_obj_t *course_buttons[8]{};
+lv_obj_t *course_empty_label = nullptr;
+size_t painted_catalog_count = 0;
+std::array<lv_obj_t *, kMaxPlanChoices> strategy_buttons{};
+uint8_t painted_course_index = 255;
 PlanChoices shown_choices{};
 bool choices_initialized = false;
+uint32_t last_selection_refresh_ms = 0;
+vega::StrategyWarning strategy_warning;
+bool button_sounds_installed = false;
+
+void buttonSound(lv_event_t *) { audioButton(); }
+void installButtonSound(lv_obj_t *button) {
+  if (button) lv_obj_add_event_cb(button, buttonSound, LV_EVENT_CLICKED, nullptr);
+}
+lv_obj_tree_walk_res_t installGeneratedButtonSound(lv_obj_t *obj, void *) {
+  if (lv_obj_check_type(obj, &lv_button_class)) {
+    bool is_control = false;
+    for (const auto &page : control_pages)
+      is_control |= obj == page.power || obj == page.ignition;
+    if (!is_control) installButtonSound(obj);
+  }
+  return LV_OBJ_TREE_WALK_NEXT;
+}
 constexpr size_t kPlanLinePoints = 96;
 struct PlanLine {
   lv_obj_t *object = nullptr;
@@ -392,6 +418,17 @@ bool lapLinePoints(const vega::Course &course, const vega::Settings &settings,
 }
 
 void updateCourseMarkers(const vega::Settings &settings) {
+  if (!courseCount()) {
+    for (auto &map : course_markers) {
+      visible(map.start.point, false);
+      visible(map.start.label, false);
+      visible(map.goal.point, false);
+      visible(map.goal.label, false);
+      visible(map.lap_line, false);
+      visible(map.lap_legend, false);
+    }
+    return;
+  }
   if (course_markers_positioned && settings.start.latitude == displayed_start.latitude &&
       settings.start.longitude == displayed_start.longitude &&
       settings.goal.latitude == displayed_goal.latitude &&
@@ -548,7 +585,7 @@ class View final : public vega::IView {
       text(p.action, m.action);
       text(p.detail, m.detail);
       text(p.clock, m.clock);
-      text(p.ntp, m.ntp);
+      text(p.battery, m.battery);
       checked(p.power, m.power_on);
       enabled(p.ignition, m.ignition_enabled && !ignition_pending);
       enabled(p.lap_button, m.lap_enabled && !finish_pending);
@@ -677,12 +714,17 @@ bool request(CommandKind kind) {
   }
   return true;
 }
+constexpr uint32_t kSelectionBlue = 0x1769B2;
+constexpr uint32_t kSelectionIdle = 0xE6EDF4;
 lv_obj_t *selectorButton(lv_obj_t *parent, int x, int y, int w, int h,
                          const char *caption, uint32_t color) {
   auto *button = lv_button_create(parent);
+  if (button_sounds_installed) installButtonSound(button);
   lv_obj_set_pos(button, x, y);
   lv_obj_set_size(button, w, h);
   lv_obj_set_style_bg_color(button, lv_color_hex(color), 0);
+  lv_obj_set_style_bg_color(button, lv_color_hex(color == kSelectionIdle ? 0xDCE5EF : 0x14558F),
+                            LV_STATE_PRESSED);
   lv_obj_set_style_radius(button, 10, 0);
   lv_obj_set_style_border_width(button, 0, 0);
   auto *label = lv_label_create(button);
@@ -694,42 +736,77 @@ lv_obj_t *selectorButton(lv_obj_t *parent, int x, int y, int w, int h,
   lv_obj_center(label);
   return button;
 }
+void styleSelectionButton(lv_obj_t *button, bool selected, bool valid = true) {
+  const auto background = lv_color_hex(selected ? kSelectionBlue : kSelectionIdle);
+  if (!lv_color_eq(lv_obj_get_style_bg_color(button, LV_PART_MAIN), background)) {
+    lv_obj_set_style_bg_color(button, background, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(button, lv_color_hex(selected ? 0x14558F : 0xDCE5EF),
+                              LV_STATE_PRESSED);
+  }
+  auto *label = lv_obj_get_child(button, 0);
+  const auto foreground = lv_color_hex(selected ? 0xFFFFFF : valid ? 0x202B36 : 0x64748B);
+  if (!lv_color_eq(lv_obj_get_style_text_color(label, LV_PART_MAIN), foreground))
+    lv_obj_set_style_text_color(label, foreground, LV_PART_MAIN);
+}
+void chooseStrategy(lv_event_t *event) {
+  vega::Snapshot current{};
+  if (!snapshot(current) || current.race.phase != vega::RacePhase::Waiting ||
+      current.engine != vega::EnginePhase::Off) {
+    text(selection_message, "ELECTRICAL OFF TO CHANGE SELECTION");
+    return;
+  }
+  const auto index = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+  Command command{};
+  command.kind = CommandKind::SelectStrategy;
+  command.choice = index;
+  if (!presenter.request(command)) text(selection_message, "SELECTION REJECTED");
+  else visible(selection_overlay, false);
+}
 void refreshSelectionList(const PlanChoices &choices) {
   if (!selection_list) return;
   if (choices_initialized && memcmp(&shown_choices, &choices, sizeof(choices)) == 0) return;
   shown_choices = choices;
   choices_initialized = true;
+  text(selection_sd_status, choices.sd_available ? "SD OK" : "SD NG");
+  lv_obj_set_style_bg_color(selection_sd_indicator,
+                            lv_color_hex(choices.sd_available ? 0x087F8C : 0xB43832),
+                            LV_PART_MAIN);
+  lv_obj_set_style_text_color(selection_sd_status,
+                              lv_color_hex(choices.sd_available ? 0x087F8C : 0xB43832),
+                              LV_PART_MAIN);
   lv_obj_clean(selection_list);
+  strategy_buttons.fill(nullptr);
   if (choices.course_index != displayed_course_index) {
     text(selection_message, "LOADING STRATEGIES...");
     return;
   }
-  text(selection_message, choices.message[0] ? choices.message :
-       "SELECT A STRATEGY FOR THIS COURSE");
+  bool has_valid_file = false;
+  for (uint8_t i = 1; i < choices.count; ++i)
+    has_valid_file |= choices.items[i].valid;
+  if (!has_valid_file) {
+    text(selection_message, "");
+    auto *label = lv_label_create(selection_list);
+    lv_obj_set_size(label, 568, 48);
+    lv_obj_center(label);
+    lv_label_set_text_static(label, choices.sd_available ? "NO STRATEGY" : "SD NOT AVAILABLE");
+    lv_obj_set_style_text_font(label, &ui_font_ricty_diminished_32, LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, lv_color_hex(0x64748B), LV_PART_MAIN);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE);
+    return;
+  }
+  text(selection_message, choices.selected == 255 ? "SELECT A STRATEGY FOR THIS COURSE" :
+       choices.message[0] ? choices.message : "SELECT A STRATEGY FOR THIS COURSE");
+  uint8_t row = 0;
   for (uint8_t i = 0; i < choices.count; ++i) {
     const auto &item = choices.items[i];
-    char label[100];
-    if (item.valid)
-      snprintf(label, sizeof(label), "%s%s", i == choices.selected ? "[SELECTED] " : "", item.label);
-    else
-      snprintf(label, sizeof(label), "%s  (%s)", item.label, item.error);
-    auto *button = selectorButton(selection_list, 8, 8 + i * 60, 520, 52, label,
-                                  !item.valid ? 0x8996A3 : i == choices.selected ? 0x087F8C : 0x1769B2);
-    if (!item.valid) lv_obj_add_state(button, LV_STATE_DISABLED);
-    lv_obj_add_event_cb(button, [](lv_event_t *event) {
-      vega::Snapshot current{};
-      if (!snapshot(current) || current.race.phase != vega::RacePhase::Waiting ||
-          current.engine != vega::EnginePhase::Off) {
-        text(selection_message, "ELECTRICAL OFF TO CHANGE SELECTION");
-        return;
-      }
-      const auto index = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-      Command command{};
-      command.kind = CommandKind::SelectStrategy;
-      command.choice = index;
-      if (!presenter.request(command)) text(selection_message, "SELECTION REJECTED");
-      else visible(selection_overlay, false);
-    }, LV_EVENT_CLICKED, reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
+    if (!item.valid) continue;
+    auto *button = selectorButton(selection_list, 8, 8 + row++ * 60, 520, 52, item.label,
+                                  kSelectionIdle);
+    styleSelectionButton(button, i == choices.selected);
+    strategy_buttons[i] = button;
+    lv_obj_add_event_cb(button, chooseStrategy, LV_EVENT_CLICKED,
+                        reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
   }
 }
 void openSelection() {
@@ -738,15 +815,36 @@ void openSelection() {
   action_close_menu(nullptr);
   visible(selection_overlay, true);
   lv_obj_move_foreground(selection_overlay);
-  if (s.engine == vega::EnginePhase::Off) request(CommandKind::RefreshStrategies);
+  if (s.engine == vega::EnginePhase::Off) {
+    if (request(CommandKind::RefreshStrategies)) last_selection_refresh_ms = millis();
+  }
   else text(selection_message, "ELECTRICAL OFF TO CHANGE SELECTION");
+}
+void addCourseButtons() {
+  for (size_t i = painted_catalog_count; i < courseCount() && i < kMaxCourses; ++i) {
+    course_buttons[i] = selectorButton(selection_course_list, 8, 8 + i * 72, 430, 62,
+                                       courseAsset(i).name, kSelectionIdle);
+    styleSelectionButton(course_buttons[i], false);
+    lv_obj_add_event_cb(course_buttons[i], [](lv_event_t *event) {
+      vega::Snapshot current{};
+      if (!snapshot(current) || current.engine != vega::EnginePhase::Off) {
+        text(selection_message, "ELECTRICAL OFF TO CHANGE SELECTION");
+        return;
+      }
+      Command command{};
+      command.kind = CommandKind::SelectCourse;
+      command.choice = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+      if (!presenter.request(command)) text(selection_message, "COURSE CHANGE REJECTED");
+    }, LV_EVENT_CLICKED, reinterpret_cast<void *>(i));
+  }
+  painted_catalog_count = courseCount();
 }
 void setupSelectionUi() {
   selection_overlay = lv_obj_create(objects.waiting);
   lv_obj_set_pos(selection_overlay, 0, 0);
   lv_obj_set_size(selection_overlay, 1280, 720);
   lv_obj_remove_flag(selection_overlay, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(selection_overlay, lv_color_hex(0xE6EDF4), 0);
+  lv_obj_set_style_bg_color(selection_overlay, lv_color_white(), 0);
   lv_obj_set_style_border_width(selection_overlay, 0, 0);
   lv_obj_set_style_pad_all(selection_overlay, 0, 0);
   auto *back = lv_button_create(selection_overlay);
@@ -771,36 +869,69 @@ void setupSelectionUi() {
   lv_label_set_text_static(title, "COURSE / STRATEGY");
   lv_obj_set_style_text_font(title, &ui_font_ricty_diminished_48, 0);
   lv_obj_set_style_text_color(title, lv_color_hex(0x202B36), 0);
-  selection_refresh = selectorButton(selection_overlay, 902, 16, 174, 56, "REFRESH", 0x1769B2);
-  lv_obj_add_event_cb(selection_refresh, [](lv_event_t *) { request(CommandKind::RefreshStrategies); },
+  selection_sd_indicator = lv_obj_create(selection_overlay);
+  lv_obj_set_pos(selection_sd_indicator, 886, 102);
+  lv_obj_set_size(selection_sd_indicator, 12, 12);
+  lv_obj_set_style_pad_all(selection_sd_indicator, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(selection_sd_indicator, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(selection_sd_indicator, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(selection_sd_indicator, 0, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(selection_sd_indicator, lv_color_hex(0x64748B), LV_PART_MAIN);
+  lv_obj_remove_flag(selection_sd_indicator, LV_OBJ_FLAG_CLICKABLE);
+  selection_sd_status = lv_label_create(selection_overlay);
+  lv_obj_set_pos(selection_sd_status, 910, 94);
+  lv_obj_set_size(selection_sd_status, 110, 34);
+  lv_label_set_text_static(selection_sd_status, "SD --");
+  lv_obj_set_style_text_font(selection_sd_status, &ui_font_ricty_diminished_32, LV_PART_MAIN);
+  lv_obj_set_style_text_color(selection_sd_status, lv_color_hex(0x64748B), LV_PART_MAIN);
+  selection_refresh = lv_button_create(selection_overlay);
+  lv_obj_set_pos(selection_refresh, 1040, 80);
+  lv_obj_set_size(selection_refresh, 56, 56);
+  lv_obj_set_style_pad_all(selection_refresh, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(selection_refresh, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(selection_refresh, 12, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(selection_refresh, 0, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(selection_refresh, lv_color_hex(0xF0F4F8), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(selection_refresh, lv_color_hex(0xDCE5EF), LV_STATE_PRESSED);
+  auto *refresh_icon = lv_label_create(selection_refresh);
+  lv_label_set_text_static(refresh_icon, LV_SYMBOL_REFRESH);
+  lv_obj_set_style_text_font(refresh_icon, &lv_font_montserrat_32, LV_PART_MAIN);
+  lv_obj_set_style_text_color(refresh_icon, lv_color_hex(0x202B36), LV_PART_MAIN);
+  lv_obj_center(refresh_icon);
+  lv_obj_remove_flag(refresh_icon, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(selection_refresh, [](lv_event_t *) {
+    if (request(CommandKind::RefreshStrategies)) last_selection_refresh_ms = millis();
+  },
                       LV_EVENT_CLICKED, nullptr);
   auto *course_title = lv_label_create(selection_overlay);
-  lv_obj_set_pos(course_title, 42, 96);
+  lv_obj_set_pos(course_title, 42, 94);
   lv_label_set_text_static(course_title, "COURSE");
-  lv_obj_set_style_text_font(course_title, &ui_font_ricty_diminished_24, 0);
-  for (size_t i = 0; i < courseCount() && i < 8; ++i) {
-    course_buttons[i] = selectorButton(selection_overlay, 42, 140 + i * 72, 430, 62,
-                                       courseAsset(i).name, 0x1769B2);
-    lv_obj_add_event_cb(course_buttons[i], [](lv_event_t *event) {
-      vega::Snapshot current{};
-      if (!snapshot(current) || current.engine != vega::EnginePhase::Off) {
-        text(selection_message, "ELECTRICAL OFF TO CHANGE SELECTION");
-        return;
-      }
-      Command command{};
-      command.kind = CommandKind::SelectCourse;
-      command.choice = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-      if (!presenter.request(command)) text(selection_message, "COURSE CHANGE REJECTED");
-    }, LV_EVENT_CLICKED, reinterpret_cast<void *>(i));
-  }
+  lv_obj_set_style_text_font(course_title, &ui_font_ricty_diminished_32, 0);
+  selection_course_list = lv_obj_create(selection_overlay);
+  lv_obj_set_pos(selection_course_list, 34, 132);
+  lv_obj_set_size(selection_course_list, 454, 474);
+  lv_obj_set_style_pad_all(selection_course_list, 0, 0);
+  lv_obj_set_style_bg_opa(selection_course_list, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(selection_course_list, 0, 0);
+  lv_obj_set_scroll_dir(selection_course_list, LV_DIR_VER);
+  course_empty_label = lv_label_create(selection_course_list);
+  lv_obj_set_pos(course_empty_label, 8, 138);
+  lv_obj_set_size(course_empty_label, 430, 48);
+  lv_label_set_text_static(course_empty_label, "NO COURSE");
+  lv_obj_set_style_text_font(course_empty_label, &ui_font_ricty_diminished_32, 0);
+  lv_obj_set_style_text_color(course_empty_label, lv_color_hex(0x64748B), 0);
+  lv_obj_set_style_text_align(course_empty_label, LV_TEXT_ALIGN_CENTER, 0);
+  addCourseButtons();
   auto *plan_title = lv_label_create(selection_overlay);
-  lv_obj_set_pos(plan_title, 536, 96);
-  lv_label_set_text_static(plan_title, "STRATEGY ON microSD");
-  lv_obj_set_style_text_font(plan_title, &ui_font_ricty_diminished_24, 0);
+  lv_obj_set_pos(plan_title, 536, 94);
+  lv_label_set_text_static(plan_title, "STRATEGY");
+  lv_obj_set_style_text_font(plan_title, &ui_font_ricty_diminished_32, 0);
   selection_list = lv_obj_create(selection_overlay);
   lv_obj_set_pos(selection_list, 528, 132);
   lv_obj_set_size(selection_list, 568, 474);
   lv_obj_set_style_pad_all(selection_list, 0, 0);
+  lv_obj_set_style_bg_color(selection_list, lv_color_white(), LV_PART_MAIN);
+  lv_obj_set_style_border_width(selection_list, 0, LV_PART_MAIN);
   selection_message = lv_label_create(selection_overlay);
   lv_obj_set_pos(selection_message, 42, 640);
   lv_obj_set_size(selection_message, 1160, 32);
@@ -1029,7 +1160,8 @@ void viewBegin() {
     course_images[i] = lv_image_create(maps[i]);
     lv_obj_set_pos(course_images[i], 0, 0);
     lv_obj_set_size(course_images[i], kCourseMapSize, kCourseMapSize);
-    lv_image_set_src(course_images[i], courseAsset(displayed_course_index).image);
+    if (courseCount()) lv_image_set_src(course_images[i], courseAsset(displayed_course_index).image);
+    else visible(course_images[i], false);
     lv_obj_remove_flag(course_images[i], LV_OBJ_FLAG_CLICKABLE);
     lv_obj_move_background(course_images[i]);
   }
@@ -1065,19 +1197,41 @@ void viewBegin() {
     if (position_arrows[i]) lv_obj_move_foreground(position_arrows[i]);
   }
   setupSelectionUi();
+  for (auto *screen : {objects.main, objects.waiting, objects.finished, objects.gps_stale,
+                       objects.missing_data, objects.overtime, objects.plan_demo,
+                       objects.cached_plan, objects.expired_plan, objects.lap_corrected,
+                       objects.settings})
+    lv_obj_tree_walk(screen, installGeneratedButtonSound, nullptr);
+  lv_obj_tree_walk(finish_overlay, installGeneratedButtonSound, nullptr);
+  button_sounds_installed = true;
   course_markers_positioned = false;
   loadScreen(SCREEN_ID_WAITING);
 }
 void viewUpdate() {
   vega::Snapshot s;
   if (!snapshot(s)) return;
+  if (painted_catalog_count != courseCount()) {
+    addCourseButtons();
+    for (auto *image : course_images) {
+      if (courseCount()) lv_image_set_src(image, courseAsset(s.course_index).image);
+      visible(image, courseCount() != 0);
+    }
+    course_markers_positioned = false;
+  }
+  // Tab5 has no microSD card-detect pin. Poll only while this selection screen is open.
+  if (selection_overlay && !lv_obj_has_flag(selection_overlay, LV_OBJ_FLAG_HIDDEN) &&
+      s.race.phase == vega::RacePhase::Waiting && s.engine == vega::EnginePhase::Off &&
+      millis() - last_selection_refresh_ms >= 5000) {
+    if (request(CommandKind::RefreshStrategies)) last_selection_refresh_ms = millis();
+  }
   if (s.course_index != displayed_course_index) {
     displayed_course_index = s.course_index;
-    for (auto *image : course_images)
+    if (courseCount()) for (auto *image : course_images)
       lv_image_set_src(image, courseAsset(displayed_course_index).image);
     course_markers_positioned = false;
     for (auto &map : plan_maps) hidePlanMap(map);
     if (selection_list) lv_obj_clean(selection_list);
+    strategy_buttons.fill(nullptr);
     choices_initialized = false;
     text(selection_message, "LOADING STRATEGIES...");
   }
@@ -1089,18 +1243,23 @@ void viewUpdate() {
     visible(extra_lap_fields[i * 2], s.lap_count > i + 4);
     visible(extra_lap_fields[i * 2 + 1], s.lap_count > i + 4);
   }
-  for (size_t i = 0; i < courseCount() && i < 8; ++i)
-    if (course_buttons[i]) {
-      const auto color = lv_color_hex(i == s.course_index ? 0x087F8C : 0x1769B2);
-      if (!lv_color_eq(lv_obj_get_style_bg_color(course_buttons[i], LV_PART_MAIN), color))
-        lv_obj_set_style_bg_color(course_buttons[i], color, 0);
-      enabled(course_buttons[i], s.engine == vega::EnginePhase::Off);
-    }
+  if (painted_course_index != s.course_index) {
+    for (size_t i = 0; i < courseCount() && i < 8; ++i)
+      if (course_buttons[i]) styleSelectionButton(course_buttons[i], i == s.course_index);
+    painted_course_index = s.course_index;
+  }
+  const bool sd_available = choices_initialized && shown_choices.sd_available;
+  visible(course_empty_label, !sd_available || !courseCount());
+  text(course_empty_label, !sd_available ? "SD NOT AVAILABLE" : "NO COURSE");
+  for (size_t i = 0; i < courseCount() && i < kMaxCourses; ++i) {
+    visible(course_buttons[i], sd_available);
+    enabled(course_buttons[i], sd_available && s.engine == vega::EnginePhase::Off);
+  }
   enabled(selection_refresh, s.engine == vega::EnginePhase::Off);
-  if (selection_list && choices_initialized)
+  if (choices_initialized)
     for (uint8_t i = 0; i < shown_choices.count; ++i)
-      enabled(lv_obj_get_child(selection_list, i),
-              shown_choices.items[i].valid && s.engine == vega::EnginePhase::Off);
+      if (strategy_buttons[i])
+        enabled(strategy_buttons[i], s.engine == vega::EnginePhase::Off);
   presenter.setLapCount(s.lap_count);
   if (finish_pending && s.race.phase == vega::RacePhase::Measuring &&
       s.now_ms - finish_requested_ms > 2000)
@@ -1118,13 +1277,30 @@ void viewUpdate() {
   vega::Strategy strategy_data;
   const bool plan_loaded = strategy(strategy_data);
   const auto ui_status = status();
+  if (s.race.phase != vega::RacePhase::Measuring) {
+    strategy_warning.reset();
+  } else if (plan_loaded && ui_status.plan_state == vega::PlanState::Ready &&
+             s.race.lap > 0 && s.race.lap <= s.lap_count) {
+    vega::StrategyCue cue;
+    if (strategy_warning.update(
+            s.race.session, s.race.lap, s.gps_fresh && s.route_map.on_course,
+            strategy_data.laps[s.race.lap - 1], s.route_map.s_m, cue)) {
+      audioStrategyWarning();
+      Serial.printf("[AUDIO] strategy %s warning lap=%u position=%.1f m\n",
+                    cue == vega::StrategyCue::On ? "ON" : "OFF", s.race.lap,
+                    s.route_map.s_m);
+    }
+  }
   presenter.render(s, ui_status, plan_loaded ? &strategy_data : nullptr);
+  enabled(objects.start_button, s.race.phase == vega::RacePhase::Waiting &&
+                                ui_status.sd_ready && courseCount() != 0);
   static PlanChoices choices{};
   if (planChoices(choices) && choices.course_index == s.course_index) {
     refreshSelectionList(choices);
     if (s.engine != vega::EnginePhase::Off)
       text(selection_message, "ELECTRICAL OFF TO CHANGE SELECTION");
-    text(objects.waiting_plan_status_label, courseAsset(s.course_index).short_name);
+    text(objects.waiting_plan_status_label,
+         !choices.sd_available ? "SD NOT AVAILABLE" : courseAsset(s.course_index).short_name);
     char plan_caption[72];
     if (ui_status.plan_state == vega::PlanState::Loading)
       snprintf(plan_caption, sizeof(plan_caption), "PLAN LOADING");
@@ -1139,7 +1315,8 @@ void viewUpdate() {
     else snprintf(plan_caption, sizeof(plan_caption), "PLAN NONE");
     text(objects.waiting_race_status_label, plan_caption);
   } else {
-    text(objects.waiting_plan_status_label, courseAsset(s.course_index).short_name);
+    text(objects.waiting_plan_status_label,
+         courseCount() ? courseAsset(s.course_index).short_name : "NO COURSE");
     text(objects.waiting_race_status_label, "PLAN LOADING");
   }
   updateCourseMarkers(s.settings);
@@ -1348,12 +1525,14 @@ void controlAction(lv_obj_t *control) {
       if (request(next == PowerRequest::On ? CommandKind::PowerOn : CommandKind::PowerOff)) {
         ++power_taps;
         power_intent.accepted(next);
+        audioButton();
       }
       return;
     }
     if (control == page.ignition && !lv_obj_has_state(control, LV_STATE_DISABLED)) {
       ++ignition_taps;
       ignite();
+      audioButton();
       return;
     }
   }

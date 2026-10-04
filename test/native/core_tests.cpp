@@ -19,6 +19,7 @@
 #include "domain/nmea.h"
 #include "domain/settings_codec.h"
 #include "domain/strategy.h"
+#include "domain/strategy_warning.h"
 #include "presentation/presenter.h"
 #include "presentation/settings_form.h"
 
@@ -1174,6 +1175,27 @@ void controlGestureTest() {
   power_intent.observe(true);
   assert(power_intent.nextTap() == PowerRequest::Off);
 }
+void strategyWarningTest() {
+  StrategyLap lap{};
+  lap.run_count = 2;
+  lap.runs[0] = {0, 100};
+  lap.runs[1] = {200, 260};
+  StrategyWarning warning;
+  StrategyCue cue = StrategyCue::LapEnd;
+  assert(!warning.update(1, 1, true, lap, 0, cue));  // Start ON at 0 m has no advance point.
+  assert(!warning.update(1, 1, true, lap, 60, cue));
+  assert(!warning.update(1, 1, false, lap, 75, cue));
+  assert(warning.update(1, 1, true, lap, 75, cue) && cue == StrategyCue::Off);
+  assert(!warning.update(1, 1, true, lap, 76, cue));
+  assert(!warning.update(1, 1, false, lap, 90, cue));
+  assert(!warning.update(1, 1, true, lap, 90, cue));
+  assert(warning.update(1, 1, true, lap, 175, cue) && cue == StrategyCue::On);
+  assert(warning.update(1, 1, true, lap, 235, cue) && cue == StrategyCue::Off);
+  assert(warning.update(1, 2, true, lap, 75, cue) && cue == StrategyCue::Off);
+  assert(warning.update(2, 1, true, lap, 75, cue) && cue == StrategyCue::Off);
+  warning.reset();
+  assert(warning.update(2, 1, true, lap, 75, cue) && cue == StrategyCue::Off);
+}
 int main() {
   engineTest();
   raceTest();
@@ -1190,6 +1212,7 @@ int main() {
   settingsFormTest();
   gpsSourceSettingsTest();
   strategyTest();
+  strategyWarningTest();
   courseSelectionTest();
   settingsMigrationTest();
   fourLapStrategyTest();

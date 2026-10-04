@@ -48,13 +48,13 @@ CURRENT SPEEDは最新の受理パルスから最大N区間を取り、`N区間�
 
 リセット中やファームウェア起動前のOFFは回路側の責務。初期active HIGHなら外部プルダウン、極性変更時はそれに対応するOFF条件を設計する。ソフトウェアは設定を読んでからOFFレベルを設定し、出力ドライバを有効にする。実車側の絶縁回路・出力波形は未検証。
 
-3コースは同時にファームウェアへ収録する。Waiting画面のメニューから玉川学園前・飛田給・茂木を選び、画像、地点、周回判定を切り替える。コース固有のデータ・初期値・画像・NVS領域は[コースアセット](../assets/README.md)で管理する。現在位置は緯度経度を画像へ変換して表示し、投影線へ吸着させない。茂木コースには進入路・周回路・ゴール分岐がある。周回更新は選択したコースのSettingsにある座標を周回路へ投影して判定する。合流・分岐と地点座標は近似値であり、実走評価で校正する。
+玉川学園前・飛田給・茂木の編集元はリポジトリに収録し、実機はmicroSDの`/vega/courses/`からコース形状・地図画像・初期設定を起動時に読み込む。Waiting画面のメニューから選択して画像、地点、周回判定を切り替える。microSDがない場合はコースを選択できず、新規計測も開始できない。計測中にカードが抜けても読み込み済みコースで画面と周回判定は継続するが、SDログはエラーとなる。コース固有のデータと配置手順は[コースアセット](../assets/README.md)を参照。現在位置は緯度経度を画像へ変換して表示し、投影線へ吸着させない。周回更新は選択したコースのSettingsにある座標を周回路へ投影して判定する。合流・分岐と地点座標は近似値であり、実走評価で校正する。
 
 ### Tab5専用variant
 
 `platformio.ini`のMCU/パーティションは既存のESP32-P4設定を使用し、Arduinoのピン定義だけを`variants/m5tab5/pins_arduino.h`で置き換える。
 
-汎用EV BoardのvariantはGPIO45をSD電源として操作し、電装出力と競合していた。Tab5ではM5UnifiedがIOエキスパンダからカード電源を供給するため、この定義を除去した。SDはGPIO43/44/39/40/41/42、LDO4、4 bit、20 MHz。Wi-Fi内部SDIOは12/13/11/10/9/8、リセット15で、リードスイッチと競合しない。
+汎用EV BoardのvariantはGPIO45をSD電源として操作し、電装出力と競合していた。Tab5ではM5UnifiedがIOエキスパンダからカード電源を供給するため、この定義を除去した。SDはGPIO43/44/39/40/41/42、LDO4、4 bit、20 MHz。microSDの挿抜検出ピンがないため、選択画面を開いている間は5秒ごとにカードを再マウントして状態を確認する。SDMMCのIO電源用LDO4は起動時に一度確保し、再マウントでも同じハンドルを使う。計測中の記録ファイルを開いている間は再マウントしない。Wi-Fi内部SDIOは12/13/11/10/9/8、リセット15で、リードスイッチと競合しない。
 
 参照: [Tab5](https://docs.m5stack.com/en/core/Tab5)、[M5Stack公式SDMMC実装](https://github.com/m5stack/M5Tab5-UserDemo/blob/main/platforms/tab5/components/m5stack_tab5/m5stack_tab5.c)、[Tab5公式Wi-Fi例](https://docs.m5stack.com/en/arduino/m5tab5/wifi)、[GPS製品](https://akizukidenshi.com/catalog/g/g117980/)。M5Unified/M5GFXは検証したコミットへ固定した。
 
@@ -67,6 +67,7 @@ CURRENT SPEEDは最新の受理パルスから最大N区間を取り、`N区間�
 2026-10-03にはWi-FiがIPを取得しMQTTを開始した直後、`sdio_push_data_to_queue sdio_drv.c:705 (pkt_rxbuff)`でassertして再起動する現象を実機で捕捉した。TLSの確保先をPSRAMにしていても、LVGLの画面部品は内部ヒープを使っていた。変更前のMQTT開始直後は内部DMA空き約25 KB、最大連続領域約12 KB。LVGLの画面部品をPSRAMへ移した後は、MQTT接続時の内部DMA空き約309 KB、最大連続領域約303 KBになった。Wi-Fi受信バッファの確保失敗を直接防ぐための変更であり、正式版では通信と表示を同時に使う長時間試験が必要。
 
 - 走行戦略はWaiting画面からmicroSDの`/vega/strategies/*.json`または互換ファイル`/vega/strategy.json`を選び、選択したコースの周回数・経路ID・ON/OFF地点を検証する。Waitingで1周目をプレビューし、Mainでは現在周回の橙色のエンジン使用区間、青色の惰性区間、点火/OFF地点を地図へ重ねる。GPSが有効なら次の地点までの距離を表示する。形式とダミーは[走行戦略データREADME](../assets/strategy/README.md)。プランは表示専用で、GPIO出力を変更しない。
+- Tab5内蔵スピーカーは、画面のボタン操作で短い1音を鳴らす。電装・点火の大きなボタンも同様。戦略を読み込んで計測している間は、GPS位置がコース内で有効な場合に限り、各エンジンON/OFF地点の30 m手前に入ると「ピピ、ピピ」と予告する。同じ地点は同一周回・計測セッション内で一度だけ予告し、GPSの一時的な欠落や位置の揺れでは鳴り直さない。0 mの始動地点には手前の予告地点がないため鳴らない。音声処理は別タスクに送り、タッチや画面描画を待たせない。予告音は運転操作の補助であり、エンジン出力を自動操作しない。
 - 計測開始から取消/完走までのみ、`/vega/session-0000000001.jsonl`のような個別ファイルをmicroSDへ保存する。NVSの連番と既存ファイルの確認で再起動後も上書きを防ぐ。
 - 最初の行はコースID・周回数と設定メタデータ（`schema_version:3`）。500 ms周期のサンプルはMQTTの10項目に加え、`gps_seen`、`gps_fix_valid`、`gps_fresh`、`gps_speed_kmh`、`gps_satellites`、`gps_hdop`、`gps_gga_fix_quality`、`gps_utc_ms_of_day`、`gps_age_ms`、`gps_quality_age_ms`を記録する。GGA未受信などで不明な数値は`null`。`gps_age_ms`は最後のRMC受信から、`gps_quality_age_ms`は最後のGGA受信からの経過時間。`gps_utc_ms_of_day`はRMCのUTC時刻を午前0時からのミリ秒で表す。開始・取消・完走・手動補正・電装操作は`type:event`で記録し、取消データも残す。
 - GPSのNMEA原文と画面上のアイコン座標を記録する一時的な診断機能は撤去した。位置、速度、衛星数、HDOPなどは500 ms周期の通常サンプルに残る。

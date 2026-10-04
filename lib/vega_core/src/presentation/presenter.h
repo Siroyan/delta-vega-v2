@@ -8,6 +8,7 @@ enum class PlanState : uint8_t { Loading, Missing, Invalid, Ready };
 struct UiStatus {
   bool sd_ready = false, sd_error = false, mqtt_connected = false, network_configured = false;
   bool time_valid = false, ntp_holdover = false;
+  int16_t battery_percent = -1;
   PlanState plan_state = PlanState::Loading;
   char clock[24] = "--:--:-- JST";
 };
@@ -17,7 +18,7 @@ struct DisplayModel {
       lap_target[40]{};
   char notice[100]{}, map_status[48]{}, gps_status[32]{}, link[32]{}, race_status[32]{},
       action[48]{}, detail[60]{};
-  char clock[24]{}, ntp[24]{};
+  char clock[24]{}, battery[24]{};
   char gps_latitude[32]{}, gps_longitude[32]{};
   char plan_status[32]{};
   StrategyLap plan_lap{};
