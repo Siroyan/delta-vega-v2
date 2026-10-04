@@ -544,6 +544,36 @@ dialog::backdrop {
   color:#b95544;
   font-size:20px
 }
+.action-help {
+  margin-top:12px;
+  padding:12px 14px;
+  border-radius:9px;
+  background:#f2f7fb;
+  color:#526b80;
+  font-size:12px;
+  line-height:1.6
+}
+.action-help p {
+  margin:0 0 7px
+}
+.action-help p:last-child {
+  margin-bottom:0
+}
+.action-help code {
+  color:#234e70;
+  font-weight:700
+}
+.action-help summary {
+  cursor:pointer;
+  font-weight:700
+}
+.action-help ul {
+  margin:7px 0;
+  padding-left:20px
+}
+.action-help li {
+  margin-bottom:5px
+}
 .dialog-actions {
   display:flex;
   gap:8px;

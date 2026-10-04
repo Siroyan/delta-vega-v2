@@ -54,8 +54,23 @@
         <label>1回転あたりパルス <input name="pulses_per_revolution" type="number" min="1" max="100" step="1" required></label>
         <label>最大試験時間 秒 <input name="max_duration_s" type="number" min="1" max="86400" step="1" required></label>
       </div>
-      <div class="action-head"><div><strong>時刻指定のGPS異常</strong><small>例: noise 5 / dropout 30000 / bias 20 -10</small></div><button class="secondary small" type="button" id="add-action">＋ 追加</button></div>
+      <div class="action-head"><div><strong>時刻指定のGPS異常</strong><small>「開始 秒」はAtomS3の走行開始からの経過時間です。</small></div><button class="secondary small" type="button" id="add-action">＋ 追加</button></div>
       <div id="action-list" class="action-list"></div>
+      <div class="action-help">
+        <p><code>noise 5</code>：GPS座標に標準偏差約5 mのランダム誤差を継続して加えます。<code>noise 0</code>で解除します。</p>
+        <p><code>dropout 30000</code>：実行時から30秒間、GPSのNMEA文を送信しません。時間が経つと自動で復帰します。時間の単位はミリ秒です。</p>
+        <details>
+          <summary>その他のコマンドを見る</summary>
+          <ul>
+            <li><code>bias 20 -10</code>：座標を東へ20 m、南へ10 mずらし続けます。<code>bias 0 0</code>で解除。</li>
+            <li><code>spike 100 0</code>：次のNMEA文1件だけ座標を東へ100 m飛ばします。</li>
+            <li><code>invalid 30000</code>：30秒間、測位できていないことを示すNMEA文を送信します。</li>
+            <li><code>corrupt 10</code>：次のNMEA文10件のチェックサムを壊します。</li>
+            <li><code>seed 123</code>：ランダム誤差の再現に使う乱数の初期値を設定します。</li>
+          </ul>
+          <p>GPS異常を入れても、走行距離と車速パルスは進みます。</p>
+        </details>
+      </div>
       <p class="form-error" id="form-error" role="alert"></p>
       <div class="dialog-actions"><button class="secondary" type="button" id="delete-case">削除</button><span></span><button class="secondary" type="button" id="cancel-dialog">キャンセル</button><button class="primary" type="submit">保存</button></div>
     </form>
