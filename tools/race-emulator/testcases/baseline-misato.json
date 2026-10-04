@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "baseline-misato",
+  "name": "MISATO 基本走行",
+  "description": "GPS と車速パルスを使った基本走行。Tab5 で MISATO と PORT.A を選択してから実行する。",
+  "course_id": "misato_loop",
+  "speed_kmh": 12,
+  "wheel_circumference_m": 1.03,
+  "pulses_per_revolution": 1,
+  "max_duration_s": 900,
+  "actions": []
+}

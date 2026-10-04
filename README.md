@@ -25,6 +25,7 @@
 | `assets/` | コースJSON・画像、茂木用の戦略例、UIアイコン |
 | `scripts/`、`test/` | コース定数とUIの生成、ローカルテスト、実機支援ツール |
 | `tools/atoms3-simulator/` | [AtomS3のGPS・車速シミュレーター](tools/atoms3-simulator/README.md)。独立したPlatformIOプロジェクト |
+| `tools/race-emulator/` | [ブラウザで操作する走行試験コンソール](tools/race-emulator/README.md)。AtomS3とTab5のUSBシリアルを監視し、試験ケースとログを管理 |
 | `docs/` | [画面仕様](docs/ui-spec.md)、[設計](docs/architecture.md)、[運用・設定](docs/firmware-guide.md)、[正式版向け試験計画](docs/release-test-plan.md) |
 
 ## ビルドと実機への書き込み

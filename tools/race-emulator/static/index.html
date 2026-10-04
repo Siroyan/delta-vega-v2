@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>race-emulator</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">R<span>·</span>E</span><div><strong>race-emulator</strong><small>TAB5 × ATOMS3 TEST CONSOLE</small></div></div>
+    <div class="top-status"><span id="server-indicator" class="status-dot offline"></span><span id="server-label">Connecting…</span><span class="top-separator"></span><span id="clock"></span></div>
+  </header>
+  <main>
+    <section class="intro">
+      <div><p class="eyebrow">LOCAL TEST CONTROL</p><h1>走行試験を、再現できる形で。</h1><p>AtomS3の走行と異常注入を操作し、Tab5の応答・再起動を同じ時刻で記録します。</p></div>
+      <div class="run-pill" id="run-pill"><span class="status-dot idle"></span><span>READY</span></div>
+    </section>
+    <section class="device-grid" aria-label="Devices">
+      <article class="card device" id="atom-device"></article>
+      <article class="card device" id="tab5-device"></article>
+    </section>
+    <div class="workspace-grid">
+      <section class="card cases-panel">
+        <div class="section-head"><div><p class="eyebrow">01 / TEST LIBRARY</p><h2>試験ケース</h2></div><button class="secondary small" id="new-case">＋ 新規</button></div>
+        <div class="case-list" id="case-list"></div>
+        <div class="case-actions"><button class="secondary" id="edit-case">編集</button><button class="secondary" id="duplicate-case">複製</button></div>
+      </section>
+      <section class="card run-panel">
+        <div class="section-head"><div><p class="eyebrow">02 / RUN CONTROL</p><h2>走行コントロール</h2></div><span class="section-badge" id="run-state">待機中</span></div>
+        <div class="selected-case" id="selected-case"><p>左から試験ケースを選択してください。</p></div>
+        <div class="run-progress"><div class="progress-track"><span id="progress-fill"></span></div><div><span id="elapsed">0:00</span><span id="max-duration">—</span></div></div>
+        <div class="run-actions"><button class="primary" id="start-run">▶ 試験開始</button><button class="danger" id="stop-run" disabled>■ 停止</button></div>
+        <p class="run-note">試験開始時にAtomS3の条件を設定し、Tab5の計測を開始します。停止時はAtomS3のみ止めます。Tab5の計測は実機で終了・取消してください。</p>
+        <div id="run-result" class="run-result" hidden></div>
+      </section>
+    </div>
+    <section class="card event-panel">
+      <div class="section-head"><div><p class="eyebrow">03 / LIVE RECORD</p><h2>イベントとシリアルログ</h2></div><div class="event-controls"><label><input id="all-lines" type="checkbox"> 全行を表示</label><button class="secondary small" id="clear-view">表示を消去</button></div></div>
+      <div class="event-list" id="event-list"><p class="empty">接続と操作の記録がここに表示されます。</p></div>
+      <p class="footnote">完全な記録はPCの <code>tools/race-emulator/runs/</code> に保存されます。ブラウザを閉じても試験は続きます。</p>
+    </section>
+  </main>
+  <dialog id="case-dialog">
+    <form id="case-form" method="dialog">
+      <div class="dialog-head"><div><p class="eyebrow">TEST CASE EDITOR</p><h2 id="dialog-title">試験ケース</h2></div><button type="button" class="icon-button" id="close-dialog" aria-label="閉じる">×</button></div>
+      <div class="form-grid">
+        <label>識別子 <input name="id" required pattern="[a-z][a-z0-9-]{1,63}" placeholder="new-test-case"></label>
+        <label>名前 <input name="name" required maxlength="100" placeholder="GPS 欠測試験"></label>
+        <label class="wide">説明 <textarea name="description" rows="2" maxlength="500"></textarea></label>
+        <label>コースID <input name="course_id" required placeholder="misato_loop"></label>
+        <label>速度 km/h <input name="speed_kmh" type="number" min="1" max="60" step="0.1" required></label>
+        <label>車輪外周 m <input name="wheel_circumference_m" type="number" min="0.1" max="10" step="0.001" required></label>
+        <label>1回転あたりパルス <input name="pulses_per_revolution" type="number" min="1" max="100" step="1" required></label>
+        <label>最大試験時間 秒 <input name="max_duration_s" type="number" min="1" max="86400" step="1" required></label>
+      </div>
+      <div class="action-head"><div><strong>時刻指定のGPS異常</strong><small>例: noise 5 / dropout 30000 / bias 20 -10</small></div><button class="secondary small" type="button" id="add-action">＋ 追加</button></div>
+      <div id="action-list" class="action-list"></div>
+      <p class="form-error" id="form-error" role="alert"></p>
+      <div class="dialog-actions"><button class="secondary" type="button" id="delete-case">削除</button><span></span><button class="secondary" type="button" id="cancel-dialog">キャンセル</button><button class="primary" type="submit">保存</button></div>
+    </form>
+  </dialog>
+  <div id="toast" role="status"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -6,7 +6,7 @@ AtomS3の画面には、コース名、走行状態、現在の周回、設定�
 
 ## 接続
 
-エージング試験では**Tab5をPCのUSBにつなぎ、AtomS3は独立したUSBモバイルバッテリーで給電**します。これならTab5だけが再起動してもAtomS3の走行は続き、Tab5のシリアルで再起動を記録できます。AtomS3をTab5のPort.Aの5Vから給電するとTab5の電源変動が対向機にも波及するため、この試験では使用しません。両機の**GNDを共通化**します。AtomS3のPort.CUSTOMの**白（G1、UART TX）**をTab5のPort.Aの**白（G54、UART RX）**へ接続します。Tab5の設定で `GPS INPUT = PORT.A` を選びます。必要ならAtomS3の黄（G2、UART RX）とTab5 Port.Aの黄（G53、UART TX）も接続できます。GPS出力は9600 bps、8N1、RMC 5 Hz、GGA 1 Hzです。
+ブラウザから試験を管理する場合は**Tab5とAtomS3をそれぞれPCのUSBにつなぎ**、[race-emulator](../race-emulator/README.md)で両方のシリアルを監視します。Tab5だけが再起動してもAtomS3の走行は続き、両機のログを同じPC時刻で記録できます。単体運用ではAtomS3を独立したUSBモバイルバッテリーで給電することもできます。AtomS3をTab5のPort.Aの5Vから給電するとTab5の電源変動が対向機にも波及するため、この試験では使用しません。両機の**GNDを共通化**します。AtomS3のPort.CUSTOMの**白（G1、UART TX）**をTab5のPort.Aの**白（G54、UART RX）**へ接続します。Tab5の設定で `GPS INPUT = PORT.A` を選びます。必要ならAtomS3の黄（G2、UART RX）とTab5 Port.Aの黄（G53、UART TX）も接続できます。GPS出力は9600 bps、8N1、RMC 5 Hz、GGA 1 Hzです。
 
 車速用にはAtomS3底面の **G5** をTab5 M5Busの **G16** に直結します。G5はオープンドレイン出力で、パルス中だけGNDへ引き下げ、通常は解放します。両機器の5V線は接続しません。AtomS3のG5が3.3Vロジックであり、Tab5側G16が現行ファームのプルアップ入力である前提です。実車のECU・リレー・実GPSを同時に接続しないでください。異なる電圧の車両回路を接続する場合は、この直結方式を使わず絶縁してください。
 
