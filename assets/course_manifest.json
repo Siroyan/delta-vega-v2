@@ -3,7 +3,7 @@
   "courses": [
     {
       "folder": "tamagawagakuen_station_loop",
-      "source": "tamagawagakuen_course.json",
+      "source": "course.json",
       "name": "TAMAGAWA GAKUEN",
       "short_name": "TAMAGAWA",
       "settings_namespace": "vega-test4",
@@ -19,7 +19,7 @@
     },
     {
       "folder": "tobitakyu_hospital_loop",
-      "source": "tobitakyu_course.json",
+      "source": "course.json",
       "name": "TOBITAKYU",
       "short_name": "TOBITAKYU",
       "settings_namespace": "vega-tobi4",
@@ -35,7 +35,7 @@
     },
     {
       "folder": "misato_loop",
-      "source": "misato_course.json",
+      "source": "course.json",
       "name": "MISATO",
       "short_name": "MISATO",
       "settings_namespace": "vega-misato5",
@@ -54,7 +54,7 @@
     },
     {
       "folder": "motegi_oval_full",
-      "source": "motegi_course_full.json",
+      "source": "course.json",
       "name": "MOTEGI OVAL",
       "short_name": "MOTEGI",
       "settings_namespace": "vega",

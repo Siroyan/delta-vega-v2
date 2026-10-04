@@ -300,7 +300,7 @@ PULSEの最低点灯時間は表示上の処理であり、実際のパルスカ
 | 項目 | 内容 |
 |---|---|
 | コースID | `motegi_oval_2025_full_v2` |
-| JSON | `motegi_course_full.json`、schema 2 |
+| JSON | `course.json`、schema 2 |
 | 背景画像 | `motegi_course_full_480.png`、480×480 px、北が上 |
 | 編集用画像 | `motegi_course_full.svg` |
 | 経路 | 1周目はスタートから合流して周回更新地点へ。2〜6周目は閉路。7周目は分岐してゴールへ |

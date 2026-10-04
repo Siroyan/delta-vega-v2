@@ -16,7 +16,7 @@ STARTから北側道路を東進し、病院東側を南下する。国道20号�
 
 ## ファイルと切替
 
-- `tobitakyu_course.json`：WGS84座標、累積距離、画素変換、4周の経路、判定地点。
+- `course.json`：WGS84座標、累積距離、画素変換、4周の経路、判定地点。
 - `tobitakyu_course.svg`：480 pxの原画。
 - `tobitakyu_course_480.png`：実機の背景画像。地点マーカーはファームウェア側で重ねる。
 - `tobitakyu_course_preview.png`：地点を重ねた確認用画像。
