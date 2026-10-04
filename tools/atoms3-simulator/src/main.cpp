@@ -6,7 +6,7 @@
 #include <string.h>
 #include <time.h>
 
-#include "generated_courses.h"
+#include "course_data.h"
 #include "sim_display.h"
 
 namespace {
@@ -502,6 +502,20 @@ void setup() {
   digitalWrite(kWheelPin, HIGH);
   Serial.begin(115200);
   sim_display::begin();
+  Serial.println("[SIM] opening course JSON from LittleFS");
+  if (!sim::loadCoursesFromFs()) {
+    Serial.println("[SIM] course data unavailable; check LittleFS upload");
+    M5.Display.fillScreen(0x0000);
+    M5.Display.setTextColor(0xFFFF);
+    M5.Display.setTextDatum(textdatum_t::middle_center);
+    M5.Display.drawString("COURSE DATA", 64, 53);
+    M5.Display.drawString("UNAVAILABLE", 64, 73);
+    for (;;) {
+      Serial.println("[SIM] course data unavailable; run uploadfs, then reboot");
+      delay(3000); // Keep the wheel output released; never drive without a course.
+    }
+  }
+  Serial.printf("[SIM] course JSON ready after %lu ms\n", millis());
   loadSettings();
   // HardwareSerial otherwise writes into only the UART FIFO and can block long
   // enough at 9600 bps to miss wheel pulse deadlines.

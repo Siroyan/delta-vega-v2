@@ -1,6 +1,6 @@
 # AtomS3 GPS・車速シミュレーター
 
-Tab5の長時間試験用対向機です。`assets/course_manifest.json` に登録されたコースの経路を走行し、同じ走行距離からGPSのNMEA文と車輪パルスを生成します。Tab5本体のファームウェアは変更しません。
+Tab5の長時間試験用対向機です。`assets/course_manifest.json` に登録された各 `assets/<コース>/course.json` をAtomS3のLittleFSへ配置し、起動時に**Tab5と同じJSON**を読み込みます。生成されたC++のコース配列は使いません。同じ走行距離からGPSのNMEA文と車輪パルスを生成します。Tab5本体のファームウェアは変更しません。
 
 AtomS3の画面には、コース名、走行状態、現在の周回、設定速度、走行距離、送出した車速パルス数、GPSの異常注入状態、送出遅れのパルス数を表示します。画面下端の細いバーは現在のルートの進行率です。`READY`、`RUN`、`PAUSE`、`GOAL` は本体ボタンまたはUSBシリアルからの走行操作と連動します。`MISS` が0以外ならパルス送出が間に合っていないため、試験結果を確認してください。
 
@@ -51,13 +51,15 @@ Tab5だけをPCのUSBへ接続し、VS Codeなど他のシリアルモニター�
 ## ビルド・書き込み
 
 ```sh
-python3 tools/atoms3-simulator/scripts/generate_courses.py --check
 pio run -d tools/atoms3-simulator
+pio run -d tools/atoms3-simulator -t uploadfs --upload-port /dev/cu.usbmodemXXXX
 pio run -d tools/atoms3-simulator -t upload --upload-port /dev/cu.usbmodemXXXX
 pio device monitor -d tools/atoms3-simulator -p /dev/cu.usbmodemXXXX -b 115200
 ```
 
-リポジトリ直下ではなく、このディレクトリが独立したPlatformIOプロジェクトです。VS Codeでも `tools/atoms3-simulator` を別のワークスペースとして開けます。コースデータを変更したら `python3 tools/atoms3-simulator/scripts/generate_courses.py` でヘッダーを再生成します。生成元は既存の `assets/course_manifest.json` と各コースのJSONです。
+リポジトリ直下ではなく、このディレクトリが独立したPlatformIOプロジェクトです。VS Codeでも `tools/atoms3-simulator` を別のワークスペースとして開けます。ビルド時と`uploadfs`時に、共通の`assets/course_manifest.json`と各`course.json`を内容を変えずに、Git管理外の`data/`へ自動配置します。**コースを変更したときは`uploadfs`が必須**です。ファームウェアの書き込みだけではAtomS3内のコースJSONは更新されません。初回も`uploadfs`と`upload`の両方が必要です。JSONを読み込めない場合、車速出力を止め、画面に`COURSE DATA UNAVAILABLE`を表示します。
+
+Apple SiliconのMacでは、PlatformIOに付属するLittleFS作成ツールがIntel専用の場合があります。その場合は`brew install mklittlefs`を実行してください。このプロジェクトはインストールされたネイティブ版を自動で使用します。
 
 ## 操作
 
