@@ -24,6 +24,7 @@
 | `eez/`、`src/ui/` | EEZ Studioの編集元プロジェクトと生成済みLVGLコード |
 | `assets/` | コースJSON・画像、茂木用の戦略例、UIアイコン |
 | `scripts/`、`test/` | コース定数とUIの生成、ローカルテスト、実機支援ツール |
+| `tools/atoms3-simulator/` | [AtomS3のGPS・車速シミュレーター](tools/atoms3-simulator/README.md)。独立したPlatformIOプロジェクト |
 | `docs/` | [画面仕様](docs/ui-spec.md)、[設計](docs/architecture.md)、[運用・設定](docs/firmware-guide.md)、[正式版向け試験計画](docs/release-test-plan.md) |
 
 ## ビルドと実機への書き込み
