@@ -20,6 +20,8 @@ for entry in manifest["courses"]:
     if not re.fullmatch(r"[a-z0-9_]{1,40}", folder):
         raise ValueError(f"invalid folder: {folder}")
     source_dir = ROOT / "assets" / folder
+    if entry["source"] != "course.json":
+        raise ValueError(f"course source must be course.json: {folder}")
     course_json = source_dir / entry["source"]
     data = json.loads(course_json.read_text())
     if data["schema_version"] != 2 or not 2 <= data.get("lap_count", 7) <= 7:

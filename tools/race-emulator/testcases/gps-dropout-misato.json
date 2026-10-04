@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "gps-dropout-misato",
+  "name": "MISATO GPS 30 秒欠測",
+  "description": "開始 45 秒後から 30 秒間 GPS を欠測させる。車速パルスは継続する。",
+  "course_id": "misato_loop",
+  "speed_kmh": 12,
+  "wheel_circumference_m": 1.03,
+  "pulses_per_revolution": 1,
+  "max_duration_s": 900,
+  "actions": [
+    {"at_s": 45, "command": "dropout 30000"}
+  ]
+}

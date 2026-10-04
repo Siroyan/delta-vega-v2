@@ -180,7 +180,7 @@ data = {
     },
 }
 
-(HERE / "misato_course.json").write_text(json.dumps(data, indent=2) + "\n")
+(HERE / "course.json").write_text(json.dumps(data, indent=2) + "\n")
 
 px_points = [pixel(p) for p in regular_points]
 line = " ".join(f"{x:.2f},{y:.2f}" for x, y in px_points)

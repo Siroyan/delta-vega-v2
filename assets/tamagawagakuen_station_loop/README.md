@@ -20,7 +20,7 @@
 
 ## ファイル
 
-- `tamagawagakuen_course.json`：WGS84座標、経路の累積距離、座標から480 px画像への変換行列、4周の経路、判定地点。既存の茂木コースと同じschema version 2。
+- `course.json`：WGS84座標、経路の累積距離、座標から480 px画像への変換行列、4周の経路、判定地点。既存の茂木コースと同じschema version 2。
 - `tamagawagakuen_course.svg`：480 × 480 pxのコース原画。淡い線は小田急線の位置の目安。
 - `tamagawagakuen_course_480.png`：Tab5用の背景画像。START・LAP・GOALの印はファームウェア側で重ねる想定。
 - `tamagawagakuen_course_preview.png`：地点と周回更新線を重ねた確認用画像。

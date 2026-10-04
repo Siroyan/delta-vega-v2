@@ -1,6 +1,6 @@
 # コースアセット
 
-コース形状、地図画像、初期設定はmicroSDから読み込みます。ファームウェアには個別コースを組み込みません。元データはこのディレクトリで管理し、`course_manifest.json`の順序が選択画面の順序と初回選択を決めます。茂木、玉川学園前、飛田給、MISATOは同じ形式です。
+コース形状、地図画像、初期設定はmicroSDから読み込みます。ファームウェアには個別コースを組み込みません。編集元は各`<コース>/course.json`と`course_manifest.json`です。`course_manifest.json`の順序が選択画面の順序と初回選択を決めます。茂木、玉川学園前、飛田給、MISATOは同じ形式です。AtomS3シミュレーターも同じ`course.json`をLittleFSへ配置して読み込みます。
 
 新規コースを作る手順は[コース作成マニュアル](../docs/course-creation.md)を参照してください。
 
@@ -12,7 +12,7 @@
 python3 scripts/package_courses.py sdcard-package
 ```
 
-生成された`sdcard-package/vega/courses/`をmicroSDの`/vega/courses/`へコピーしてください。配置内容は`catalog.json`と、各コースの`course.json`・`map.rgb565`です。画像は480×480のRGB565データです。Gitでは編集元のJSON・画像・マニフェストに加え、MISATOの`map.rgb565`を管理します。microSD用の`catalog.json`はパッケージ生成時に作ります。
+生成された`sdcard-package/vega/courses/`をmicroSDの`/vega/courses/`へコピーしてください。配置内容は`catalog.json`と、各コースの`course.json`・`map.rgb565`です。コースJSONはリポジトリ内の編集元と同じバイト列です。画像は480×480のRGB565データです。Gitでは編集元のJSON・画像・マニフェストに加え、MISATOの`map.rgb565`を管理します。microSD用の`catalog.json`はパッケージ生成時に作ります。
 
 カードをTab5に挿したままUSB経由で1コースを追加する場合は、Waiting画面・電装OFFで`python3 scripts/upload_course.py misato_loop --port <シリアルポート>`を実行します。`course.json`・`map.rgb565`・更新した`catalog.json`を順に転送し、Tab5の再起動とコース選択まで確認します。転送中はmicroSDを抜かないでください。
 
@@ -27,6 +27,6 @@ python3 scripts/package_courses.py sdcard-package
 | `motegi_oval_full/` | 7 | `vega` |
 | `misato_loop/` | 5 | `vega-misato5` |
 
-新しいコースは同じschema 2のJSONと480×480 RGB565画像を用意し、`course_manifest.json`へID、表示名、NVS領域、初期座標とTARGETを追加して再生成します。短いコースでは`min_lap_progress_m`、`min_lap_ms`、`lap_duplicate_ms`もマニフェストで初期設定できます。旧アセットの`course_image.c`または新規アセットの`map.rgb565`をパッケージ生成元に使えます。個別コースの形状をC++へ再生成する必要はありません。
+新しいコースは`<コース>/course.json`として同じschema 2のJSONと480×480 RGB565画像を用意し、`course_manifest.json`へID、表示名、NVS領域、初期座標とTARGETを追加して再生成します。短いコースでは`min_lap_progress_m`、`min_lap_ms`、`lap_duplicate_ms`もマニフェストで初期設定できます。旧アセットの`course_image.c`または新規アセットの`map.rgb565`をパッケージ生成元に使えます。個別コースの形状をC++へ再生成する必要はありません。
 
 戦略JSONはmicroSDの`/vega/strategies/`に配置します。詳細は[走行戦略データ](strategy/README.md)を参照してください。

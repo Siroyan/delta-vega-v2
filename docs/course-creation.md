@@ -111,7 +111,7 @@ START、LAP、GOALの3点だけでは走る道は一意に決まりません。�
 
 ### 3. `course.json`を作る
 
-`assets/<フォルダ名>/course.json`を作ります。ファイル名は元データ側で自由ですが、マニフェストの`source`と一致させます。既存の[`MISATOのJSON`](../assets/misato_loop/misato_course.json)を**形式の見本**にして、以下の値を自分のコースに置き換えてください。`landmarks`や`source`は説明用データで、実際の地点マーカーはマニフェストとNVSの座標から描かれます。
+`assets/<フォルダ名>/course.json`を作ります。Tab5とAtomS3で共用するため、マニフェストの`source`にも`course.json`を指定します。既存の[`MISATOのJSON`](../assets/misato_loop/course.json)を**形式の見本**にして、以下の値を自分のコースに置き換えてください。`landmarks`や`source`は説明用データで、実際の地点マーカーはマニフェストとNVSの座標から描かれます。
 
 | キー | 設定内容 |
 |---|---|
