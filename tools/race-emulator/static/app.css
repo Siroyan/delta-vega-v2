@@ -405,8 +405,23 @@ main {
 .event-line {
   display:flex;
   gap:11px;
+  width:max-content;
+  min-width:100%;
+  white-space:nowrap;
   border-bottom:1px solid #ffffff0c;
   padding:3px 0
+}
+.event-line span {
+  flex:none
+}
+.event-list.wrap-lines .event-line {
+  width:auto;
+  white-space:normal
+}
+.event-list.wrap-lines .event-line span {
+  flex:1 1 auto;
+  min-width:0;
+  overflow-wrap:anywhere
 }
 .event-line time {
   color:#68849a;
@@ -608,10 +623,12 @@ dialog::backdrop {
     grid-column:auto
   }
   .event-controls {
-    gap:5px
+    gap:10px;
+    flex-wrap:wrap
   }
-  .event-controls label {
-    display:none
+  .event-panel .section-head {
+    align-items:flex-start;
+    flex-direction:column
   }
   .event-list {
     font-size:10px

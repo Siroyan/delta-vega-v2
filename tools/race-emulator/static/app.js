@@ -186,6 +186,13 @@ $("#start-run").onclick = async () => {
 };
 $("#stop-run").onclick = async () => { try { await api("/api/runs/stop", "POST", {}); toast("AtomS3を停止しました。Tab5の計測は実機で終了してください"); } catch (error) { handleError(error); } };
 $("#all-lines").onchange = renderEvents;
+$("#wrap-lines").checked = localStorage.getItem("race-emulator-wrap-lines") === "true";
+$("#event-list").classList.toggle("wrap-lines", $("#wrap-lines").checked);
+$("#wrap-lines").onchange = event => {
+  const wrap = event.target.checked;
+  localStorage.setItem("race-emulator-wrap-lines", String(wrap));
+  $("#event-list").classList.toggle("wrap-lines", wrap);
+};
 $("#clear-view").onclick = () => { shownEvents = []; renderEvents(); };
 setInterval(() => { $("#clock").textContent = new Date().toLocaleString("ja-JP"); }, 1000);
 loadCases().catch(handleError); live();
