@@ -195,7 +195,7 @@ main {
   flex:1;
   min-width:0
 }
-.device select,.form-grid input,.form-grid textarea,.action-row input {
+.device select,.form-grid input,.form-grid select,.form-grid textarea,.action-row input {
   border:1px solid #d5e0e9;
   border-radius:8px;
   background:#f8fbfd;
@@ -504,7 +504,7 @@ dialog::backdrop {
 .form-grid .wide {
   grid-column:span 2
 }
-.form-grid input,.form-grid textarea {
+.form-grid input,.form-grid select,.form-grid textarea {
   width:100%;
   font-size:13px
 }

@@ -61,6 +61,12 @@ def list_cases():
     return controller.cases.list()
 
 
+@app.get("/api/courses")
+def list_courses():
+    manifest = json.loads((ROOT.parents[1] / "assets" / "course_manifest.json").read_text(encoding="utf-8"))
+    return [{"id": entry["folder"], "name": entry["name"]} for entry in manifest["courses"]]
+
+
 @app.get("/api/cases/{case_id}")
 def get_case(case_id: str):
     try:

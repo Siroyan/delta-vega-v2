@@ -2,6 +2,7 @@ const $ = (selector) => document.querySelector(selector);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
 const fmtTime = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 let state = null, cases = [], selected = null, editOriginal = null, socket = null;
+let courseOptions = [];
 let draftPorts = {}, lastSeq = 0, shownEvents = [], toastTimer = null;
 let tab5Mode = localStorage.getItem("race-emulator-tab5-mode") === "usb" ? "usb" : "standalone";
 
@@ -144,11 +145,15 @@ function addAction(action = {at_s:0,command:"noise 5"}) {
   row.querySelector("button").onclick = () => row.remove();
   $("#action-list").appendChild(row);
 }
-function openEditor(item, duplicate = false) {
+async function openEditor(item, duplicate = false) {
+  courseOptions = await api("/api/courses");
   editOriginal = duplicate ? null : item?.id || null;
   const form = $("#case-form"); form.reset();
-  const data = item || {id:"",name:"",description:"",course_id:"misato_loop",speed_kmh:12,wheel_circumference_m:1.03,pulses_per_revolution:1,max_duration_s:900,actions:[]};
-  for (const key of ["id","name","description","course_id","speed_kmh","wheel_circumference_m","pulses_per_revolution","max_duration_s"]) form.elements.namedItem(key).value = data[key];
+  const data = item || {id:"",name:"",description:"",course_id:"",speed_kmh:12,wheel_circumference_m:1.03,pulses_per_revolution:1,max_duration_s:900,actions:[]};
+  const courseSelect = form.elements.namedItem("course_id");
+  courseSelect.innerHTML = `<option value="">コースを選択</option>${courseOptions.map(course => `<option value="${esc(course.id)}">${esc(course.name)} (${esc(course.id)})</option>`).join("")}`;
+  for (const key of ["id","name","description","speed_kmh","wheel_circumference_m","pulses_per_revolution","max_duration_s"]) form.elements.namedItem(key).value = data[key];
+  courseSelect.value = data.course_id;
   if (duplicate) form.elements.namedItem("id").value = `${data.id}-copy`;
   form.elements.namedItem("id").readOnly = !!editOriginal;
   $("#dialog-title").textContent = duplicate ? "試験ケースを複製" : item ? "試験ケースを編集" : "新しい試験ケース";
@@ -163,9 +168,9 @@ function editorData() {
   return {schema_version:1,id:value("id").trim(),name:value("name").trim(),description:value("description").trim(),course_id:value("course_id").trim(),speed_kmh:Number(value("speed_kmh")),wheel_circumference_m:Number(value("wheel_circumference_m")),pulses_per_revolution:Number(value("pulses_per_revolution")),max_duration_s:Number(value("max_duration_s")),actions:Array.from($("#action-list").children).map(row => ({at_s:Number(row.children[0].value),command:row.children[1].value.trim()}))};
 }
 
-$("#new-case").onclick = () => openEditor(null);
-$("#edit-case").onclick = () => selected && openEditor(selected);
-$("#duplicate-case").onclick = () => selected && openEditor(selected, true);
+$("#new-case").onclick = () => openEditor(null).catch(handleError);
+$("#edit-case").onclick = () => selected && openEditor(selected).catch(handleError);
+$("#duplicate-case").onclick = () => selected && openEditor(selected, true).catch(handleError);
 $("#close-dialog").onclick = $("#cancel-dialog").onclick = () => $("#case-dialog").close();
 $("#add-action").onclick = () => addAction();
 $("#case-form").onsubmit = async event => {
