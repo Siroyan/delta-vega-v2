@@ -538,6 +538,8 @@ void refreshBrightnessControl() {
 }
 class View final : public vega::IView {
  public:
+  // 同じ計測情報を各ライブ画面に反映する。画面外の操作部品も更新し、
+  // 戻ってきたときに古い電装・点火状態が見えないようにする。
   void show(const vega::DisplayModel &m) override {
     for (auto &page : gps_coordinate_labels) {
       text(page[0], m.gps_latitude);
@@ -956,6 +958,8 @@ void setupSelectionUi() {
 
 void viewOpenSelection() { openSelection(); }
 
+// EEZ 生成画面へ実行時の地図・設定・選択オーバーレイを追加し、
+// ボタン入力と画面遷移を結び付ける。生成ファイル自体は変更しない。
 void viewBegin() {
   // Both live pages have the same free space between race status and clock.
   auto createGpsCoordinateLabel = [](lv_obj_t *screen, int y, const char *initial) {
@@ -1220,6 +1224,8 @@ void viewBegin() {
   course_markers_positioned = false;
   loadScreen(SCREEN_ID_WAITING);
 }
+// アプリの最新状態を描画し、コース変更時には地図とマーカーを入れ替える。
+// SD の抜き差し確認は選択画面を開いている間だけ行う。
 void viewUpdate() {
   vega::Snapshot s;
   if (!snapshot(s)) return;
