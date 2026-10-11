@@ -8,10 +8,10 @@
 #include <limits>
 #include <string>
 
-#include "../../assets/motegi_oval_full/course_data.h"
-#include "../../assets/misato_loop/course_data.h"
-#include "../../assets/tamagawagakuen_station_loop/course_data.h"
-#include "../../assets/tobitakyu_hospital_loop/course_data.h"
+#include "../../assets/maps/motegi_oval_full/course_data.h"
+#include "../../assets/maps/misato_loop/course_data.h"
+#include "../../assets/maps/tamagawagakuen_station_loop/course_data.h"
+#include "../../assets/maps/tobitakyu_hospital_loop/course_data.h"
 #include "../../src/control_gesture.h"
 #include "../../src/adapters/settings_migration.h"
 #include "../../src/adapters/reed_pulse_filter.h"

@@ -38,8 +38,8 @@ UI統合コミット: `8869552`（PR #1、承認済みUI・仕様・アイコン
 | `src/ui/screens.c` | EEZ生成画面。最新のEEZ編集を実機に反映する際に再生成する |
 | `src/ui/screens.h` | EEZ生成オブジェクトの参照 |
 | `eez/fonts/` | Ricty Diminishedの元フォントとライセンス |
-| `assets/motegi_oval_full/` | 進入路・周回路・ゴール分岐のJSON、480×480背景PNG、編集用SVG |
-| `assets/motegi_oval_full_100/` | 同じ地図・経路を使う100周エージング試験用コース |
+| `assets/maps/motegi_oval_full/` | 進入路・周回路・ゴール分岐のJSON、480×480背景PNG、編集用SVG |
+| `assets/maps/motegi_oval_full_100/` | 同じ地図・経路を使う100周エージング試験用コース |
 | `assets/icons/lucide/` | 操作・メニュー・地図上点火アイコンの元SVG、派生SVG・PNG、ライセンス |
 | `src/app/ui_navigation.cpp` | メニュー開閉、Settingsへの遷移、元のダッシュボードへの復帰 |
 | `README.md` | ビルド手順、EEZ生成先、生成コードを直接編集しない方針 |
@@ -394,8 +394,8 @@ EEZはレイアウト・固定スタイル・静的アセットの編集元と�
 | `eez/delta-vega-v2.eez-project` | 画面の編集元。既存 |
 | `eez/fonts/` | 元フォントとライセンス。既存 |
 | `assets/icons/lucide/` | 電源・炎・メニュー等の原本SVG、派生SVG・PNG、ライセンス、取得元 |
-| `assets/motegi_oval_full/` | 収録コースの一つ。JSON・背景PNG・編集用SVG・組込用画像 |
-| `assets/motegi_oval_full_100/` | 茂木コースから生成する100周エージング試験用データ |
+| `assets/maps/motegi_oval_full/` | 収録コースの一つ。JSON・背景PNG・編集用SVG・組込用画像 |
+| `assets/maps/motegi_oval_full_100/` | 茂木コースから生成する100周エージング試験用データ |
 | `src/ui/` | EEZ生成物。既存。生成先は`../src/ui`を維持 |
 | `src/app/ui_navigation.cpp` | メニュー開閉、設定画面への遷移、元の画面への復帰。EEZ生成コードの外に実装 |
 | `lib/vega_core/src/presentation/` | Presenter・表示モデル・Viewインターフェース。実装済み。LVGLに依存しない |
@@ -403,7 +403,7 @@ EEZはレイアウト・固定スタイル・静的アセットの編集元と�
 | `src/adapters/lvgl_view.*` | LVGL View・EEZオブジェクトとの接続・動的地図描画 |
 | `src/tab5_lvgl.*` | 画面・タッチ接続。既存 |
 
-`assets/`には各コースの編集元をまとめる。`scripts/package_courses.py`でコースJSONとRGB565地図画像をmicroSD用に配置する。ファームウェアは起動時に最大8コースを検証してPSRAMへ読み込み、EEZ画面の共通地図ウィジェットへ選択した画像を設定する。ファイルを変更した場合はTab5を再起動して読み直す。
+`assets/maps/`には各コースの編集元をまとめる。`scripts/package_courses.py`でコースJSONとRGB565地図画像をmicroSD用に配置する。ファームウェアは起動時に最大8コースを検証してPSRAMへ読み込み、EEZ画面の共通地図ウィジェットへ選択した画像を設定する。ファイルを変更した場合はTab5を再起動して読み直す。
 
 ### 10.2 現行EEZオブジェクト名
 

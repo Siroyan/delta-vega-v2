@@ -11,7 +11,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("destination", type=Path, help="microSD root or staging directory")
 args = parser.parse_args()
 target = args.destination / "vega" / "courses"
-manifest = json.loads((ROOT / "assets/course_manifest.json").read_text())
+manifest = json.loads((ROOT / "assets/maps/course_manifest.json").read_text())
 if manifest["schema_version"] != 1:
     raise ValueError("unsupported catalog schema")
 target.mkdir(parents=True, exist_ok=True)
@@ -19,7 +19,7 @@ for entry in manifest["courses"]:
     folder = entry["folder"]
     if not re.fullmatch(r"[a-z0-9_]{1,40}", folder):
         raise ValueError(f"invalid folder: {folder}")
-    source_dir = ROOT / "assets" / folder
+    source_dir = ROOT / "assets" / "maps" / folder
     if entry["source"] != "course.json":
         raise ValueError(f"course source must be course.json: {folder}")
     course_json = source_dir / entry["source"]

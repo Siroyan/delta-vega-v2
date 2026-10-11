@@ -98,8 +98,9 @@ variants/m5tab5/       Tab5専用Arduinoピン定義
 include/config/       通信設定例（秘密情報はGit除外）
 scripts/              nativeテスト、EEZ再生成、コース定数生成
 assets/
-  course_catalog.*    収録コースの登録とコース別の初期設定
-  <course>/            コースJSON・画像・生成済み定数
+  course_catalog.*    microSDのコース読み込みと共通の登録処理
+  maps/               コース一覧と各コースのJSON・画像・生成スクリプト
+    <course>/          コース固有の編集元と生成済みデータ
 test/native/          中核のテスト
 ```
 

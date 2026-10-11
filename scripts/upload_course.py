@@ -52,7 +52,7 @@ def upload(device, folder, filename, data):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("folder", help="Folder in assets/, e.g. misato_loop")
+    parser.add_argument("folder", help="Folder in assets/maps/, e.g. misato_loop")
     parser.add_argument("--port", required=True)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="vega-course-") as staging:
