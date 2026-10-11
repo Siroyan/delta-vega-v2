@@ -87,7 +87,10 @@ void update(const Snapshot &snapshot, uint32_t now_ms) {
   view.setTextSize(2);
   view.drawString(snapshot.course_name, 64, 38);
   char line[32];
-  snprintf(line, sizeof(line), "LAP %u/%u", snapshot.lap, snapshot.lap_count);
+  if (snapshot.lap_count >= 100)
+    snprintf(line, sizeof(line), "%u / %u", snapshot.lap, snapshot.lap_count);
+  else
+    snprintf(line, sizeof(line), "LAP %u/%u", snapshot.lap, snapshot.lap_count);
   view.drawString(line, 64, 62);
 
   snprintf(line, sizeof(line), "%.1f", snapshot.speed_kmh);

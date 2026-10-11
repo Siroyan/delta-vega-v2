@@ -14,6 +14,7 @@ struct UiStatus {
 };
 struct DisplayModel {
   RacePhase phase = RacePhase::Waiting;
+  uint8_t lap_count = kLapCount;
   char speed[16]{}, average[16]{}, lap[24]{}, total[24]{}, lap_time[24]{}, total_target[40]{},
       lap_target[40]{};
   char notice[100]{}, map_status[48]{}, gps_status[32]{}, link[32]{}, race_status[32]{},
@@ -49,7 +50,7 @@ class Presenter {
   bool request(const Command &command);
   const Settings &settings() const { return settings_; }
   RacePhase phase() const { return phase_; }
-  void setLapCount(uint8_t count) { if (count >= 2 && count <= kLapCount) lap_count_ = count; }
+  void setLapCount(uint8_t count) { if (count >= 2 && count <= kMaxRaceLaps) lap_count_ = count; }
   static void formatTime(uint64_t ms, char *text, size_t capacity);
 
  private:

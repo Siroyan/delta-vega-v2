@@ -8,7 +8,7 @@ from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
 ROOT = PROJECT.parents[1]
-MANIFEST = ROOT / "assets" / "course_manifest.json"
+MANIFEST = ROOT / "assets" / "maps" / "course_manifest.json"
 DATA = PROJECT / "data"
 
 
@@ -27,7 +27,7 @@ def stage_courses():
             raise ValueError(f"invalid course folder: {folder}")
         if entry["source"] != "course.json":
             raise ValueError(f"course source must be course.json: {folder}")
-        source = ROOT / "assets" / folder / "course.json"
+        source = ROOT / "assets" / "maps" / folder / "course.json"
         course = json.loads(source.read_text())
         if course.get("schema_version") != 2:
             raise ValueError(f"unsupported course schema: {source}")

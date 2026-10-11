@@ -1,6 +1,6 @@
 # コース作成マニュアル
 
-この文書は、新しいコースをコーディングエージェントに作成してもらう方法と、自分で一から作る方法を説明します。どちらも、コース固有の形状・画像・初期設定は`assets/`に置き、Tab5はmicroSDの`/vega/courses/`から読み込みます。通常のコース追加では、既存ファームウェアのC++やEEZ Studioプロジェクトを変更する必要はありません。
+この文書は、新しいコースをコーディングエージェントに作成してもらう方法と、自分で一から作る方法を説明します。どちらも、コース固有の形状・画像・初期設定は`assets/maps/`に置き、Tab5はmicroSDの`/vega/courses/`から読み込みます。通常のコース追加では、既存ファームウェアのC++やEEZ Studioプロジェクトを変更する必要はありません。
 
 ## 第1章 コーディングエージェントを使用して作る
 
@@ -30,14 +30,14 @@
 START: <緯度>, <経度>
 LAP更新地点: <緯度>, <経度>
 GOAL: <緯度>, <経度>
-周回数: <2〜7>
+周回数: <2〜100>
 周回方向: <北が上の地図で時計回り／反時計回り>
 道順: <STARTから曲がる角を順に記載。GPS軌跡や地図のリンクがあれば添付>
 想定する走行: <徒歩／自転車／車両、速度の目安>
 TARGET: <各周・全体。未定なら初期値を提案して記録>
 作業範囲: <コースデータ作成／ビルド／microSD転送／実機確認>
 
-既存のコース形式と判定処理を確認し、コース固有の形状・画像・初期設定はassets内に配置してください。
+既存のコース形式と判定処理を確認し、コース固有の形状・画像・初期設定は`assets/maps/`内に配置してください。
 course.json、480×480の地図画像、map.rgb565、マニフェスト、コースのREADMEを整合させてください。
 START・LAP・GOALと進行方向、周回数、地図上の位置が一致することを検証してください。
 PCでパッケージ生成と必要な周回判定テストを実施してください。
@@ -50,7 +50,7 @@ PCでパッケージ生成と必要な周回判定テストを実施してくだ
 
 エージェントの完了報告では、少なくとも次を確認します。
 
-1. `assets/<コース名>/`に経路JSON、SVGまたはPNG、`map.rgb565`、READMEがあり、[`assets/course_manifest.json`](../assets/course_manifest.json)へ登録されている。
+1. `assets/maps/<コース名>/`に経路JSON、SVGまたはPNG、`map.rgb565`、READMEがあり、[`assets/maps/course_manifest.json`](../assets/maps/course_manifest.json)へ登録されている。
 2. 北を上にした地図で道順が指定方向に合い、START・LAP・GOALが道路線の近くにある。1周目、中間周、最終周の経路長とGOALまでの順番が説明されている。
 3. `python3 scripts/package_courses.py <出力先>`が成功し、必要なネイティブテストとファームウェアのビルド結果が報告されている。
 4. 実機作業を依頼した場合、microSDのコース一覧、選択後の周回数、地図と地点マーカー、再起動後の設定保持を確認した結果がある。
@@ -60,7 +60,7 @@ PCでパッケージ生成と必要な周回判定テストを実施してくだ
 
 ## 第2章 手動で作る
 
-ここからは、GPS軌跡から自動生成せず、地図や現地調査をもとにコースを一から定義します。例として[`assets/misato_loop/`](../assets/misato_loop/)を参照できます。
+ここからは、GPS軌跡から自動生成せず、地図や現地調査をもとにコースを一から定義します。例として[`assets/maps/misato_loop/`](../assets/maps/misato_loop/)を参照できます。
 
 ### 1. 作業前に決めること
 
@@ -69,7 +69,7 @@ PCでパッケージ生成と必要な周回判定テストを実施してくだ
 | 項目 | 決め方 |
 |---|---|
 | コースID・フォルダ名 | 例: `misato_loop_v1`・`misato_loop`。他コースと重複させない |
-| 周回数 | 2〜7周。計測開始時がLAP 1で、最後のLAP表示でGOALを判定する |
+| 周回数 | 2〜100周。計測開始時がLAP 1で、最後のLAP表示でGOALを判定する |
 | START | ドライバーが手動で計測を開始する目安。GPSでは自動開始しない |
 | LAP | 1周目から最終周の一つ前まで、通過を検出する地点 |
 | GOAL | 最終周だけ完走を検出する地点 |
@@ -91,7 +91,7 @@ START、LAP、GOALの3点だけでは走る道は一意に決まりません。�
 
 ### 2. 地理座標を経路点に変換する
 
-1. `assets/<フォルダ名>/`を作り、調査した緯度経度の点を進行順に並べます。急な曲がり角、分岐、START、LAP、GOAL付近には点を追加します。
+1. `assets/maps/<フォルダ名>/`を作り、調査した緯度経度の点を進行順に並べます。急な曲がり角、分岐、START、LAP、GOAL付近には点を追加します。
 2. コース付近に原点`lat0, lon0`を一つ置き、すべての点を東方向`east_m`・北方向`north_m`のメートル座標へ変換します。小さなコースでは次の近似を使えます。
 
    ```text
@@ -111,7 +111,7 @@ START、LAP、GOALの3点だけでは走る道は一意に決まりません。�
 
 ### 3. `course.json`を作る
 
-`assets/<フォルダ名>/course.json`を作ります。Tab5とAtomS3で共用するため、マニフェストの`source`にも`course.json`を指定します。既存の[`MISATOのJSON`](../assets/misato_loop/course.json)を**形式の見本**にして、以下の値を自分のコースに置き換えてください。`landmarks`や`source`は説明用データで、実際の地点マーカーはマニフェストとNVSの座標から描かれます。
+`assets/maps/<フォルダ名>/course.json`を作ります。Tab5とAtomS3で共用するため、マニフェストの`source`にも`course.json`を指定します。既存の[`MISATOのJSON`](../assets/maps/misato_loop/course.json)を**形式の見本**にして、以下の値を自分のコースに置き換えてください。`landmarks`や`source`は説明用データで、実際の地点マーカーはマニフェストとNVSの座標から描かれます。
 
 | キー | 設定内容 |
 |---|---|
@@ -121,7 +121,7 @@ START、LAP、GOALの3点だけでは走る道は一意に決まりません。�
 | `render.local_to_pixel_matrix_2x3` | 地理座標から480×480画像座標への変換行列 |
 | `routes.first_lap` / `regular_lap` / `final_lap` | 各経路の`closed`、`length_m`、進行順の`points` |
 | `segments` | 通常は`{}`。ゴール分岐がある場合だけ`finish_approach`を追加 |
-| `lap_count` | 2〜7の整数 |
+| `lap_count` | 2〜100の整数。8周目以降のTARGETは7周目の設定値を共用する。走行戦略ファイルは最大7周まで対応 |
 | `race_sequence` | 1周目`first_lap`、中間`regular_lap`、最終`final_lap`の順 |
 | `race_length_m` | `first_lap.length_m + (N-2) × regular_lap.length_m + final_lap.length_m` |
 
@@ -162,7 +162,7 @@ microSD用には**480×480 px、RGB565、1画素2バイト、リトルエンデ�
 
 ```sh
 python3 -m pip install Pillow
-python3 - assets/my_course/map.png assets/my_course/map.rgb565 <<'PY'
+python3 - assets/maps/my_course/map.png assets/maps/my_course/map.rgb565 <<'PY'
 import struct
 import sys
 from PIL import Image
@@ -176,11 +176,11 @@ with open(sys.argv[2], "wb") as output:
 PY
 ```
 
-既存の[`MISATO生成スクリプト`](../assets/misato_loop/generate.py)は、座標からJSON・SVG・PNG・RGB565を一括生成する参考例です。手作業で描いた画像を使う場合も、画像と行列の一致を優先してください。
+既存の[`MISATO生成スクリプト`](../assets/maps/misato_loop/generate.py)は、座標からJSON・SVG・PNG・RGB565を一括生成する参考例です。手作業で描いた画像を使う場合も、画像と行列の一致を優先してください。
 
 ### 5. マニフェストへ登録する
 
-[`assets/course_manifest.json`](../assets/course_manifest.json)の`courses`へ1件追加します。ここで指定する座標と初期設定が、実機の通過判定と地点マーカーに使われます。下は構造例です。値は自分のコースに合わせて置き換えてください。
+[`assets/maps/course_manifest.json`](../assets/maps/course_manifest.json)の`courses`へ1件追加します。ここで指定する座標と初期設定が、実機の通過判定と地点マーカーに使われます。下は構造例です。値は自分のコースに合わせて置き換えてください。
 
 ```json
 {
@@ -217,10 +217,10 @@ PY
 リポジトリのルートで実行します。`my_course`は作ったフォルダ名へ読み替えてください。
 
 ```sh
-python3 -m json.tool assets/my_course/course.json > /dev/null
-python3 -m json.tool assets/course_manifest.json > /dev/null
-wc -c assets/my_course/map.rgb565     # 460800 と表示されること
-python3 scripts/generate_course_data.py --source assets/my_course/course.json
+python3 -m json.tool assets/maps/my_course/course.json > /dev/null
+python3 -m json.tool assets/maps/course_manifest.json > /dev/null
+wc -c assets/maps/my_course/map.rgb565     # 460800 と表示されること
+python3 scripts/generate_course_data.py --source assets/maps/my_course/course.json
 python3 scripts/package_courses.py /tmp/vega-course-package
 ```
 

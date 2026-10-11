@@ -137,6 +137,8 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
   };
   if (!json || !expected_course_id || !length || length > kMaxStrategyFileBytes)
     return report("strategy file empty or too large");
+  if (course.lapCount() > kLapCount)
+    return report("strategy supports up to seven laps");
   Reader r(json, length);
   Strategy candidate{};
   unsigned schema = 0, fields = 0;

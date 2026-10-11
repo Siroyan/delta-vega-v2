@@ -63,7 +63,7 @@ def list_cases():
 
 @app.get("/api/courses")
 def list_courses():
-    manifest = json.loads((ROOT.parents[1] / "assets" / "course_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((ROOT.parents[1] / "assets" / "maps" / "course_manifest.json").read_text(encoding="utf-8"))
     return [{"id": entry["folder"], "name": entry["name"]} for entry in manifest["courses"]]
 
 

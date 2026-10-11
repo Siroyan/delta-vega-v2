@@ -18,6 +18,7 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
   phase_ = s.race.phase;
   DisplayModel m;
   m.phase = s.race.phase;
+  m.lap_count = lap_count_;
   if (s.wheel.valid)
     std::snprintf(m.speed, sizeof(m.speed), "%.1f", s.wheel.speed_kmh);
   else
@@ -36,7 +37,8 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
   formatTime(uint64_t(s.settings.total_target_s) * 1000, time, sizeof(time));
   std::snprintf(m.total_target, sizeof(m.total_target), "TARGET %s", time);
   auto lap = s.race.lap ? s.race.lap : 1;
-  formatTime(uint64_t(s.settings.lap_target_s[lap - 1]) * 1000, time, sizeof(time));
+  const size_t target_index = static_cast<size_t>(lap) > kLapCount ? kLapCount - 1 : lap - 1;
+  formatTime(uint64_t(s.settings.lap_target_s[target_index]) * 1000, time, sizeof(time));
   std::snprintf(m.lap_target, sizeof(m.lap_target), "TARGET %s", time);
   m.power_on = s.engine != EnginePhase::Off;
   m.ignition_preparing = s.engine == EnginePhase::Preparing;
@@ -102,7 +104,7 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
     std::snprintf(m.detail, sizeof(m.detail), "CHECK SD STRATEGY");
   }
   if (status.plan_state == PlanState::Ready && strategy &&
-      m.phase != RacePhase::Finished && s.race.lap <= lap_count_) {
+      m.phase != RacePhase::Finished && s.race.lap <= kLapCount) {
     m.plan_loaded = true;
     m.plan_lap_number = s.race.lap ? s.race.lap : 1;
     m.plan_lap = strategy->laps[m.plan_lap_number - 1];

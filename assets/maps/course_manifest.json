@@ -67,6 +67,31 @@
       "start": [36.530654, 140.227998],
       "timing": [36.532766, 140.226269],
       "goal": [36.534443, 140.225411]
+    },
+    {
+      "folder": "motegi_oval_full_100",
+      "source": "course.json",
+      "name": "MOTEGI OVAL 100",
+      "short_name": "MOTEGI 100",
+      "settings_namespace": "vega-motegi100",
+      "legacy_settings_namespace": "",
+      "legacy_total_target_s": 0,
+      "pedestrian_gps": false,
+      "total_target_s": 36000,
+      "lap_target_s": 360,
+      "course_corridor_m": 60,
+      "start": [
+        36.530654,
+        140.227998
+      ],
+      "timing": [
+        36.532766,
+        140.226269
+      ],
+      "goal": [
+        36.534443,
+        140.225411
+      ]
     }
   ]
 }

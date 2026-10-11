@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "aging-motegi-100",
+  "name": "もてぎ 100周エージング",
+  "description": "茂木オーバルの100周コースを60 km/hで走る長時間試験。GPS異常注入なし。Tab5側も同じコースを選択する。",
+  "course_id": "motegi_oval_full_100",
+  "speed_kmh": 60,
+  "wheel_circumference_m": 1.03,
+  "pulses_per_revolution": 1,
+  "max_duration_s": 18000,
+  "actions": []
+}

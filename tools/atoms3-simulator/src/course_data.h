@@ -5,6 +5,7 @@
 namespace sim {
 
 constexpr uint8_t kMaxCourses = 8;
+constexpr uint8_t kMaxLaps = 100;
 
 struct Point { float east_m, north_m, s_m; };
 struct Route { Point *points = nullptr; uint16_t count = 0; float length_m = 0; };
