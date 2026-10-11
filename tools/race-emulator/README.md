@@ -32,7 +32,7 @@ python3 -m venv .venv
 
 ## 試験ケース
 
-`testcases/*.json`はGitで管理できる試験仕様です。UIから編集するとこのファイルが更新されます。現状の時刻指定アクションはAtomS3のGPS異常コマンド`noise`、`bias`、`spike`、`dropout`、`invalid`、`corrupt`、`seed`に限定しています。通常の車速パルスは速度と車輪設定から生成されます。パルスへの異常注入はまだAtomS3側に機能がないため、ケースでは指定できません。
+試験ケースはGUIから作成・編集でき、`testcases/*.json`にローカル保存されます。このディレクトリは`.gitkeep`だけをGitで管理し、各ケースのJSONはGit管理外です。新しい環境ではGUIからケースを作成してください。現状の時刻指定アクションはAtomS3のGPS異常コマンド`noise`、`bias`、`spike`、`dropout`、`invalid`、`corrupt`、`seed`に限定しています。通常の車速パルスは速度と車輪設定から生成されます。パルスへの異常注入はまだAtomS3側に機能がないため、ケースでは指定できません。
 
 ## 現時点の判定範囲
 

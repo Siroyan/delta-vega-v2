@@ -2,7 +2,7 @@
 
 Tab5の長時間試験用対向機です。`assets/maps/course_manifest.json` に登録された各 `assets/maps/<コース>/course.json` をAtomS3のLittleFSへ配置し、起動時に**Tab5と同じJSON**を読み込みます。生成されたC++のコース配列は使いません。同じ走行距離からGPSのNMEA文と車輪パルスを生成します。
 
-100周エージング試験には`motegi_oval_full_100`を選びます。[コースの定義](../../assets/maps/motegi_oval_full_100/README.md)とrace-emulatorの`aging-motegi-100`試験ケースを使えます。コースの変更後は下記の`uploadfs`を行い、Tab5側にも更新したmicroSDコース一式と100周対応ファームウェアを用意してください。
+100周エージング試験には`motegi_oval_full_100`を選びます。[コースの定義](../../assets/maps/motegi_oval_full_100/README.md)を参照し、race-emulatorのGUIでこのコースの試験ケースを作成してください。コースの変更後は下記の`uploadfs`を行い、Tab5側にも更新したmicroSDコース一式と100周対応ファームウェアを用意してください。
 
 AtomS3の画面には、コース名、走行状態、現在の周回、設定速度、走行距離、送出した車速パルス数、GPSの異常注入状態、送出遅れのパルス数を表示します。画面下端の細いバーは現在のルートの進行率です。`READY`、`RUN`、`PAUSE`、`GOAL` は本体ボタンまたはUSBシリアルからの走行操作と連動します。`MISS` が0以外ならパルス送出が間に合っていないため、試験結果を確認してください。
 
@@ -22,7 +22,7 @@ AtomS3の画面には、コース名、走行状態、現在の周回、設定�
 ### Tab5と接続するスモークテスト
 
 1. 両機の電源を切って配線する。AtomS3 Port.CUSTOMの黒GNDをTab5 Port.Aの黒GND、白G1をTab5 Port.Aの白G54へ接続する。車速はAtomS3底面G5をTab5 M5BusのG16（**2番ピン**）へ接続する。M5Busの1番ピンもGNDとして使える。**赤い5V線は接続しない**。4芯ケーブルを使うなら赤線を確実に絶縁し、コネクタの向きとピン番号を確認する。実GPS・車両回路は外しておく。
-2. AtomS3をPCのUSBへ接続し、race-emulatorでAtomS3のポートを選ぶ。`MISATO 基本走行`の試験ケースを選ぶ。ケースに記載されたコース・速度・車輪条件は、試験開始時にAtomS3へ送られる。
+2. AtomS3をPCのUSBへ接続し、race-emulatorでAtomS3のポートを選ぶ。GUIでMISATO用の試験ケースを作り、選択する。ケースに記載されたコース・速度・車輪条件は、試験開始時にAtomS3へ送られる。
 3. Tab5をバッテリーで起動し、GENERAL SETTINGSの `GPS INPUT` を `PORT.A` にする。車輪外周と1回転あたりのパルス数を試験ケースの設定と一致させる。COURSE / STRATEGYで `MISATO` を選び、Waiting画面のGPS FIXと座標を確認する。Tab5のファームウェアとmicroSDにMISATOがない場合は、両機に共通する別のコースの試験ケースを選ぶ。
 4. Tab5で `START TIMING` を押した後、race-emulatorの `AtomS3走行開始` を押す。AtomS3が `RUN` になり、Tab5で速度・自己位置・LAPが進むことを確認する。試験ケースの速度が12 km/hの場合、終了時間は30 km/hの手動試験より長い。AtomS3はGOALで自動停止する。短時間だけ試す場合はブラウザでAtomS3を停止し、Tab5で計測を取り消す。電装・点火ボタンは使わない。
 5. 異常があればrace-emulatorのAtomS3ログとTab5の画面を照合する。AtomS3の `MISSED` はパルス送出遅れを示す。Tab5の詳細は後でmicroSDログを読む。バッテリー運用中のTab5の再起動・シリアルログはPCからは確認できない。
