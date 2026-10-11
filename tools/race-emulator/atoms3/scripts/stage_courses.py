@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
-ROOT = PROJECT.parents[1]
+ROOT = PROJECT.parents[2]
 MANIFEST = ROOT / "assets" / "maps" / "course_manifest.json"
 DATA = PROJECT / "data"
 
