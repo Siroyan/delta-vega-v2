@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Strategy Editor · Delta Vega</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div>
+      <div class="eyebrow">DELTA VEGA · TAB5</div>
+      <h1>STRATEGY EDITOR</h1>
+      <p>コース上のエンジンON / OFF地点を設定し、Tab5用の戦略JSONを書き出します。</p>
+    </div>
+    <div class="header-badge">LOCAL TOOL <span aria-hidden="true">●</span></div>
+  </header>
+
+  <main>
+    <section class="card setup" aria-labelledby="setup-heading">
+      <div class="section-title">
+        <div><span class="section-number">01</span><h2 id="setup-heading">戦略を準備</h2></div>
+        <span class="quiet">既存JSONを読み込むか、新しく作成</span>
+      </div>
+      <div class="setup-grid">
+        <label>コース
+          <select id="course-select"></select>
+        </label>
+        <label>同梱の戦略
+          <select id="example-select"><option value="">選択してください</option></select>
+        </label>
+        <label class="upload">手元のJSONを読み込む
+          <input id="file-input" type="file" accept=".json,application/json">
+        </label>
+      </div>
+      <div class="setup-grid second-row">
+        <label>PLAN ID <span class="hint">39文字以内の英数字・_・-・.</span>
+          <input id="plan-id" maxlength="39" spellcheck="false">
+        </label>
+        <label>PLAN TYPE
+          <select id="plan-type"><option value="race">RACE · 実戦略</option><option value="demo">DEMO · 表示確認用</option></select>
+        </label>
+        <label>出力ファイル名 <span class="hint">.jsonを含め35文字以内</span>
+          <input id="filename" spellcheck="false">
+        </label>
+      </div>
+      <p class="notice" id="course-notice" hidden></p>
+    </section>
+
+    <section class="workspace" aria-label="周回編集">
+      <div class="card map-card">
+        <div class="section-title"><div><span class="section-number">02</span><h2>地図で確認</h2></div><span id="route-length" class="quiet"></span></div>
+        <div class="map-frame" id="map-frame">
+          <img id="map-image" alt="選択したコースの地図" width="480" height="480">
+          <svg id="map-overlay" viewBox="0 0 480 480" role="img" aria-label="周回経路とエンジン使用区間"></svg>
+        </div>
+        <div class="legend"><span><i class="line route"></i>経路</span><span><i class="line running"></i>エンジン使用区間</span><span><i class="dot on"></i>ON</span><span><i class="dot off"></i>OFF</span></div>
+        <p class="map-help">距離を数値で入力するか、ON / OFFの点をドラッグしてください。区間を選んで地図上をタップしても設定できます。</p>
+      </div>
+
+      <div class="card edit-card">
+        <div class="section-title"><div><span class="section-number">03</span><h2>周回ごとの指示</h2></div><span id="lap-count" class="quiet"></span></div>
+        <div class="lap-tabs" id="lap-tabs" role="tablist" aria-label="周回を選択"></div>
+        <div class="lap-heading"><div><h3 id="lap-title">LAP 1</h3><span id="route-name"></span></div><button class="ghost" id="copy-lap" type="button">この区間を他の周回へコピー</button></div>
+        <div class="run-list" id="run-list"></div>
+        <button class="add-run" id="add-run" type="button">＋ エンジン使用区間を追加</button>
+        <p class="small-note">各周1〜3区間。前のOFFより後に次のONを設定してください。指示はドライバーへの案内で、車両の電装を自動操作しません。</p>
+      </div>
+    </section>
+
+    <section class="card export-card" aria-labelledby="export-heading">
+      <div class="section-title"><div><span class="section-number">04</span><h2 id="export-heading">確認して書き出す</h2></div><span class="byte-count" id="byte-count">— / 4096 bytes</span></div>
+      <div id="validation" role="status" aria-live="polite"></div>
+      <div class="export-row"><div><strong>microSDの保存先</strong><code>/vega/strategies/<span id="destination-name">strategy.json</span></code><p>ダウンロードしたJSONをここにコピーし、Tab5のCOURSE / STRATEGY画面で選択してください。</p></div><button class="primary" id="export" disabled type="button">JSONを書き出す <span aria-hidden="true">↗</span></button></div>
+    </section>
+  </main>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
