@@ -7,17 +7,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--source", type=Path, default=Path("assets/motegi_oval_full/motegi_course_full.json"))
-parser.add_argument("--output", type=Path, default=Path("src/adapters/course_data.h"))
+parser.add_argument("--source", type=Path, required=True)
+parser.add_argument("--output", type=Path, help="Defaults to course_data.h beside the source JSON")
 args = parser.parse_args()
 source = args.source if args.source.is_absolute() else ROOT / args.source
-output = args.output if args.output.is_absolute() else ROOT / args.output
+output = args.output or source.with_name("course_data.h")
+output = output if output.is_absolute() else ROOT / output
 data = json.loads(source.read_text())
 if data["schema_version"] != 2:
     raise ValueError("Expected the full course schema (version 2)")
 lap_count = data.get("lap_count", 7)
-if not isinstance(lap_count, int) or isinstance(lap_count, bool) or not 2 <= lap_count <= 7:
-    raise ValueError("lap_count must be an integer from 2 to 7")
+if not isinstance(lap_count, int) or isinstance(lap_count, bool) or not 2 <= lap_count <= 100:
+    raise ValueError("lap_count must be an integer from 2 to 100")
 expected_sequence = ["first_lap"] + ["regular_lap"] * (lap_count - 2) + ["final_lap"]
 if (len(data["race_sequence"]) != lap_count or
         [entry["lap"] for entry in data["race_sequence"]] != list(range(1, lap_count + 1)) or
@@ -42,7 +43,7 @@ lines = [
     "// Source SHA256: " + hashlib.sha256(source.read_bytes()).hexdigest(),
     "#pragma once",
     '#include "domain/course.h"',
-    "namespace tab5 {",
+    f"namespace asset_{source.parent.name} {{",
 ]
 for name, path in paths.items():
     points = path["points"]

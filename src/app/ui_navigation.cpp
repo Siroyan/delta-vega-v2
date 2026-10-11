@@ -51,15 +51,26 @@ extern "C" void action_open_menu(lv_event_t *event) {
 
 extern "C" void action_close_menu(lv_event_t *) { close_menus(); }
 
+extern "C" void action_open_selection(lv_event_t *) { tab5::viewOpenSelection(); }
+
 extern "C" void action_open_settings(lv_event_t *) {
   close_menus();
   tab5::viewOpenSettings();
   loadScreen(SCREEN_ID_SETTINGS);
 }
 
+extern "C" void action_open_general_menu(lv_event_t *) {
+  close_menus();
+  tab5::viewOpenSettings();
+  loadScreen(SCREEN_ID_SETTINGS);
+  tab5::viewOpenGeneral();
+}
+
 extern "C" void action_open_advanced_settings(lv_event_t *) { tab5::viewOpenAdvanced(); }
 
 extern "C" void action_close_advanced_settings(lv_event_t *) { tab5::viewCloseAdvanced(); }
+
+extern "C" void action_close_general_settings(lv_event_t *) { tab5::viewCloseGeneral(); }
 
 extern "C" void action_return_to_dashboard(lv_event_t *) {
   close_menus();

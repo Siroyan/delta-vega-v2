@@ -8,18 +8,24 @@ namespace vega {
 
 using Millis = uint64_t;
 constexpr size_t kLapCount = 7;
+// Course/race limit; per-lap settings and strategies retain their seven-slot format.
+constexpr uint8_t kMaxRaceLaps = 100;
+constexpr size_t kMaxSpeedAverageIntervals = 8;
+constexpr uint32_t kMinDisplayBrightness = 64;
+constexpr uint32_t kMaxDisplayBrightness = 255;
+constexpr uint32_t kDefaultDisplayBrightness = 127;
 struct GeoPoint {
   double latitude = 0;
   double longitude = 0;
 };
 enum class GpsSource : uint32_t { M5Bus = 0, PortA = 1 };
 struct Settings {
-  uint32_t version = 2;
+  uint32_t version = 4;
   uint32_t total_target_s = 42 * 60;
   std::array<uint32_t, kLapCount> lap_target_s{{360, 360, 360, 360, 360, 360, 360}};
-  GeoPoint start{36.530654, 140.227998};
-  GeoPoint timing{36.532766, 140.226269};
-  GeoPoint goal{36.534443, 140.225411};
+  GeoPoint start{};
+  GeoPoint timing{};
+  GeoPoint goal{};
   double wheel_circumference_m = 1.03;
   uint32_t pulses_per_revolution = 1;
   uint32_t ecu_ready_ms = 1000;
@@ -34,6 +40,8 @@ struct Settings {
   uint32_t min_lap_ms = 60000;
   uint32_t lap_duplicate_ms = 10000;
   GpsSource gps_source = GpsSource::M5Bus;
+  uint32_t display_brightness = kDefaultDisplayBrightness;
+  uint32_t speed_average_intervals = 3;
 };
 bool validSettings(const Settings &s);
 enum class RacePhase : uint8_t { Waiting, Measuring, Finished };
@@ -55,6 +63,8 @@ struct WheelInput {
   uint64_t pulses = 0;
   uint64_t last_pulse_us = 0;
   uint64_t previous_pulse_us = 0;
+  // Newest accepted pulse first. Distance still uses the unfiltered pulse count.
+  std::array<uint64_t, kMaxSpeedAverageIntervals + 1> recent_pulse_us{};
 };
 struct GpsFix {
   GeoPoint position{};
@@ -97,9 +107,12 @@ struct MapPosition {
 };
 struct Snapshot {
   Millis now_ms = 0;
+  uint8_t course_index = 0;
+  uint8_t lap_count = kLapCount;
   Settings settings{};
   RaceReading race{};
   EnginePhase engine = EnginePhase::Off;
+  uint16_t ecu_prepare_permille = 0;
   WheelReading wheel{};
   GpsFix gps{};
   MapPosition map{};

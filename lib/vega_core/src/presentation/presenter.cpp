@@ -18,6 +18,7 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
   phase_ = s.race.phase;
   DisplayModel m;
   m.phase = s.race.phase;
+  m.lap_count = lap_count_;
   if (s.wheel.valid)
     std::snprintf(m.speed, sizeof(m.speed), "%.1f", s.wheel.speed_kmh);
   else
@@ -36,9 +37,13 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
   formatTime(uint64_t(s.settings.total_target_s) * 1000, time, sizeof(time));
   std::snprintf(m.total_target, sizeof(m.total_target), "TARGET %s", time);
   auto lap = s.race.lap ? s.race.lap : 1;
-  formatTime(uint64_t(s.settings.lap_target_s[lap - 1]) * 1000, time, sizeof(time));
+  const size_t target_index = static_cast<size_t>(lap) > kLapCount ? kLapCount - 1 : lap - 1;
+  formatTime(uint64_t(s.settings.lap_target_s[target_index]) * 1000, time, sizeof(time));
   std::snprintf(m.lap_target, sizeof(m.lap_target), "TARGET %s", time);
   m.power_on = s.engine != EnginePhase::Off;
+  m.ignition_preparing = s.engine == EnginePhase::Preparing;
+  m.ignition_prepare_permille = s.ecu_prepare_permille;
+  m.display_brightness = static_cast<uint8_t>(s.settings.display_brightness);
   m.ignition_enabled = s.engine == EnginePhase::Ready && !s.output_error;
   m.finish_mode = m.phase == RacePhase::Measuring && lap == lap_count_;
   m.lap_enabled = m.phase == RacePhase::Measuring &&
@@ -77,10 +82,10 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
                 : m.phase == RacePhase::Finished ? "FINISHED"
                                                  : "RUNNING");
   std::snprintf(m.clock, sizeof(m.clock), "%s", status.clock);
-  std::snprintf(m.ntp, sizeof(m.ntp), "%s",
-                !status.time_valid    ? "NTP UNSYNCED"
-                : status.ntp_holdover ? "NTP HOLDOVER"
-                                      : "NTP SYNCED");
+  if (status.battery_percent >= 0 && status.battery_percent <= 100)
+    std::snprintf(m.battery, sizeof(m.battery), "BATTERY %d%%", status.battery_percent);
+  else
+    std::snprintf(m.battery, sizeof(m.battery), "BATTERY --%%");
   std::snprintf(m.action, sizeof(m.action), "%s",
                 m.phase == RacePhase::Waiting    ? "START TIMING"
                 : m.phase == RacePhase::Finished ? "TIMING COMPLETE"

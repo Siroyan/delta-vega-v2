@@ -57,14 +57,30 @@ WheelReading wheelReading(WheelInput w, uint64_t now, const Settings &s) {
   auto age = now - w.last_pulse_us;
   r.pulse_recent = age <= 200000;
   // A stationary wheel and a disconnected reed cannot be distinguished after a first pulse.
-  if (age >= uint64_t(s.speed_zero_ms) * 1000) return r;
-  if (w.previous_pulse_us == 0 || w.last_pulse_us <= w.previous_pulse_us) {
+  const uint64_t zero_us = uint64_t(s.speed_zero_ms) * 1000;
+  if (age >= zero_us) return r;
+  auto times = w.recent_pulse_us;
+  if (times[0] != w.last_pulse_us) {
+    // Older adapters and host fixtures only populate the last two timestamps.
+    times[0] = w.last_pulse_us;
+    times[1] = w.previous_pulse_us;
+  }
+  uint32_t intervals = 0;
+  uint64_t oldest = times[0];
+  for (size_t i = 1; i <= s.speed_average_intervals && i < times.size(); ++i) {
+    if (!times[i] || times[i - 1] <= times[i] ||
+        times[i - 1] - times[i] >= zero_us)
+      break;
+    oldest = times[i];
+    ++intervals;
+  }
+  if (!intervals) {
     r.valid = false;
     return r;
   }
-  auto period = w.last_pulse_us - w.previous_pulse_us;
-  if (age > period) period = age;
-  r.speed_kmh = s.wheel_circumference_m * 3600000.0 / (s.pulses_per_revolution * period);
+  const auto elapsed_us = times[0] - oldest;
+  r.speed_kmh = s.wheel_circumference_m * 3600000.0 * intervals /
+                (s.pulses_per_revolution * elapsed_us);
   return r;
 }
 }  // namespace vega

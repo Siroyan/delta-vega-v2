@@ -22,8 +22,9 @@
 | `src/main.cpp`、`src/adapters/` | Tab5の起動、GPIO・GPS・microSD・通信、LVGL画面との接続 |
 | `lib/vega_core/` | 計時・周回・コース判定・設定・表示モデル。ArduinoやLVGLに依存しない中核 |
 | `eez/`、`src/ui/` | EEZ Studioの編集元プロジェクトと生成済みLVGLコード |
-| `assets/` | コースJSON・画像、茂木用の戦略例、UIアイコン |
+| `assets/` | `maps/`のコースJSON・画像、`strategy/`の戦略例、UIアイコン |
 | `scripts/`、`test/` | コース定数とUIの生成、ローカルテスト、実機支援ツール |
+| `tools/race-emulator/` | [走行試験ツール](tools/race-emulator/README.md)。`host/`にブラウザUI、`atoms3/`にGPS・車速シミュレーターのPlatformIOプロジェクトを配置 |
 | `docs/` | [画面仕様](docs/ui-spec.md)、[設計](docs/architecture.md)、[運用・設定](docs/firmware-guide.md)、[正式版向け試験計画](docs/release-test-plan.md) |
 
 ## ビルドと実機への書き込み
@@ -36,14 +37,14 @@ pio run -e esp32p4_pioarduino -t upload
 pio device monitor -b 115200
 ~~~
 
-現在の`platformio.ini`は`VEGA_TEST_COURSE=1`で、**玉川学園前の4周テストコース**を組み込んでいます。茂木の7周コースは`0`、飛田給の4周テストコースは`2`に変更して再ビルドしてください。コースはSettingsから切り替える方式ではありません。テストコースにはそれぞれ別のNVS設定領域を用意しています。
+玉川学園前、飛田給、MISATO、茂木の7周版と100周版、計5コースの編集元を収録しています。コース形状と地図画像はmicroSD上のファイルを起動時に読み込みます。`scripts/package_courses.py`でSD用ファイルを作成してください。Waiting画面のメニューからコースと走行戦略を選べます。選択は再起動後も復元されます。ハンバーガーメニューの`GENERAL MENU`から画面輝度・GPS入力先・車両設定を、`COURSE MENU`からTARGET・地点・周回判定を編集します。前者は端末共通、後者はコース別に保存されます。操作と配置手順は[コースアセット](assets/maps/README.md)を参照してください。
 
 Wi-Fi・AWS IoT Coreを使う場合は`include/config/network_secrets.example.h`を同じ場所の`network_secrets.h`へコピーして接続先と証明書を設定します。`network_secrets.h`はGitの追跡対象外です。未設定でも画面、計測、microSD保存は動作します。通信設定とログ形式は[運用・設定ガイド](docs/firmware-guide.md)を参照してください。
 
 ## 画面・コースデータの編集とテスト
 
 - 画面の編集元は`eez/delta-vega-v2.eez-project`です。EEZ Studioから`src/ui/`へ生成します。生成コードを直接編集せず、Tab5固有の描画やSettingsの数字キーは`src/adapters/lvgl_view.cpp`で扱います。
-- コースの編集元は`assets/`内のJSONと画像です。`scripts/generate_course_data.py`で組込用のC++定数を生成します。走行戦略JSONの形式と配置は[戦略データの説明](assets/strategy/README.md)を参照してください。
+- コースの編集元は`assets/maps/`内のJSONと画像です。`scripts/generate_course_data.py`で組込用のC++定数を生成します。走行戦略JSONの形式と配置は[戦略データの説明](assets/strategy/README.md)を参照してください。
 - 中核のローカルテストは`python3 scripts/test_native.py`で実行できます。試験内容は[test/README.md](test/README.md)に記載しています。
 
 ## 検証状況

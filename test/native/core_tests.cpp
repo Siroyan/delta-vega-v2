@@ -8,13 +8,20 @@
 #include <limits>
 #include <string>
 
-#include "../../src/adapters/course_data.h"
+#include "../../assets/maps/motegi_oval_full/course_data.h"
+#include "../../assets/maps/misato_loop/course_data.h"
+#include "../../assets/maps/tamagawagakuen_station_loop/course_data.h"
+#include "../../assets/maps/tobitakyu_hospital_loop/course_data.h"
+#include "../../assets/legacy_course_settings.h"
 #include "../../src/control_gesture.h"
+#include "../../src/adapters/settings_migration.h"
+#include "../../src/adapters/reed_pulse_filter.h"
 #include "application/application.h"
 #include "application/telemetry_json.h"
 #include "domain/nmea.h"
 #include "domain/settings_codec.h"
 #include "domain/strategy.h"
+#include "domain/strategy_warning.h"
 #include "presentation/presenter.h"
 #include "presentation/settings_form.h"
 
@@ -42,10 +49,17 @@ struct Output : IEngineOutput {
 };
 struct Store : ISettingsStore {
   bool fail = false;
-  Settings saved;
-  bool save(const Settings &s) override {
-    saved = s;
-    return !fail;
+  GeneralSettings general;
+  CourseSettings course;
+  bool saveGeneral(const GeneralSettings &s) override {
+    if (fail) return false;
+    general = s;
+    return true;
+  }
+  bool saveCourse(const CourseSettings &s) override {
+    if (fail) return false;
+    course = s;
+    return true;
   }
 };
 struct Recorder : ISessionRecorder {
@@ -116,12 +130,19 @@ void engineTest() {
   assert(!f.app.ignite());
   f.app.power(true);
   assert(f.output.on);
+  assert(f.app.snapshot().engine == EnginePhase::Preparing);
+  assert(f.app.snapshot().ecu_prepare_permille == 0);
   assert(!f.app.ignite());
-  f.clock.time += 999;
+  f.clock.time += 500;
+  assert(f.app.snapshot().ecu_prepare_permille == 500);
+  assert(!f.app.ignite());
+  f.clock.time += 499;
   f.app.tick();
+  assert(f.app.snapshot().ecu_prepare_permille == 999);
   assert(!f.app.ignite());
   ++f.clock.time;
   f.app.tick();
+  assert(f.app.snapshot().ecu_prepare_permille == 0);
   assert(f.app.ignite());
   assert(f.output.triggers == 1 && f.output.duration == 1000);
   assert(!f.app.ignite());
@@ -136,6 +157,12 @@ void engineTest() {
   assert(!f.app.ignite());
   f.app.power(false);
   assert(!f.output.on);
+  assert(f.app.snapshot().ecu_prepare_permille == 0);
+  f.app.power(true);
+  f.clock.time += 250;
+  assert(f.app.snapshot().ecu_prepare_permille == 250);
+  f.app.power(false);
+  assert(f.app.snapshot().ecu_prepare_permille == 0);
   f.app.power(true);
   f.clock.time += 1000;
   f.app.tick();
@@ -178,7 +205,7 @@ void raceTest() {
   assert(f.app.snapshot().race.phase == RacePhase::Measuring);
   Settings cfg = f.settings;
   cfg.total_target_s = 2400;
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::Course));
   for (int i = 0; i < 6; ++i) {
     f.clock.time += 10000;
     assert(f.app.manualLap());
@@ -277,6 +304,71 @@ void fourLapCourseTest() {
   assert(gps_app.snapshot().race.lap == 4);
   assert(gps_app.snapshot().race.phase == RacePhase::Measuring);
   travel(12720, 15600);
+  assert(gps_app.snapshot().race.phase == RacePhase::Finished);
+  assert(gps_recorder.finished_events == 1);
+}
+void hundredLapCourseTest() {
+  CourseData hundred_lap_data = course_data;
+  hundred_lap_data.lap_count = 100;
+  Course course(hundred_lap_data);
+  assert(course.lapCount() == 100);
+  Clock clock;
+  Output output;
+  Store store;
+  Recorder recorder;
+  Telemetry telemetry;
+  Settings settings = Fixture::makeSettings();
+  settings.lap_target_s[6] = 321;
+  Application app(clock, output, store, recorder, telemetry, course, settings);
+  View view;
+  Presenter presenter(view, course.lapCount());
+  UiStatus status;
+  assert(app.start());
+  for (int lap = 2; lap <= 100; ++lap) {
+    clock.time += 10000;
+    assert(app.manualLap());
+    const auto snapshot = app.snapshot();
+    assert(snapshot.race.lap == lap);
+    presenter.render(snapshot, status);
+    assert(view.model.finish_mode == (lap == 100));
+    if (lap == 8 || lap == 100)
+      assert(std::strcmp(view.model.lap_target, "TARGET 05:21") == 0);
+    if (lap == 99) assert(!app.manualFinish());
+  }
+  assert(std::strcmp(view.model.lap, "100 / 100") == 0);
+  assert(!app.manualLap());
+  assert(app.manualFinish());
+  assert(app.snapshot().race.phase == RacePhase::Finished);
+  assert(recorder.manual_finish_events == 1);
+
+  Clock gps_clock;
+  Output gps_output;
+  Store gps_store;
+  Recorder gps_recorder;
+  Telemetry gps_telemetry;
+  Application gps_app(gps_clock, gps_output, gps_store, gps_recorder,
+                      gps_telemetry, course, settings);
+  auto fix = [&](double distance) {
+    GpsFix gps;
+    gps.valid = true;
+    gps.position = course.pointAt(distance);
+    gps.received_ms = gps_clock.time;
+    gps_app.gps(gps);
+  };
+  auto travel = [&](double from, double to) {
+    for (double distance = from; distance <= to; distance += 20) {
+      gps_clock.time += 1000;
+      fix(distance);
+    }
+  };
+  assert(gps_app.start());
+  fix(700);
+  for (int lap = 0; lap < 99; ++lap) {
+    travel(720 + lap * 4000, 4700 + lap * 4000);
+    assert(gps_app.snapshot().race.lap == lap + 2);
+    assert(gps_app.snapshot().race.phase == RacePhase::Measuring);
+  }
+  travel(396720, 399600);
   assert(gps_app.snapshot().race.phase == RacePhase::Finished);
   assert(gps_recorder.finished_events == 1);
 }
@@ -385,12 +477,66 @@ void gpsOutageAndManualLapTest() {
   }
 }
 void wheelTest() {
+  const auto guarded_interval = tab5::wheelIntervalUs(1.03, 1, 75.0, 3000);
+  assert(guarded_interval == 49440);
+  assert(tab5::wheelIntervalUs(1.03, 1, 75.0, 100000) == 100000);
+  tab5::ReedPulseFilter filter;
+  filter.reset(true, 0);
+  assert(filter.edge(false, 100000, 10000, guarded_interval));  // First closure.
+  assert(!filter.edge(true, 101000, 10000, guarded_interval));
+  assert(!filter.edge(false, 108000, 10000, guarded_interval));  // 7 ms open: contact bounce.
+  assert(!filter.edge(true, 110000, 10000, guarded_interval));
+  assert(!filter.edge(false, 119999, 10000, guarded_interval));  // Just short of rearm.
+  assert(!filter.edge(true, 120000, 10000, guarded_interval));
+  assert(!filter.edge(false, 149000, 10000, guarded_interval));  // Implausible wheel period.
+  assert(!filter.edge(true, 150000, 10000, guarded_interval));
+  assert(filter.edge(false, 200000, 10000, guarded_interval));  // Next wheel revolution.
+  assert(filter.rawFalls() == 5 && filter.rejectedRelease() == 2 &&
+         filter.rejectedInterval() == 1);
+
+  filter.reset(true, 0);
+  assert(filter.edge(false, 100000, 10000, guarded_interval));
+  assert(!filter.edge(true, 105000, 10000, guarded_interval));
+  assert(filter.edge(false, 161800, 10000, guarded_interval));  // 60 km/h equivalent.
+  filter.reset(true, 0);
+  assert(filter.edge(false, 100000, 10000, 100000));
+  assert(!filter.edge(true, 105000, 10000, 100000));
+  assert(!filter.edge(false, 161800, 10000, 100000));  // 100 ms setting is too long.
+  assert(filter.rejectedInterval() == 1);
+  filter.reset(false, 0);  // A contact already closed at boot is not a new pulse.
+  assert(!filter.edge(false, 100000, 10000, guarded_interval));
+  assert(!filter.edge(true, 110000, 10000, guarded_interval));
+  assert(filter.edge(false, 140000, 10000, guarded_interval));
+
   Settings s;
   assert(!wheelReading({}, 1000000, s).valid);
   auto r = wheelReading({2, 2000000, 1000000}, 2000000, s);
   assert(r.valid && std::abs(r.speed_kmh - 3.708) < 1e-9);
   r = wheelReading({2, 2000000, 1000000}, 6000000, s);
   assert(r.valid && r.speed_kmh == 0 && !r.pulse_recent);
+  WheelInput rolling{};
+  rolling.pulses = 4;
+  rolling.last_pulse_us = 1700000;
+  rolling.previous_pulse_us = 1600000;
+  rolling.recent_pulse_us = {1700000, 1600000, 1400000, 1100000};
+  s.speed_average_intervals = 3;
+  r = wheelReading(rolling, 1700000, s);
+  assert(r.valid && std::abs(r.speed_kmh - 18.54) < 1e-9);
+  r = wheelReading(rolling, 1900000, s);
+  assert(r.valid && std::abs(r.speed_kmh - 18.54) < 1e-9);  // Hold between pulses.
+  s.speed_average_intervals = 1;
+  r = wheelReading(rolling, 1700000, s);
+  assert(r.valid && std::abs(r.speed_kmh - 37.08) < 1e-9);
+  s.speed_average_intervals = 2;
+  r = wheelReading(rolling, 1700000, s);
+  assert(r.valid && std::abs(r.speed_kmh - 24.72) < 1e-9);
+  r = wheelReading(rolling, 4700000, s);
+  assert(r.valid && r.speed_kmh == 0);  // Existing stop timeout still applies.
+  rolling.last_pulse_us = 6000000;
+  rolling.previous_pulse_us = 1700000;
+  rolling.recent_pulse_us[1] = 1700000;
+  rolling.recent_pulse_us[0] = 6000000;
+  assert(!wheelReading(rolling, 6000000, s).valid);  // Restart after a long gap.
   RaceSession race;
   assert(race.start(0, 100));
   assert(race.reading(1000, 105, s).distance_m == 5.15);
@@ -480,27 +626,51 @@ void settingsTest() {
   Settings cfg = f.settings;
   cfg.total_target_s = 2356;
   cfg.goal = {36.01, 140};
-  assert(f.app.configure(cfg));
+  assert(f.app.configure(cfg, SettingsScope::Course));
   assert(f.app.snapshot().settings.total_target_s == 2356);
+  assert(f.store.course.total_target_s == 2356);
   cfg.lap_target_s[2] = 0;
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::Course));
   cfg = f.settings;
   cfg.goal.latitude = std::numeric_limits<double>::quiet_NaN();
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::Course));
   f.store.fail = true;
-  assert(!f.app.configure(f.settings));
+  assert(!f.app.configure(f.settings, SettingsScope::Course));
   assert(f.app.snapshot().settings.total_target_s == 2356);
   assert(f.app.snapshot().settings_attempt == 4 && !f.app.snapshot().settings_accepted);
   f.store.fail = false;
   f.app.power(true);
-  assert(f.app.configure(f.settings));
+  assert(f.app.configure(f.settings, SettingsScope::General));
   assert(f.output.on);
+  assert(f.app.snapshot().settings.total_target_s == 2356);
   cfg = f.settings;
   cfg.power_active_high = false;
-  assert(!f.app.configure(cfg));
+  assert(!f.app.configure(cfg, SettingsScope::General));
   f.app.power(false);
-  assert(f.app.configure(cfg));
+  assert(f.app.configure(cfg, SettingsScope::General));
   assert(!f.output.on && !f.output.active_high);
+  cfg.display_brightness = kMinDisplayBrightness - 1;
+  assert(!f.app.configure(cfg, SettingsScope::General));
+  cfg.display_brightness = kMaxDisplayBrightness + 1;
+  assert(!f.app.configure(cfg, SettingsScope::General));
+  cfg.display_brightness = 200;
+  cfg.ecu_ready_ms = 2000;
+  cfg.speed_average_intervals = 5;
+  assert(f.app.configure(cfg, SettingsScope::General));
+  assert(f.app.snapshot().settings.display_brightness == 200);
+  assert(f.app.snapshot().settings.speed_average_intervals == 5);
+  assert(f.store.general.display_brightness == 200);
+  assert(f.store.general.speed_average_intervals == 5);
+  assert(f.store.course.total_target_s == 2356);
+  f.app.power(true);
+  f.clock.time += 1000;
+  f.app.tick();
+  assert(f.app.snapshot().ecu_prepare_permille == 500);
+  assert(!f.app.ignite());
+  f.clock.time += 1000;
+  f.app.tick();
+  assert(f.app.snapshot().engine == EnginePhase::Ready);
+  assert(f.app.ignite());
 }
 void presenterTest() {
   Fixture f;
@@ -517,10 +687,15 @@ void presenterTest() {
   Presenter::formatTime(3600123, time, sizeof(time));
   assert(std::strcmp(time, "1:00:00") == 0);
   f.app.power(true);
+  presenter.render(f.app.snapshot(), status);
+  assert(view.model.ignition_preparing && view.model.ignition_prepare_permille == 0);
+  assert(!view.model.ignition_enabled);
+  assert(view.model.display_brightness == kDefaultDisplayBrightness);
   f.clock.time += 1000;
   f.app.tick();
   presenter.render(f.app.snapshot(), status);
   assert(view.model.ignition_enabled);
+  assert(!view.model.ignition_preparing);
   f.app.ignite();
   presenter.render(f.app.snapshot(), status);
   assert(!view.model.ignition_enabled);
@@ -572,7 +747,7 @@ void settingsFormTest() {
       {20, "4000", "4000"}, {21, "5000", "5000"},
       {22, "55.5", "55.50000000"}, {23, "90.25", "90.25000000"},
       {24, "650.75", "650.75000000"}, {25, "70000", "70000"},
-      {26, "12000", "12000"}};
+      {26, "12000", "12000"}, {27, "5", "5"}};
   for (auto item : advanced) {
     assert(editSetting(s, item.field, item.input));
     settingText(s, item.field, value, sizeof(value));
@@ -587,6 +762,7 @@ void settingsFormTest() {
   assert(!editSetting(s, 21, "30001") && !editSetting(s, 22, "0.9"));
   assert(!editSetting(s, 23, "201") && !editSetting(s, 24, "5001"));
   assert(!editSetting(s, 25, "3600001") && !editSetting(s, 26, "499"));
+  assert(!editSetting(s, 27, "0") && !editSetting(s, 27, "9"));
   assert(!editSetting(s, 25, "4294967296") && !editSetting(s, 22, "1..2"));
 }
 void gpsSourceSettingsTest() {
@@ -614,7 +790,9 @@ void gpsSourceSettingsTest() {
   std::memcpy(legacy.data(), &old, legacy.size());
   Settings migrated;
   assert(decodeSettingsBlob(legacy.data(), legacy.size(), migrated));
-  assert(migrated.version == 2 && migrated.gps_source == GpsSource::M5Bus);
+  assert(migrated.version == 4 && migrated.gps_source == GpsSource::M5Bus &&
+         migrated.display_brightness == kDefaultDisplayBrightness &&
+         migrated.speed_average_intervals == 3);
   old.version = 2;
   for (size_t field = 0; field < kSettingsFieldCount; ++field) {
     char before[32], after[32];
@@ -623,24 +801,62 @@ void gpsSourceSettingsTest() {
     assert(std::strcmp(before, after) == 0);
   }
   migrated.gps_source = GpsSource::PortA;
+  migrated.display_brightness = 200;
   Settings restored;
   assert(decodeSettingsBlob(&migrated, sizeof(migrated), restored));
-  assert(restored.gps_source == GpsSource::PortA && restored.total_target_s == 2356);
+  assert(restored.gps_source == GpsSource::PortA && restored.total_target_s == 2356 &&
+         restored.display_brightness == 200);
+  Settings v2 = migrated;
+  v2.version = 2;
+  v2.display_brightness = 0;  // v2 tail padding must never become brightness.
+  assert(decodeSettingsBlob(&v2, 168, restored));
+  assert(restored.version == 4 && restored.gps_source == GpsSource::PortA &&
+         restored.display_brightness == kDefaultDisplayBrightness &&
+         restored.speed_average_intervals == 3);
+  Settings v3 = migrated;
+  v3.version = 3;
+  v3.speed_average_intervals = 8;
+  assert(decodeSettingsBlob(&v3, 168, restored));
+  assert(restored.version == 4 && restored.display_brightness == 200 &&
+         restored.speed_average_intervals == 3);
+  GeneralSettings old_general = generalSettings(migrated);
+  old_general.version = 1;
+  old_general.power_active_high = false;
+  old_general.pulse_debounce_us = 4321;
+  std::array<uint8_t, 64> old_general_blob{};
+  std::memcpy(old_general_blob.data(), &old_general, old_general_blob.size());
+  GeneralSettings upgraded_general;
+  assert(decodeGeneralSettingsBlob(old_general_blob.data(), old_general_blob.size(),
+                                   upgraded_general));
+  assert(upgraded_general.version == 2 && !upgraded_general.power_active_high &&
+         upgraded_general.pulse_debounce_us == 4321 &&
+         upgraded_general.gps_source == GpsSource::PortA &&
+         upgraded_general.display_brightness == 200 &&
+         upgraded_general.wheel_circumference_m == 1.234 &&
+         upgraded_general.speed_average_intervals == 3);
+  upgraded_general.speed_average_intervals = 8;
+  assert(decodeGeneralSettingsBlob(&upgraded_general, sizeof(upgraded_general), old_general));
+  assert(old_general.speed_average_intervals == 8);
+  upgraded_general.speed_average_intervals = 9;
+  assert(!decodeGeneralSettingsBlob(&upgraded_general, sizeof(upgraded_general), old_general));
   migrated.gps_source = static_cast<GpsSource>(9);
   assert(!decodeSettingsBlob(&migrated, sizeof(migrated), restored));
   assert(restored.gps_source == GpsSource::PortA);
+  migrated.gps_source = GpsSource::PortA;
+  migrated.display_brightness = kMinDisplayBrightness - 1;
+  assert(!decodeSettingsBlob(&migrated, sizeof(migrated), restored));
 
   Fixture f;
   f.fix(500);
   assert(f.app.snapshot().gps_seen);
   Settings changed = f.app.snapshot().settings;
   changed.gps_source = GpsSource::PortA;
-  assert(f.app.configure(changed));
+  assert(f.app.configure(changed, SettingsScope::General));
   assert(!f.app.snapshot().gps_seen && !f.app.snapshot().gps_fresh);
   assert(f.app.snapshot().settings.gps_source == GpsSource::PortA);
   assert(f.app.start());
   changed.gps_source = GpsSource::M5Bus;
-  assert(!f.app.configure(changed));
+  assert(!f.app.configure(changed, SettingsScope::General));
   assert(f.app.snapshot().settings.gps_source == GpsSource::PortA);
 }
 void strategyTest() {
@@ -648,10 +864,10 @@ void strategyTest() {
   assert(input);
   const std::string json((std::istreambuf_iterator<char>(input)),
                          std::istreambuf_iterator<char>());
-  Course course(tab5::course_data);
+  Course course(asset_motegi_oval_full::course_data);
   Strategy plan;
   char error[80]{};
-  assert(parseStrategy(json.data(), json.size(), course, tab5::course_data.id, plan,
+  assert(parseStrategy(json.data(), json.size(), course, asset_motegi_oval_full::course_data.id, plan,
                        error, sizeof(error)));
   assert(std::strcmp(plan.plan_id, "dummy-race-002") == 0);
   assert(plan.demo);
@@ -697,7 +913,7 @@ void strategyTest() {
   assert(!view.model.plan_loaded && std::strcmp(view.model.plan_status, "PLAN INVALID") == 0);
   auto invalid = [&](std::string altered) {
     Strategy result = plan;
-    assert(!parseStrategy(altered.data(), altered.size(), course, tab5::course_data.id,
+    assert(!parseStrategy(altered.data(), altered.size(), course, asset_motegi_oval_full::course_data.id,
                           result, error, sizeof(error)));
     assert(error[0] && std::strcmp(result.plan_id, plan.plan_id) == 0);
   };
@@ -710,7 +926,7 @@ void strategyTest() {
   original_demo.erase(demo_type, std::strlen("  \"plan_type\": \"demo\",\n"));
   Strategy older_demo;
   assert(parseStrategy(original_demo.data(), original_demo.size(), course,
-                       tab5::course_data.id, older_demo, error, sizeof(error)));
+                       asset_motegi_oval_full::course_data.id, older_demo, error, sizeof(error)));
   assert(older_demo.demo);
   auto unnamed_type = original_demo;
   auto name_at = unnamed_type.find("dummy-race-001");
@@ -734,17 +950,186 @@ void strategyTest() {
   invalid(json + "unexpected");
   invalid(std::string(kMaxStrategyFileBytes + 1, ' '));
 }
+void courseSelectionTest() {
+  Fixture f;
+  Settings general = f.settings;
+  general.display_brightness = 200;
+  general.gps_source = GpsSource::PortA;
+  general.power_active_high = false;
+  general.wheel_circumference_m = 1.25;
+  general.ecu_ready_ms = 1300;
+  assert(f.app.configure(general, SettingsScope::General));
+  Course short_course(asset_tamagawagakuen_station_loop::course_data);
+  Settings local = f.settings;
+  local.start = {35.564980, 139.463466};
+  local.timing = {35.5647900, 139.4640418};
+  local.goal = {35.5633809, 139.4629657};
+  assert(f.app.selectCourse(short_course, 1, local));
+  assert(f.app.snapshot().course_index == 1 && f.app.snapshot().lap_count == 4);
+  assert(f.app.snapshot().settings.display_brightness == 200);
+  assert(f.app.snapshot().settings.gps_source == GpsSource::PortA);
+  assert(!f.app.snapshot().settings.power_active_high);
+  assert(f.app.snapshot().settings.wheel_circumference_m == 1.25);
+  assert(f.app.snapshot().settings.ecu_ready_ms == 1300);
+  assert(f.app.start());
+  assert(!f.app.selectCourse(f.course, 0, f.settings));
+  assert(f.app.snapshot().course_index == 1);
+  assert(f.app.cancel());
+  assert(f.app.selectCourse(f.course, 0, f.settings));
+  assert(f.app.snapshot().course_index == 0 && f.app.snapshot().lap_count == 7);
+  assert(f.app.snapshot().settings.display_brightness == 200);
+  assert(!f.app.snapshot().settings.power_active_high);
+  f.app.power(true);
+  assert(!f.app.selectCourse(short_course, 1, local));
+  f.app.power(false);
+}
+void settingsMigrationTest() {
+  Settings course_defaults;
+  course_defaults.start = {35.564980, 139.463466};
+  course_defaults.timing = {35.564790, 139.464042};
+  course_defaults.goal = {35.563381, 139.462966};
+  course_defaults.total_target_s = 2400;
+  course_defaults.lap_target_s.fill(600);
+
+  Settings old_vehicle;
+  old_vehicle.start = {36.530654, 140.227998};
+  old_vehicle.total_target_s = 2520;
+  old_vehicle.power_active_high = false;
+  old_vehicle.gps_source = GpsSource::PortA;
+  old_vehicle.wheel_circumference_m = 1.27;
+  old_vehicle.pulses_per_revolution = 2;
+  old_vehicle.ecu_ready_ms = 1500;
+  old_vehicle.ignition_pulse_ms = 450;
+  old_vehicle.display_brightness = 200;
+
+  // A pre-catalog standard build has no vega-select record. On first boot,
+  // before the SD catalog is mounted, its Tamagawa NVS blob must win over
+  // the older Motegi/device blob when choosing the electrical OFF polarity.
+  Settings old_default_course = old_vehicle;
+  old_default_course.power_active_high = true;
+  old_default_course.gps_source = GpsSource::M5Bus;
+  old_default_course.wheel_circumference_m = 1.42;
+  old_default_course.total_target_s = 2356;
+  unsigned default_reads = 0;
+  auto read_pre_catalog_default = [&](Settings &s) {
+    const char *current = tab5::legacyNamespaceForId("", false);
+    const char *older = tab5::legacyNamespaceForId("", true);
+    assert(current && std::strcmp(current, "vega-test4") == 0);
+    assert(older && std::strcmp(older, "vega-test") == 0);
+    ++default_reads;
+    s = old_default_course;
+    return true;
+  };
+  auto read_old_device = [&](Settings &s) {
+    s = old_vehicle;
+    return true;
+  };
+  auto migrated_general = tab5::migratedGeneralSettings(
+      course_defaults, read_pre_catalog_default, read_old_device);
+  auto migrated_course = tab5::migratedCourseSettings(
+      course_defaults, read_pre_catalog_default);
+  assert(default_reads == 2 && migrated_general.power_active_high);
+  assert(migrated_general.gps_source == GpsSource::M5Bus &&
+         migrated_general.wheel_circumference_m == 1.42);
+  assert(migrated_course.total_target_s == 2356);
+  assert(std::strcmp(tab5::legacyNamespaceForId("tobitakyu_hospital_loop_test_v2", false),
+                     "vega-tobi4") == 0);
+  assert(tab5::legacyNamespaceForId("unknown", false) == nullptr);
+
+  // A new course must inherit only device-wide values from the old "vega" blob.
+  unsigned selected_reads = 0, device_reads = 0;
+  auto missing_selected = [&](Settings &) {
+    ++selected_reads;
+    return false;
+  };
+  auto read_device = [&](Settings &s) {
+    ++device_reads;
+    s = old_vehicle;
+    return true;
+  };
+  auto general = tab5::migratedGeneralSettings(course_defaults, missing_selected, read_device);
+  auto course = tab5::migratedCourseSettings(course_defaults, missing_selected);
+  assert(selected_reads == 2 && device_reads == 1);
+  Settings combined = course_defaults;
+  applyGeneral(combined, general);
+  applyCourse(combined, course);
+  assert(!combined.power_active_high && combined.gps_source == GpsSource::PortA);
+  assert(combined.wheel_circumference_m == 1.27 && combined.pulses_per_revolution == 2);
+  assert(combined.ecu_ready_ms == 1500 && combined.ignition_pulse_ms == 450);
+  assert(combined.display_brightness == 200);
+  assert(combined.start.latitude == course_defaults.start.latitude);
+  assert(combined.total_target_s == 2400 && combined.lap_target_s[0] == 600);
+
+  // Existing settings for the selected course take precedence over the old
+  // device namespace, including both calibration and course-specific targets.
+  Settings selected = course_defaults;
+  selected.total_target_s = 2356;
+  selected.power_active_high = true;
+  selected.gps_source = GpsSource::M5Bus;
+  auto read_selected = [&](Settings &s) {
+    s = selected;
+    return true;
+  };
+  general = tab5::migratedGeneralSettings(course_defaults, read_selected, read_device);
+  course = tab5::migratedCourseSettings(course_defaults, read_selected);
+  assert(device_reads == 1);
+  assert(general.power_active_high && general.gps_source == GpsSource::M5Bus);
+  assert(course.total_target_s == 2356);
+  auto invalid_legacy = [](Settings &s) {
+    s.power_active_high = false;
+    return false;
+  };
+  assert(tab5::migratedGeneralSettings(course_defaults, invalid_legacy, invalid_legacy)
+             .power_active_high == course_defaults.power_active_high);
+  assert(tab5::migratedCourseSettings(course_defaults, invalid_legacy).total_target_s == 2400);
+}
+void fourLapStrategyTest() {
+  std::ifstream input("assets/strategy/tamagawa_demo.json");
+  assert(input);
+  const std::string json((std::istreambuf_iterator<char>(input)),
+                         std::istreambuf_iterator<char>());
+  Course course(asset_tamagawagakuen_station_loop::course_data);
+  Strategy parsed{};
+  char error[80]{};
+  assert(parseStrategy(json.data(), json.size(), course,
+                       asset_tamagawagakuen_station_loop::course_data.id,
+                       parsed, error, sizeof(error)));
+  assert(parsed.laps[3].route == CourseRoute::Final);
+  const auto pos = json.find("\"lap\": 4");
+  assert(pos != std::string::npos);
+  auto missing = json;
+  missing.replace(pos, std::strlen("\"lap\": 4"), "\"lap\": 5");
+  assert(!parseStrategy(missing.data(), missing.size(), course,
+                        asset_tamagawagakuen_station_loop::course_data.id,
+                        parsed, error, sizeof(error)));
+  assert(std::strcmp(error, "invalid or duplicate lap number") == 0);
+  std::ifstream other_input("assets/strategy/tobitakyu_demo.json");
+  assert(other_input);
+  const std::string other_json((std::istreambuf_iterator<char>(other_input)),
+                               std::istreambuf_iterator<char>());
+  assert(!parseStrategy(other_json.data(), other_json.size(), course,
+                        asset_tamagawagakuen_station_loop::course_data.id,
+                        parsed, error, sizeof(error)));
+  assert(std::strcmp(error, "course_id mismatch") == 0);
+  Course other_course(asset_tobitakyu_hospital_loop::course_data);
+  assert(parseStrategy(other_json.data(), other_json.size(), other_course,
+                       asset_tobitakyu_hospital_loop::course_data.id,
+                       parsed, error, sizeof(error)));
+}
 void realCourseTest() {
   Clock clock;
   Output output;
   Store store;
   Recorder recorder;
   Telemetry telemetry;
-  Course course(tab5::course_data);
+  Course course(asset_motegi_oval_full::course_data);
   Settings settings;
-  auto origin = course.locate(tab5::course_data.origin, settings.course_corridor_m);
-  assert(std::abs(origin.x - tab5::course_data.pixel_matrix[2]) < 1e-9);
-  assert(std::abs(origin.y - tab5::course_data.pixel_matrix[5]) < 1e-9);
+  settings.start = {36.530654, 140.227998};
+  settings.timing = {36.532766, 140.226269};
+  settings.goal = {36.534443, 140.225411};
+  auto origin = course.locate(asset_motegi_oval_full::course_data.origin, settings.course_corridor_m);
+  assert(std::abs(origin.x - asset_motegi_oval_full::course_data.pixel_matrix[2]) < 1e-9);
+  assert(std::abs(origin.y - asset_motegi_oval_full::course_data.pixel_matrix[5]) < 1e-9);
   assert(course.hasRoute(CourseRoute::First) && course.hasRoute(CourseRoute::Final) &&
          course.hasRoute(CourseRoute::FinishApproach));
   assert(std::abs(course.routeLength(CourseRoute::First) - 2124.583905) < 1e-5);
@@ -891,11 +1276,79 @@ void controlGestureTest() {
   power_intent.observe(true);
   assert(power_intent.nextTap() == PowerRequest::Off);
 }
+void strategyWarningTest() {
+  StrategyLap lap{};
+  lap.run_count = 2;
+  lap.runs[0] = {0, 100};
+  lap.runs[1] = {200, 260};
+  StrategyWarning warning;
+  StrategyCue cue = StrategyCue::LapEnd;
+  assert(!warning.update(1, 1, true, lap, 0, cue));  // Start ON at 0 m has no advance point.
+  assert(!warning.update(1, 1, true, lap, 60, cue));
+  assert(!warning.update(1, 1, false, lap, 75, cue));
+  assert(warning.update(1, 1, true, lap, 75, cue) && cue == StrategyCue::Off);
+  assert(!warning.update(1, 1, true, lap, 76, cue));
+  assert(!warning.update(1, 1, false, lap, 90, cue));
+  assert(!warning.update(1, 1, true, lap, 90, cue));
+  assert(warning.update(1, 1, true, lap, 175, cue) && cue == StrategyCue::On);
+  assert(warning.update(1, 1, true, lap, 235, cue) && cue == StrategyCue::Off);
+  assert(warning.update(1, 2, true, lap, 75, cue) && cue == StrategyCue::Off);
+  assert(warning.update(2, 1, true, lap, 75, cue) && cue == StrategyCue::Off);
+  warning.reset();
+  assert(warning.update(2, 1, true, lap, 75, cue) && cue == StrategyCue::Off);
+}
+void misatoCourseTest() {
+  Course course(asset_misato_loop::course_data);
+  assert(course.lapCount() == 5);
+  Settings settings;
+  settings.start = {36.158741, 139.163142};
+  settings.timing = {36.158129, 139.162450};
+  settings.goal = {36.158181, 139.163041};
+  settings.course_corridor_m = 18;
+  settings.min_lap_progress_m = 80;
+  settings.min_lap_ms = 8000;
+  settings.lap_duplicate_ms = 5000;
+  Clock clock;
+  Output output;
+  Store store;
+  Recorder recorder;
+  Telemetry telemetry;
+  Application app(clock, output, store, recorder, telemetry, course, settings);
+  auto travel = [&](CourseRoute route) {
+    const double length = course.routeLength(route);
+    for (double s = 0; s < length; s += 5) {
+      GpsFix fix;
+      fix.valid = true;
+      clock.time += 1000;
+      fix.received_ms = clock.time;
+      fix.position = course.pointAtOn(s, route);
+      app.gps(fix);
+    }
+    GpsFix fix;
+    fix.valid = true;
+    clock.time += 1000;
+    fix.received_ms = clock.time;
+    fix.position = course.pointAtOn(length, route);
+    app.gps(fix);
+  };
+  assert(app.start());
+  travel(CourseRoute::First);
+  assert(app.snapshot().race.lap == 2);
+  for (int lap = 3; lap <= 5; ++lap) {
+    travel(CourseRoute::Regular);
+    assert(app.snapshot().race.lap == lap);
+    assert(app.snapshot().race.phase == RacePhase::Measuring);
+  }
+  travel(CourseRoute::Final);
+  assert(app.snapshot().race.phase == RacePhase::Finished);
+  assert(recorder.finished_events == 1);
+}
 int main() {
   engineTest();
   raceTest();
   manualFinishTest();
   fourLapCourseTest();
+  hundredLapCourseTest();
   gpsRaceTest();
   passageTest();
   gpsOutageAndManualLapTest();
@@ -907,6 +1360,11 @@ int main() {
   settingsFormTest();
   gpsSourceSettingsTest();
   strategyTest();
+  strategyWarningTest();
+  misatoCourseTest();
+  courseSelectionTest();
+  settingsMigrationTest();
+  fourLapStrategyTest();
   realCourseTest();
   combinedLapTest();
   controlGestureTest();

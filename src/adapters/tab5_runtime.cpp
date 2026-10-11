@@ -1,18 +1,24 @@
 #include "tab5_runtime.h"
 
 #include <Arduino.h>
+#include <M5Unified.h>
 #include <Preferences.h>
-#include <SD_MMC.h>
 #include <WiFi.h>
 #include <driver/gpio.h>
+#include <driver/sdmmc_host.h>
 #include <esp_heap_caps.h>
 #include <esp_sntp.h>
 #include <esp_timer.h>
+#include <esp_system.h>
+#include <esp_vfs_fat.h>
 #include <mbedtls/platform.h>
 #include <mqtt_client.h>
 #include <nvs.h>
+#include <sd_pwr_ctrl_by_on_chip_ldo.h>
+#include <sdmmc_cmd.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <dirent.h>
 
 #include <atomic>
 #include <cstdarg>
@@ -22,10 +28,12 @@
 
 #include "application/application.h"
 #include "application/telemetry_json.h"
-#include "selected_course.h"
+#include "course_catalog.h"
 #include "domain/nmea.h"
 #include "domain/settings_codec.h"
 #include "lvgl_view.h"
+#include "reed_pulse_filter.h"
+#include "settings_migration.h"
 #include "../tab5_lvgl.h"
 #include "presentation/settings_form.h"
 
@@ -39,6 +47,11 @@ namespace tab5 {
 namespace {
 constexpr gpio_num_t kPower = GPIO_NUM_45, kIgnition = GPIO_NUM_48;
 constexpr int kReed = 16;
+// The car is expected to stay below 60 km/h. Allow a 25% margin for calibration,
+// while rejecting periods that would imply a faster wheel. A reed contact must
+// also be continuously open before another closure can be counted.
+constexpr double kWheelGuardSpeedKmh = 75.0;
+constexpr uint32_t kReedReleaseUs = 10000;
 constexpr int kGpsBusRx = 7, kGpsBusTx = 6;
 // Unit GPS: yellow (unit RX) to G53, white (unit TX) to G54 on Tab5 Port.A.
 constexpr int kGpsPortARx = 54, kGpsPortATx = 53;
@@ -51,7 +64,12 @@ void *tlsPsramCalloc(size_t count, size_t bytes) {
 }
 void tlsPsramFree(void *ptr) { heap_caps_free(ptr); }
 QueueHandle_t commands, snapshots, records, transmissions, diagnostics, strategies,
-    plan_imports;
+    plan_imports, course_imports, plan_requests, plan_choices;
+std::atomic<uint8_t> active_course{0};
+struct PlanRequest {
+  uint8_t course_index;
+  char filename[48];
+};
 std::atomic<bool> urgent_off{false}, sd_ready{false}, sd_error{false}, mqtt_connected{false};
 std::atomic<uint32_t> power_epoch{0};
 std::atomic<uint32_t> record_loss_count{0};
@@ -78,8 +96,15 @@ std::atomic<bool> readback{false};
 std::atomic<uint32_t> readback_session{0};
 std::atomic<uint64_t> last_ntp_sync{0};
 std::atomic<uint32_t> debounce_us{3000};
+std::atomic<uint32_t> wheel_interval_us{50000};
 portMUX_TYPE wheel_lock = portMUX_INITIALIZER_UNLOCKED;
 vega::WheelInput wheel_input;
+ReedPulseFilter reed_filter;
+uint32_t wheelIntervalUs(const vega::Settings &settings) {
+  return ::tab5::wheelIntervalUs(settings.wheel_circumference_m,
+                                 settings.pulses_per_revolution, kWheelGuardSpeedKmh,
+                                 settings.pulse_debounce_us);
+}
 struct Diagnostic {
   char text[160];
 };
@@ -87,6 +112,35 @@ struct PlanImport {
   char *contents;
   size_t length;
 };
+struct CourseImport {
+  uint8_t *contents;
+  size_t length;
+  uint32_t crc32;
+  char folder[41];
+  char filename[16];
+};
+bool safeCourseFolder(const char *folder) {
+  if (!folder[0] || strlen(folder) > 40) return false;
+  for (const char *p = folder; *p; ++p)
+    if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '_'))
+      return false;
+  return true;
+}
+bool safeCourseFile(const char *folder, const char *filename, size_t length) {
+  if (!strcmp(folder, "root")) return !strcmp(filename, "catalog.json") && length <= 16384;
+  return safeCourseFolder(folder) &&
+         ((!strcmp(filename, "course.json") && length <= 256 * 1024) ||
+          (!strcmp(filename, "map.rgb565") && length == 480 * 480 * 2));
+}
+uint32_t courseCrc32(const uint8_t *bytes, size_t length) {
+  uint32_t crc = 0xffffffffU;
+  for (size_t i = 0; i < length; ++i) {
+    crc ^= bytes[i];
+    for (int bit = 0; bit < 8; ++bit)
+      crc = (crc >> 1) ^ (0xedb88320U & -(crc & 1U));
+  }
+  return ~crc;
+}
 void diagnostic(const char *format, ...) {
   if (!diagnostics) return;
   Diagnostic message{};
@@ -217,56 +271,150 @@ class EngineOutput final : public vega::IEngineOutput {
 } engine_output;
 bool outputs_prepared = false;
 
+struct SavedSelection {
+  uint32_t version = 1;
+  char course_id[48]{};
+  char plan[48]{};
+};
+SavedSelection loadSelection() {
+  SavedSelection value{};
+  Preferences p;
+  if (p.begin("vega-select", true)) {
+    if (p.getBytesLength("choice") == sizeof(value)) {
+      SavedSelection stored{};
+      if (p.getBytes("choice", &stored, sizeof(stored)) == sizeof(stored) &&
+          stored.version == 1 && memchr(stored.course_id, 0, sizeof(stored.course_id)) &&
+          memchr(stored.plan, 0, sizeof(stored.plan))) value = stored;
+    }
+    p.end();
+  }
+  return value;
+}
+uint8_t savedCourseIndex() {
+  const auto selection = loadSelection();
+  return static_cast<uint8_t>(courseIndex(selection.course_id));
+}
+void savedPlanName(char *out, size_t size) {
+  const auto selection = loadSelection();
+  snprintf(out, size, "%s", selection.plan);
+}
+bool saveSelection(const char *course_id, const char *plan) {
+  SavedSelection value{};
+  if (strlen(course_id) >= sizeof(value.course_id) || strlen(plan) >= sizeof(value.plan))
+    return false;
+  snprintf(value.course_id, sizeof(value.course_id), "%s", course_id);
+  snprintf(value.plan, sizeof(value.plan), "%s", plan);
+  Preferences p;
+  if (!p.begin("vega-select", false)) return false;
+  const bool ok = p.putBytes("choice", &value, sizeof(value)) == sizeof(value);
+  p.end();
+  return ok;
+}
 class SettingsStore final : public vega::ISettingsStore {
  public:
-  vega::Settings load() {
-    vega::Settings s;
-#if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 1
-    if (loadFrom("vega-test4", s)) return s;
-    if (loadFrom("vega-test", s)) {
-      if (s.total_target_s == 70 * 60) s.total_target_s = 40 * 60;
-      return s;
+  void select(uint8_t index) { active_ = index; }
+  vega::Settings load(uint8_t index) {
+    const auto &asset = courseAsset(index);
+    const vega::Settings base = defaults(index);
+    const auto read_selected = [index](vega::Settings &s) {
+      if (courseCount()) return readLegacy(index, s);
+      // Output polarity must be migrated before M5.begin() and SD mounting.
+      // An empty selection means pre-catalog firmware; the legacy lookup
+      // resolves it to that firmware's default course namespace.
+      const SavedSelection selected = loadSelection();
+      const char *current = legacyNamespaceForId(selected.course_id, false);
+      const char *older = legacyNamespaceForId(selected.course_id, true);
+      return (current && loadFrom(current, s)) || (older && loadFrom(older, s));
+    };
+    if (!general_loaded_) {
+      vega::GeneralSettings stored;
+      bool needs_upgrade = false;
+      if (!readGeneral(stored, needs_upgrade)) {
+        // Older firmware stored vehicle settings with the selected course.
+        // A newly selected course has no blob yet; the old "vega" namespace
+        // still carries the vehicle calibration and output polarity.
+        stored = migratedGeneralSettings(base, read_selected,
+                                         [](vega::Settings &s) { return loadFrom("vega", s); });
+        if (saveGeneral(stored)) diagnostic("[SETTINGS] migrated general settings");
+      } else if (needs_upgrade && saveGeneral(stored)) {
+        diagnostic("[SETTINGS] upgraded general settings to v2");
+      }
+      general_ = stored;
+      general_loaded_ = true;
     }
-    loadFrom("vega", s);  // Carry over GPS input and vehicle calibration.
-    s.start = {35.564980, 139.463466};
-    s.timing = {35.5647900, 139.4640418};
-    s.goal = {35.5633809, 139.4629657};
-    s.course_corridor_m = 30;
-    s.total_target_s = 40 * 60;
-    s.lap_target_s.fill(10 * 60);
-#elif defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 2
-    if (loadFrom("vega-tobi4", s)) return s;
-    if (loadFrom("vega-tobi2", s)) {
-      if (s.total_target_s == 140 * 60) s.total_target_s = 80 * 60;
-      return s;
+    vega::CourseSettings course;
+    if (!readCourse(index, course)) {
+      course = migratedCourseSettings(base, read_selected);
+      if (writeCourse(index, course)) diagnostic("[SETTINGS] migrated course=%s", asset.data->id);
     }
-    loadFrom("vega", s);  // Carry over GPS input and vehicle calibration.
-    s.start = {35.666947, 139.518721};
-    s.timing = {35.6665666, 139.5186953};
-    s.goal = {35.6669552, 139.5219829};
-    s.course_corridor_m = 30;
-    s.total_target_s = 80 * 60;
-    s.lap_target_s.fill(20 * 60);
-#else
-    loadFrom("vega", s);
-#endif
+    vega::Settings s = base;
+    vega::applyGeneral(s, general_);
+    vega::applyCourse(s, course);
     return s;
   }
-  bool save(const vega::Settings &s) override {
+  bool saveGeneral(const vega::GeneralSettings &s) override {
+    if (!vega::validGeneralSettings(s)) return false;
     Preferences p;
-#if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 1
-    if (!p.begin("vega-test4", false)) return false;
-#elif defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE == 2
-    if (!p.begin("vega-tobi4", false)) return false;
-#else
-    if (!p.begin("vega", false)) return false;
-#endif
-    bool ok = p.putBytes("settings", &s, sizeof(s)) == sizeof(s);
+    if (!p.begin("vega-device", false)) return false;
+    const bool ok = p.putBytes("settings", &s, sizeof(s)) == sizeof(s);
+    p.end();
+    if (ok) general_ = s;
+    return ok;
+  }
+  bool saveCourse(const vega::CourseSettings &s) override { return writeCourse(active_, s); }
+ private:
+  uint8_t active_ = 0;
+  bool general_loaded_ = false;
+  vega::GeneralSettings general_{};
+  static vega::Settings defaults(uint8_t index) {
+    vega::Settings s;
+    vega::applyCourse(s, courseAsset(index).defaults());
+    return s;
+  }
+  static bool readGeneral(vega::GeneralSettings &s, bool &needs_upgrade) {
+    Preferences p;
+    if (!p.begin("vega-device", true)) return false;
+    const size_t size = p.getBytesLength("settings");
+    alignas(vega::GeneralSettings) uint8_t blob[sizeof(vega::GeneralSettings)]{};
+    vega::GeneralSettings candidate;
+    const bool ok = size > 0 && size <= sizeof(blob) &&
+                    p.getBytes("settings", blob, size) == size &&
+                    vega::decodeGeneralSettingsBlob(blob, size, candidate);
+    p.end();
+    if (ok) {
+      s = candidate;
+      needs_upgrade = size != sizeof(vega::GeneralSettings);
+    }
+    return ok;
+  }
+  static bool readCourse(uint8_t index, vega::CourseSettings &s) {
+    Preferences p;
+    if (!p.begin(courseAsset(index).settings_namespace, true)) return false;
+    vega::CourseSettings candidate;
+    const bool ok = p.getBytesLength("course") == sizeof(candidate) &&
+                    p.getBytes("course", &candidate, sizeof(candidate)) == sizeof(candidate) &&
+                    vega::validCourseSettings(candidate);
+    p.end();
+    if (ok) s = candidate;
+    return ok;
+  }
+  static bool writeCourse(uint8_t index, const vega::CourseSettings &s) {
+    if (!vega::validCourseSettings(s)) return false;
+    Preferences p;
+    if (!p.begin(courseAsset(index).settings_namespace, false)) return false;
+    const bool ok = p.putBytes("course", &s, sizeof(s)) == sizeof(s);
     p.end();
     return ok;
   }
-
- private:
+  static bool readLegacy(uint8_t index, vega::Settings &s) {
+    const auto &asset = courseAsset(index);
+    if (loadFrom(asset.settings_namespace, s)) return true;
+    if (!asset.legacy_settings_namespace || !loadFrom(asset.legacy_settings_namespace, s))
+      return false;
+    if (asset.legacy_total_target_s && s.total_target_s == asset.legacy_total_target_s)
+      s.total_target_s = asset.defaults().total_target_s;
+    return true;
+  }
   static bool loadFrom(const char *name, vega::Settings &s) {
     nvs_handle_t handle;
     bool loaded = false;
@@ -308,6 +456,8 @@ struct Recorder final : vega::ISessionRecorder {
     r.data.settings = s;
     r.data.now_ms = now;
     r.data.race.session = session;
+    r.data.course_index = active_course.load();
+    r.data.lap_count = courseAsset(r.data.course_index).data->lap_count;
     r.losses_at_begin = record_loss_count.load(std::memory_order_relaxed);
     enqueueRecord(r);
   }
@@ -341,11 +491,15 @@ struct Telemetry final : vega::ITelemetry {
 
 void IRAM_ATTR reedInterrupt() {
   uint64_t now = esp_timer_get_time();
+  const bool high = gpio_get_level(static_cast<gpio_num_t>(kReed)) != 0;
   portENTER_CRITICAL_ISR(&wheel_lock);
-  if (!wheel_input.last_pulse_us ||
-      now - wheel_input.last_pulse_us >= debounce_us.load(std::memory_order_relaxed)) {
+  if (reed_filter.edge(high, now, kReedReleaseUs,
+                       wheel_interval_us.load(std::memory_order_relaxed))) {
     wheel_input.previous_pulse_us = wheel_input.last_pulse_us;
     wheel_input.last_pulse_us = now;
+    for (size_t i = vega::kMaxSpeedAverageIntervals; i > 0; --i)
+      wheel_input.recent_pulse_us[i] = wheel_input.recent_pulse_us[i - 1];
+    wheel_input.recent_pulse_us[0] = now;
     ++wheel_input.pulses;
   }
   portEXIT_CRITICAL_ISR(&wheel_lock);
@@ -421,18 +575,179 @@ class SdFile {
   FILE *file_ = nullptr;
 };
 
+class SdMedia {
+ public:
+  bool mount() {
+    if (card_) return true;
+    if (!power_) {
+      sd_pwr_ctrl_ldo_config_t config{};
+      config.ldo_chan_id = 4;  // Tab5 SDMMC IO power (LDO_VO4).
+      if (sd_pwr_ctrl_new_on_chip_ldo(&config, &power_) != ESP_OK) return false;
+    }
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    host.slot = SDMMC_HOST_SLOT_0;
+    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
+    host.pwr_ctrl_handle = power_;
+    sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot.width = 4;
+    slot.clk = GPIO_NUM_43;
+    slot.cmd = GPIO_NUM_44;
+    slot.d0 = GPIO_NUM_39;
+    slot.d1 = GPIO_NUM_40;
+    slot.d2 = GPIO_NUM_41;
+    slot.d3 = GPIO_NUM_42;
+    esp_vfs_fat_mount_config_t config{};
+    config.format_if_mount_failed = false;
+    config.max_files = 5;
+    const esp_err_t result = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot, &config, &card_);
+    if (result != ESP_OK) {
+      card_ = nullptr;
+      return false;
+    }
+    return true;
+  }
+  void unmount() {
+    if (!card_) return;
+    const esp_err_t result = esp_vfs_fat_sdcard_unmount("/sdcard", card_);
+    card_ = nullptr;
+    if (result != ESP_OK) Serial.printf("[SD] unmount failed: %s\n", esp_err_to_name(result));
+  }
+  uint64_t cardSize() const {
+    return card_ ? uint64_t(card_->csd.capacity) * card_->csd.sector_size : 0;
+  }
+
+ private:
+  // Keep the LDO handle across mounts. Reacquiring LDO_VO4 after card removal fails.
+  sd_pwr_ctrl_handle_t power_ = nullptr;
+  sdmmc_card_t *card_ = nullptr;
+};
+SdMedia media;
+
+bool sdPathExists(const char *relative) {
+  char path[128];
+  if (snprintf(path, sizeof(path), "/sdcard%s", relative) >= sizeof(path)) return false;
+  struct stat info{};
+  return stat(path, &info) == 0;
+}
+
+bool readPlan(const char *name, uint8_t course_index, vega::Strategy &out,
+              char *error, size_t error_size) {
+  if (strstr(name, "..") || (strcmp(name, "strategy.json") != 0 &&
+      strncmp(name, "strategies/", 11) != 0)) {
+    snprintf(error, error_size, "invalid path");
+    return false;
+  }
+  char path[112];
+  if (snprintf(path, sizeof(path), "/sdcard/vega/%s", name) >= sizeof(path)) return false;
+  FILE *file = fopen(path, "rb");
+  if (!file) {
+    snprintf(error, error_size, "file missing");
+    return false;
+  }
+  char *contents = static_cast<char *>(malloc(vega::kMaxStrategyFileBytes + 1));
+  bool ok = false;
+  if (!contents) snprintf(error, error_size, "out of memory");
+  else if (fseek(file, 0, SEEK_END) == 0) {
+    const long length = ftell(file);
+    if (length > 0 && length <= static_cast<long>(vega::kMaxStrategyFileBytes) &&
+        fseek(file, 0, SEEK_SET) == 0 &&
+        fread(contents, 1, length, file) == static_cast<size_t>(length)) {
+      const auto &asset = courseAsset(course_index);
+      vega::Course course(*asset.data);
+      ok = vega::parseStrategy(contents, length, course, asset.data->id,
+                               out, error, error_size);
+    } else snprintf(error, error_size, "empty, too large, or unreadable");
+  } else snprintf(error, error_size, "read failed");
+  free(contents);
+  fclose(file);
+  return ok;
+}
+
+void scanPlans(const PlanRequest &request) {
+  if (request.course_index != active_course.load()) return;
+  // SD task is the sole caller; keep the bounded catalog off its 8 KB stack.
+  static PlanChoices found;
+  found = {};
+  found.course_index = request.course_index;
+  found.sd_available = sd_ready;
+  found.count = 1;
+  snprintf(found.items[0].label, sizeof(found.items[0].label), "NO STRATEGY");
+  found.items[0].valid = true;
+  auto add = [&](const char *name) {
+    if (found.count >= kMaxPlanChoices) return;
+    auto &item = found.items[found.count++];
+    snprintf(item.filename, sizeof(item.filename), "%s", name);
+    vega::Strategy parsed{};
+    char reason[48]{};
+    item.valid = readPlan(name, request.course_index, parsed, reason, sizeof(reason));
+    if (item.valid) snprintf(item.label, sizeof(item.label), "%s", parsed.plan_id);
+    else {
+      snprintf(item.label, sizeof(item.label), "%s", name);
+      snprintf(item.error, sizeof(item.error), "%s", reason);
+    }
+  };
+  if (sd_ready) {
+    if (sdPathExists("/vega/strategy.json")) add("strategy.json");
+    DIR *dir = opendir("/sdcard/vega/strategies");
+    if (dir) {
+      dirent *entry;
+      while ((entry = readdir(dir)) != nullptr) {
+        const size_t len = strlen(entry->d_name);
+        if (len > 5 && strcmp(entry->d_name + len - 5, ".json") == 0 && len < 36) {
+          char name[48];
+          snprintf(name, sizeof(name), "strategies/%s", entry->d_name);
+          add(name);
+        }
+      }
+      closedir(dir);
+    }
+  }
+  const char *desired = request.filename;
+  if (!desired[0]) desired = "none";
+  vega::PlanState next = vega::PlanState::Missing;
+  if (strcmp(desired, "none") != 0) found.selected = 255;
+  if (!sd_ready) snprintf(found.message, sizeof(found.message), "SD NOT AVAILABLE");
+  else if (strcmp(desired, "none") != 0) {
+    next = vega::PlanState::Invalid;
+    snprintf(found.message, sizeof(found.message), "STRATEGY FILE MISSING");
+    for (uint8_t i = 1; i < found.count; ++i) {
+      if (strcmp(found.items[i].filename, desired) != 0) continue;
+      if (!found.items[i].valid) {
+        snprintf(found.message, sizeof(found.message), "INVALID: %s", found.items[i].error);
+        break;
+      }
+      vega::Strategy parsed{};
+      char reason[48]{};
+      if (readPlan(desired, request.course_index, parsed, reason, sizeof(reason))) {
+        xQueueOverwrite(strategies, &parsed);
+        found.selected = i;
+        next = vega::PlanState::Ready;
+        found.message[0] = 0;
+      } else snprintf(found.message, sizeof(found.message), "INVALID: %s", reason);
+      break;
+    }
+  } else snprintf(found.message, sizeof(found.message), "NO STRATEGY SELECTED");
+  if (request.course_index != active_course.load()) return;
+  xQueueOverwrite(plan_choices, &found);
+  plan_state = next;
+  diagnostic("[PLAN] course=%s selected=%s state=%u %s", courseAsset(request.course_index).data->id,
+             desired, static_cast<unsigned>(next), found.message);
+}
+
 void installPlan(PlanImport request) {
   vega::Snapshot current;
   if (!sd_ready || !snapshot(current) || current.race.phase != vega::RacePhase::Waiting ||
-      SD_MMC.exists("/vega/strategy.json")) {
+      current.course_index != active_course.load() ||
+      sdPathExists("/vega/strategy.json")) {
     Serial.println("[PLAN UPLOAD] rejected: SD unavailable, timing active, or file exists");
     free(request.contents);
     return;
   }
   vega::Strategy parsed;
-  vega::Course course(course_data);
+  const auto &asset = courseAsset(active_course.load());
+  vega::Course course(*asset.data);
   char error[80]{};
-  if (!vega::parseStrategy(request.contents, request.length, course, course_data.id,
+  if (!vega::parseStrategy(request.contents, request.length, course, asset.data->id,
                            parsed, error, sizeof(error))) {
     Serial.printf("[PLAN UPLOAD] rejected: %s\n", error);
     free(request.contents);
@@ -448,68 +763,101 @@ void installPlan(PlanImport request) {
   }
   free(request.contents);
   vega::Snapshot latest;
-  if (!snapshot(latest) || latest.race.phase != vega::RacePhase::Waiting) written = false;
+  if (!snapshot(latest) || latest.race.phase != vega::RacePhase::Waiting ||
+      latest.course_index != current.course_index || active_course.load() != current.course_index)
+    written = false;
   if (!written || rename(temporary, final) != 0) {
     remove(temporary);
     Serial.println("[PLAN UPLOAD] rejected: SD write failed");
     return;
   }
-  xQueueOverwrite(strategies, &parsed);
-  plan_state = vega::PlanState::Ready;
-  Serial.printf("[PLAN UPLOAD] installed id=%s\n", parsed.plan_id);
+  QueuedCommand activate{};
+  activate.command.kind = CommandKind::UseUploadedStrategy;
+  activate.command.choice = current.course_index;
+  activate.power_epoch = power_epoch.load();
+  if (xQueueSend(commands, &activate, 0) != pdTRUE)
+    Serial.println("[PLAN UPLOAD] saved; select from Waiting menu");
+  else Serial.printf("[PLAN UPLOAD] installed id=%s\n", parsed.plan_id);
+}
+
+void installCourseFile(CourseImport request) {
+  vega::Snapshot current;
+  if (!sd_ready || !snapshot(current) || current.race.phase != vega::RacePhase::Waiting ||
+      current.engine != vega::EnginePhase::Off ||
+      !safeCourseFile(request.folder, request.filename, request.length) ||
+      courseCrc32(request.contents, request.length) != request.crc32) {
+    Serial.println("[COURSE UPLOAD] rejected: state, path, size, or checksum");
+    free(request.contents);
+    return;
+  }
+  constexpr const char *base = "/sdcard/vega/courses";
+  if (!sdPathExists("/vega/courses") && mkdir(base, 0755) != 0) {
+    Serial.println("[COURSE UPLOAD] rejected: cannot create courses directory");
+    free(request.contents);
+    return;
+  }
+  char directory[112];
+  snprintf(directory, sizeof(directory), "%s%s%s", base,
+           !strcmp(request.folder, "root") ? "" : "/",
+           !strcmp(request.folder, "root") ? "" : request.folder);
+  char relative[112];
+  snprintf(relative, sizeof(relative), "/vega/courses/%s", request.folder);
+  if (strcmp(request.folder, "root") && !sdPathExists(relative) &&
+      mkdir(directory, 0755) != 0) {
+    Serial.println("[COURSE UPLOAD] rejected: cannot create course directory");
+    free(request.contents);
+    return;
+  }
+  char final[144], temporary[152], backup[152];
+  snprintf(final, sizeof(final), "%s/%s", directory, request.filename);
+  snprintf(temporary, sizeof(temporary), "%s.tmp", final);
+  snprintf(backup, sizeof(backup), "%s.bak", final);
+  FILE *file = fopen(temporary, "wb");
+  bool written = file && fwrite(request.contents, 1, request.length, file) == request.length;
+  if (file) {
+    written = written && fflush(file) == 0 && fsync(fileno(file)) == 0;
+    if (fclose(file) != 0) written = false;
+  }
+  free(request.contents);
+  if (!written) {
+    remove(temporary);
+    Serial.println("[COURSE UPLOAD] rejected: SD write failed");
+    return;
+  }
+  bool had_final = access(final, F_OK) == 0;
+  if (had_final) {
+    remove(backup);
+    if (rename(final, backup) != 0) {
+      remove(temporary);
+      Serial.println("[COURSE UPLOAD] rejected: backup failed");
+      return;
+    }
+  }
+  if (rename(temporary, final) != 0) {
+    if (had_final) rename(backup, final);
+    remove(temporary);
+    Serial.println("[COURSE UPLOAD] rejected: install failed");
+    return;
+  }
+  if (had_final) remove(backup);
+  Serial.printf("[COURSE UPLOAD] saved %s/%s bytes=%u\n", request.folder,
+                request.filename, static_cast<unsigned>(request.length));
 }
 
 void sdTask(void *) {
-  SD_MMC.setPins(43, 44, 39, 40, 41, 42);
   auto mount = []() {
-    bool ready = SD_MMC.begin("/sdcard", false, false, SDMMC_FREQ_DEFAULT);
-    if (ready && !SD_MMC.exists("/vega")) ready = SD_MMC.mkdir("/vega");
+    bool ready = media.mount();
+    if (ready && !sdPathExists("/vega"))
+      ready = mkdir("/sdcard/vega", 0755) == 0;
     sd_ready = ready;
     return ready;
   };
   mount();
   sd_error = !sd_ready || record_loss_count.load(std::memory_order_relaxed) != 0;
   Serial.printf("[SD] mount=%s card_bytes=%llu\n", sd_ready ? "OK" : "FAILED",
-                sd_ready ? SD_MMC.cardSize() : 0ULL);
-#if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE
-  plan_state = vega::PlanState::Missing;
-  Serial.println("[PLAN] test course; Motegi strategy ignored");
-#else
-  if (sd_ready) {
-    FILE *plan_file = fopen("/sdcard/vega/strategy.json", "rb");
-    if (!plan_file) {
-      plan_state = vega::PlanState::Missing;
-      Serial.println("[PLAN] /vega/strategy.json not found");
-    } else {
-      char error[80] = "read failed";
-      bool accepted = false;
-      char *contents = static_cast<char *>(malloc(vega::kMaxStrategyFileBytes + 1));
-      if (contents && fseek(plan_file, 0, SEEK_END) == 0) {
-        long length = ftell(plan_file);
-        if (length > 0 && length <= static_cast<long>(vega::kMaxStrategyFileBytes) &&
-            fseek(plan_file, 0, SEEK_SET) == 0 &&
-            fread(contents, 1, length, plan_file) == static_cast<size_t>(length)) {
-          vega::Strategy parsed;
-          vega::Course course(course_data);
-          accepted = vega::parseStrategy(contents, length, course, course_data.id,
-                                         parsed, error, sizeof(error));
-          if (accepted) {
-            xQueueOverwrite(strategies, &parsed);
-            plan_state = vega::PlanState::Ready;
-            Serial.printf("[PLAN] loaded id=%s laps=7\n", parsed.plan_id);
-          }
-        } else
-          snprintf(error, sizeof(error), "empty, too large, or unreadable");
-      }
-      free(contents);
-      fclose(plan_file);
-      if (!accepted) {
-        plan_state = vega::PlanState::Invalid;
-        Serial.printf("[PLAN] invalid: %s\n", error);
-      }
-    }
-  } else plan_state = vega::PlanState::Missing;
-#endif
+                sd_ready ? media.cardSize() : 0ULL);
+  Serial.printf("[COURSE] loaded=%u\n", static_cast<unsigned>(courseCount()));
+  plan_state = vega::PlanState::Loading;
   SdFile log;
   char last_path[80]{};
   uint64_t last_flush = 0;
@@ -517,6 +865,39 @@ void sdTask(void *) {
   for (;;) {
     PlanImport imported{};
     if (xQueueReceive(plan_imports, &imported, 0) == pdTRUE) installPlan(imported);
+    CourseImport course_import{};
+    if (xQueueReceive(course_imports, &course_import, 0) == pdTRUE) {
+      if (active || log) {
+        free(course_import.contents);
+        Serial.println("[COURSE UPLOAD] rejected: recording active");
+      } else installCourseFile(course_import);
+    }
+    PlanRequest plan_request{};
+    if (xQueueReceive(plan_requests, &plan_request, 0) == pdTRUE) {
+      if (active || log) {
+        // Finish closing the session file before unmounting the card.
+        xQueueOverwrite(plan_requests, &plan_request);
+      } else {
+        const bool was_ready = sd_ready;
+        const bool media_error_only = sd_error && sd_last_failure == SdFailure::None;
+        // Remount to detect removal or insertion (Tab5 has no card-detect pin).
+        media.unmount();
+        const bool now_ready = mount();
+        if (now_ready && !courseCount() && loadCoursesFromSd()) {
+          Serial.printf("[COURSE] loaded=%u after SD insertion\n",
+                        static_cast<unsigned>(courseCount()));
+          Command load{};
+          load.kind = CommandKind::LoadSdCourses;
+          submit(load);
+        }
+        if (!now_ready) sd_error = true;
+        else if (media_error_only && record_loss_count.load(std::memory_order_relaxed) == 0)
+          sd_error = false;
+        if (was_ready != now_ready)
+          Serial.printf("[SD] media %s\n", now_ready ? "inserted" : "removed");
+        scanPlans(plan_request);
+      }
+    }
     Record r{};
     if (xQueueReceive(records, &r, pdMS_TO_TICKS(50)) == pdTRUE) {
       if (r.kind == RecordKind::Begin) {
@@ -524,7 +905,7 @@ void sdTask(void *) {
         active = true;
         failed_session = false;
         if (!sd_ready) {
-          SD_MMC.end();
+          media.unmount();
           if (mount()) Serial.println("[SD] mount recovered");
         }
         // Persistent monotonic ID plus existence checks prevents overwriting on reboot.
@@ -538,7 +919,7 @@ void sdTask(void *) {
         do {
           snprintf(last_path, sizeof(last_path), "/vega/session-%010lu.jsonl",
                    static_cast<unsigned long>(number++));
-        } while (sd_ready && SD_MMC.exists(last_path));
+        } while (sd_ready && sdPathExists(last_path));
         if (sd_ready) log = SdFile(last_path, "w");
         if (!log) {
           failed_session = true;
@@ -552,9 +933,10 @@ void sdTask(void *) {
           int n = snprintf(
               meta, sizeof(meta),
               "{\"type\":\"session\",\"schema_version\":3,\"boot_session\":%lu,\"started_uptime_"
-              "ms\":%llu,\"total_target_s\":%lu,\"lap_target_s\":[%lu,%lu,%lu,%lu,%lu,%lu,%lu],"
+              "ms\":%llu,\"course_id\":\"%s\",\"lap_count\":%u,\"total_target_s\":%lu,\"lap_target_s\":[%lu,%lu,%lu,%lu,%lu,%lu,%lu],"
               "\"start\":[%.8f,%.8f],\"timing\":[%.8f,%.8f],\"goal\":[%.8f,%.8f]}\n",
               static_cast<unsigned long>(r.data.race.session), r.data.now_ms,
+              courseAsset(r.data.course_index).data->id, r.data.lap_count,
               static_cast<unsigned long>(s.total_target_s),
               static_cast<unsigned long>(s.lap_target_s[0]),
               static_cast<unsigned long>(s.lap_target_s[1]),
@@ -650,7 +1032,7 @@ void sdTask(void *) {
       if (requested_session)
         snprintf(requested_path, sizeof(requested_path), "/vega/session-%010lu.jsonl",
                  static_cast<unsigned long>(requested_session));
-      else if (sd_ready && (!last_path[0] || !SD_MMC.exists(last_path))) {
+      else if (sd_ready && (!last_path[0] || !sdPathExists(last_path))) {
         // USB serial access can reboot Tab5; recover the most recent file from
         // the persisted session counter so `log` still works after a field run.
         Preferences p;
@@ -662,7 +1044,7 @@ void sdTask(void *) {
         for (unsigned attempts = 0; number && attempts < 100; --number, ++attempts) {
           snprintf(last_path, sizeof(last_path), "/vega/session-%010lu.jsonl",
                    static_cast<unsigned long>(number));
-          if (SD_MMC.exists(last_path)) break;
+          if (sdPathExists(last_path)) break;
           last_path[0] = '\0';
         }
       }
@@ -691,14 +1073,26 @@ void sdTask(void *) {
   }
 }
 
+void netMemory(const char *stage);
 void mqttEvent(void *, esp_event_base_t, int32_t id, void *) {
   if (id == MQTT_EVENT_CONNECTED) {
     mqtt_connected = true;
     Serial.println("[MQTT] connected");
+    netMemory("MQTT connected");
   } else if (id == MQTT_EVENT_DISCONNECTED || id == MQTT_EVENT_ERROR)
     mqtt_connected = false;
 }
 void ntpSynced(struct timeval *) { last_ntp_sync = clock_source.now(); }
+void netMemory(const char *stage) {
+  const uint32_t internal = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+  const uint32_t dma = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
+  Serial.printf("[NET MEM] %s int=%u/%u dma=%u/%u psram=%u\n", stage,
+                static_cast<unsigned>(heap_caps_get_free_size(internal)),
+                static_cast<unsigned>(heap_caps_get_largest_free_block(internal)),
+                static_cast<unsigned>(heap_caps_get_free_size(dma)),
+                static_cast<unsigned>(heap_caps_get_largest_free_block(dma)),
+                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
+}
 void networkTask(void *) {
   constexpr vega::Millis kWifiRetryMs = 10000;
   const bool wifi_configured = network_config::ssid[0];
@@ -706,7 +1100,9 @@ void networkTask(void *) {
                                network_config::client_cert[0] && network_config::client_key[0];
   esp_mqtt_client_handle_t client = nullptr;
   bool mqtt_started = false;
+  bool previous_wifi_ready = false;
   vega::Millis last_wifi_attempt = clock_source.now();
+  netMemory("before Wi-Fi");
   if (wifi_configured) {
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
@@ -721,6 +1117,10 @@ void networkTask(void *) {
     // Arduino marks WL_CONNECTED only after the STA_GOT_IP event.
     const bool wifi_ready = wifi_configured && WiFi.status() == WL_CONNECTED;
     const auto now = clock_source.now();
+    if (wifi_ready != previous_wifi_ready) {
+      netMemory(wifi_ready ? "Wi-Fi got IP" : "Wi-Fi lost IP");
+      previous_wifi_ready = wifi_ready;
+    }
     if (wifi_ready)
       last_wifi_attempt = now;
     else if (wifi_configured && now - last_wifi_attempt >= kWifiRetryMs) {
@@ -737,6 +1137,7 @@ void networkTask(void *) {
       Serial.println("[MQTT] stopped; Wi-Fi IP unavailable");
     } else if (wifi_ready && mqtt_configured && !mqtt_started) {
       if (!client) {
+        netMemory("before MQTT init");
         esp_mqtt_client_config_t cfg{};
         cfg.broker.address.uri = network_config::endpoint;
         cfg.broker.verification.certificate = network_config::root_ca;
@@ -747,11 +1148,13 @@ void networkTask(void *) {
         cfg.session.disable_clean_session = false;
         cfg.outbox.limit = 4096;
         client = esp_mqtt_client_init(&cfg);
+        netMemory("after MQTT init");
         if (client) esp_mqtt_client_register_event(client, MQTT_EVENT_ANY, mqttEvent, nullptr);
       }
       if (client && esp_mqtt_client_start(client) == ESP_OK) {
         mqtt_started = true;
         Serial.println("[MQTT] starting after Wi-Fi got IP");
+        netMemory("after MQTT start");
       }
     }
     vega::Snapshot s{};
@@ -769,16 +1172,25 @@ void networkTask(void *) {
 }
 
 void applicationTask(void *) {
-  vega::Course course(course_data);
-  auto settings = settings_store.load();
+  const uint8_t initial_index = savedCourseIndex();
+  active_course = initial_index;
+  settings_store.select(initial_index);
+  vega::Course course(*courseAsset(initial_index).data);
+  auto settings = settings_store.load(initial_index);
   Serial.printf("[COURSE] id=%s length_m=%.1f start=%.6f,%.6f lap=%.6f,%.6f "
-                "goal=%.6f,%.6f\n", course_data.id, course.length(),
+                "goal=%.6f,%.6f\n", courseAsset(initial_index).data->id, course.length(),
                 settings.start.latitude, settings.start.longitude,
                 settings.timing.latitude, settings.timing.longitude,
                 settings.goal.latitude, settings.goal.longitude);
   debounce_us = settings.pulse_debounce_us;
+  wheel_interval_us = wheelIntervalUs(settings);
   vega::Application app(clock_source, engine_output, settings_store, recorder, telemetry, course,
                         settings);
+  app.selectCourse(course, initial_index, settings);
+  PlanRequest initial_plan{};
+  initial_plan.course_index = initial_index;
+  savedPlanName(initial_plan.filename, sizeof(initial_plan.filename));
+  xQueueOverwrite(plan_requests, &initial_plan);
   HardwareSerial gps_uart(1);
   gps_uart.setRxBufferSize(2048);
   uint8_t gps_config_step = 2;
@@ -800,11 +1212,8 @@ void applicationTask(void *) {
     gps_rmc = 0;
     gps_rmc_hz_x10 = 0;
     const bool port_a = source == vega::GpsSource::PortA;
-#if defined(VEGA_TEST_COURSE) && VEGA_TEST_COURSE
-    // The walking test course needs the receiver to track pedestrian speed.
-    // Apply in RAM on each UART open; production course mode remains unchanged.
-    if (port_a) gps_walk_requested = true;
-#endif
+    if (port_a && courseAsset(active_course.load()).pedestrian_gps)
+      gps_walk_requested = true;
     const int rx = port_a ? kGpsPortARx : kGpsBusRx;
     const int tx = port_a ? kGpsPortATx : kGpsBusTx;
     gps_uart.begin(9600, SERIAL_8N1, rx, tx);
@@ -815,7 +1224,10 @@ void applicationTask(void *) {
   };
   openGps(settings.gps_source);
   pinMode(kReed, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(kReed), reedInterrupt, FALLING);
+  portENTER_CRITICAL(&wheel_lock);
+  reed_filter.reset(digitalRead(kReed) != LOW, esp_timer_get_time());
+  portEXIT_CRITICAL(&wheel_lock);
+  attachInterrupt(digitalPinToInterrupt(kReed), reedInterrupt, CHANGE);
   vega::NmeaParser parser;
   diagnostic("[APP] ready; electrical OFF; commands: status/start/cancel/lap/on/off/ignite/log");
   for (;;) {
@@ -947,7 +1359,7 @@ void applicationTask(void *) {
       bool ok = true;
       switch (command.kind) {
         case CommandKind::Start:
-          ok = app.start();
+          ok = sd_ready && courseCount() && app.start();
           break;
         case CommandKind::Cancel:
           ok = app.cancel();
@@ -969,13 +1381,121 @@ void applicationTask(void *) {
           break;
         case CommandKind::Configure: {
           const auto old_gps_source = app.snapshot().settings.gps_source;
-          ok = app.configure(command.settings);
+          ok = app.configure(command.settings, command.scope);
           if (ok) {
             debounce_us = command.settings.pulse_debounce_us;
+            wheel_interval_us = wheelIntervalUs(command.settings);
             if (command.settings.gps_source != old_gps_source) {
               gps_uart.flush();
               openGps(command.settings.gps_source);
               parser = vega::NmeaParser{};
+            }
+          }
+          break;
+        }
+        case CommandKind::SelectCourse: {
+          const uint8_t index = command.choice;
+          const auto current = app.snapshot();
+          ok = index < courseCount() && current.race.phase == vega::RacePhase::Waiting &&
+               current.engine == vega::EnginePhase::Off && sd_ready;
+          if (ok && index != current.course_index) {
+            const auto replacement = settings_store.load(index);
+            ok = vega::validSettings(replacement) &&
+                 saveSelection(courseAsset(index).data->id, "none");
+            if (ok) {
+              course = vega::Course(*courseAsset(index).data);
+              ok = app.selectCourse(course, index, replacement);
+            }
+            if (ok) {
+              settings_store.select(index);
+              active_course = index;
+              debounce_us = replacement.pulse_debounce_us;
+              wheel_interval_us = wheelIntervalUs(replacement);
+              parser = vega::NmeaParser{};
+              openGps(replacement.gps_source);
+              xQueueReset(strategies);
+              plan_state = vega::PlanState::Loading;
+              PlanRequest request{};
+              request.course_index = index;
+              snprintf(request.filename, sizeof(request.filename), "none");
+              xQueueOverwrite(plan_requests, &request);
+            }
+          }
+          break;
+        }
+        case CommandKind::SelectStrategy: {
+          const auto current = app.snapshot();
+          static PlanChoices choices{};
+          ok = current.race.phase == vega::RacePhase::Waiting &&
+               current.engine == vega::EnginePhase::Off && sd_ready &&
+               xQueuePeek(plan_choices, &choices, 0) == pdTRUE &&
+               choices.course_index == current.course_index &&
+               command.choice < choices.count && choices.items[command.choice].valid;
+          if (ok) {
+            const char *name = command.choice == 0 ? "none" :
+                               choices.items[command.choice].filename;
+            ok = saveSelection(courseAsset(current.course_index).data->id, name);
+            if (ok) {
+              xQueueReset(strategies);
+              plan_state = vega::PlanState::Loading;
+              PlanRequest request{};
+              request.course_index = current.course_index;
+              snprintf(request.filename, sizeof(request.filename), "%s", name);
+              xQueueOverwrite(plan_requests, &request);
+            }
+          }
+          break;
+        }
+        case CommandKind::RefreshStrategies: {
+          const auto current = app.snapshot();
+          ok = current.race.phase == vega::RacePhase::Waiting &&
+               current.engine == vega::EnginePhase::Off;
+          if (ok) {
+            PlanRequest request{};
+            request.course_index = current.course_index;
+            savedPlanName(request.filename, sizeof(request.filename));
+            xQueueReset(strategies);
+            plan_state = vega::PlanState::Loading;
+            xQueueOverwrite(plan_requests, &request);
+          }
+          break;
+        }
+        case CommandKind::UseUploadedStrategy: {
+          const auto current = app.snapshot();
+          ok = current.race.phase == vega::RacePhase::Waiting &&
+               current.engine == vega::EnginePhase::Off &&
+               command.choice == current.course_index &&
+               saveSelection(courseAsset(current.course_index).data->id, "strategy.json");
+          if (ok) {
+            xQueueReset(strategies);
+            plan_state = vega::PlanState::Loading;
+            PlanRequest request{};
+            request.course_index = current.course_index;
+            snprintf(request.filename, sizeof(request.filename), "strategy.json");
+            xQueueOverwrite(plan_requests, &request);
+          }
+          break;
+        }
+        case CommandKind::LoadSdCourses: {
+          const auto current = app.snapshot();
+          ok = courseCount() && current.race.phase == vega::RacePhase::Waiting &&
+               current.engine == vega::EnginePhase::Off && sd_ready;
+          if (ok) {
+            const uint8_t index = savedCourseIndex();
+            const auto replacement = settings_store.load(index);
+            course = vega::Course(*courseAsset(index).data);
+            ok = app.selectCourse(course, index, replacement);
+            if (ok) {
+              settings_store.select(index);
+              active_course = index;
+              debounce_us = replacement.pulse_debounce_us;
+              wheel_interval_us = wheelIntervalUs(replacement);
+              parser = vega::NmeaParser{};
+              openGps(replacement.gps_source);
+              PlanRequest request{};
+              request.course_index = index;
+              savedPlanName(request.filename, sizeof(request.filename));
+              xQueueOverwrite(plan_requests, &request);
             }
           }
           break;
@@ -993,6 +1513,9 @@ void applicationTask(void *) {
 
 bool begin() {
   if (!outputs_prepared && !prepareOutputs()) return false;
+  sd_ready = media.mount();
+  if (sd_ready && !loadCoursesFromSd())
+    Serial.println("[COURSE] no valid course catalog on microSD");
   if (VEGA_ENABLE_MQTT &&
       mbedtls_platform_set_calloc_free(tlsPsramCalloc, tlsPsramFree) != 0) {
     Serial.println("[MQTT] unable to route TLS allocations to PSRAM");
@@ -1005,8 +1528,11 @@ bool begin() {
   diagnostics = xQueueCreate(16, sizeof(Diagnostic));
   strategies = xQueueCreate(1, sizeof(vega::Strategy));
   plan_imports = xQueueCreate(1, sizeof(PlanImport));
+  course_imports = xQueueCreate(1, sizeof(CourseImport));
+  plan_requests = xQueueCreate(1, sizeof(PlanRequest));
+  plan_choices = xQueueCreate(1, sizeof(PlanChoices));
   if (!commands || !snapshots || !records || !transmissions || !diagnostics || !strategies ||
-      !plan_imports)
+      !plan_imports || !course_imports || !plan_requests || !plan_choices)
     return false;
   if (xTaskCreate(diagnosticTask, "vega_log", 3072, nullptr, 1, nullptr) != pdPASS ||
       xTaskCreate(sdTask, "vega_sd", 8192, nullptr, 1, nullptr) != pdPASS ||
@@ -1016,7 +1542,9 @@ bool begin() {
   return true;
 }
 bool prepareOutputs() {
-  auto settings = settings_store.load();
+  const auto index = savedCourseIndex();
+  settings_store.select(index);
+  auto settings = settings_store.load(index);
   outputs_prepared = engine_output.init(settings.power_active_high);
   return outputs_prepared;
 }
@@ -1038,8 +1566,23 @@ bool snapshot(vega::Snapshot &s) { return snapshots && xQueuePeek(snapshots, &s,
 bool strategy(vega::Strategy &s) {
   return strategies && xQueuePeek(strategies, &s, 0) == pdTRUE;
 }
+bool planChoices(PlanChoices &out) {
+  return plan_choices && xQueuePeek(plan_choices, &out, 0) == pdTRUE;
+}
 vega::UiStatus status() {
   vega::UiStatus s;
+  static uint32_t last_battery_sample_ms = 0;
+  static int16_t battery_percent = -1;
+  static bool battery_sampled = false;
+  const uint32_t now_ms = millis();
+  if (!battery_sampled || now_ms - last_battery_sample_ms >= 2000) {
+    last_battery_sample_ms = now_ms;
+    battery_sampled = true;
+    const int voltage_mv = M5.Power.getBatteryVoltage();
+    const int level = voltage_mv > 0 ? M5.Power.getBatteryLevel() : -1;
+    battery_percent = level >= 0 && level <= 100 ? level : -1;
+  }
+  s.battery_percent = battery_percent;
   s.sd_ready = sd_ready;
   s.sd_error = sd_error;
   s.plan_state = plan_state.load();
@@ -1062,11 +1605,14 @@ void requestLogReadback(uint32_t session) {
   readback = true;
 }
 void serialPoll() {
-  static char buffer[64];
+  static char buffer[96];
   static size_t count = 0;
   static char *incoming_plan = nullptr;
   static size_t incoming_expected = 0, incoming_received = 0;
   static uint32_t incoming_last_ms = 0;
+  static CourseImport incoming_course{};
+  static size_t course_received = 0;
+  static uint32_t course_last_ms = 0;
   if (incoming_plan && millis() - incoming_last_ms > 15000) {
     Serial.printf("[PLAN UPLOAD] timeout received=%u expected=%u\n",
                   static_cast<unsigned>(incoming_received),
@@ -1075,8 +1621,31 @@ void serialPoll() {
     incoming_plan = nullptr;
     incoming_expected = incoming_received = 0;
   }
+  if (incoming_course.contents && millis() - course_last_ms > 15000) {
+    Serial.printf("[COURSE UPLOAD] timeout received=%u expected=%u\n",
+                  static_cast<unsigned>(course_received),
+                  static_cast<unsigned>(incoming_course.length));
+    free(incoming_course.contents);
+    incoming_course = {};
+    course_received = 0;
+  }
   for (unsigned budget = 0; budget < 128 && Serial.available(); ++budget) {
     char c = Serial.read();
+    if (incoming_course.contents) {
+      incoming_course.contents[course_received++] = static_cast<uint8_t>(c);
+      course_last_ms = millis();
+      if (course_received == incoming_course.length) {
+        if (xQueueSend(course_imports, &incoming_course, 0) == pdTRUE)
+          Serial.println("[COURSE UPLOAD] queued");
+        else {
+          free(incoming_course.contents);
+          Serial.println("[COURSE UPLOAD] queue full");
+        }
+        incoming_course = {};
+        course_received = 0;
+      }
+      continue;
+    }
     if (incoming_plan) {
       incoming_plan[incoming_received++] = c;
       incoming_last_ms = millis();
@@ -1103,12 +1672,14 @@ void serialPoll() {
         auto st = status();
         if (snapshot(s))
           Serial.printf(
-              "[STATUS] phase=%u lap=%u total_ms=%llu power_phase=%u power_pin=%d ignition_pin=%d "
+              "[STATUS] phase=%u lap=%u course=%s lap_count=%u total_ms=%llu "
+              "power_phase=%u power_pin=%d ignition_pin=%d "
               "gps=%u gps_source=%s gps_bytes=%lu gps_rmc=%lu gps_rmc_hz=%lu.%lu pulses=%llu "
               "sd_ready=%u sd_error=%u sd_last_failure=%s sd_record_lost=%lu "
               "wifi=%u mqtt=%u ntp=%u total_target_s=%lu "
-              "lap1_target_s=%lu\n",
-              static_cast<unsigned>(s.race.phase), s.race.lap, s.race.total_ms,
+              "lap1_target_s=%lu brightness=%lu speed_avg_n=%lu\n",
+              static_cast<unsigned>(s.race.phase), s.race.lap,
+              courseAsset(s.course_index).data->id, s.lap_count, s.race.total_ms,
               static_cast<unsigned>(s.engine), gpio_get_level(kPower), gpio_get_level(kIgnition),
               s.gps_fresh, s.settings.gps_source == vega::GpsSource::PortA ? "PORT_A" : "M5BUS",
               static_cast<unsigned long>(gps_bytes.load(std::memory_order_relaxed)),
@@ -1120,13 +1691,40 @@ void serialPoll() {
               static_cast<unsigned long>(record_loss_count.load(std::memory_order_relaxed)),
               WiFi.status() == WL_CONNECTED, st.mqtt_connected,
               st.time_valid, static_cast<unsigned long>(s.settings.total_target_s),
-              static_cast<unsigned long>(s.settings.lap_target_s[0]));
+              static_cast<unsigned long>(s.settings.lap_target_s[0]),
+              static_cast<unsigned long>(s.settings.display_brightness),
+              static_cast<unsigned long>(s.settings.speed_average_intervals));
+      } else if (!strcmp(buffer, "net-mem")) {
+        netMemory("serial request");
+      } else if (!strcmp(buffer, "wheel-debug")) {
+        uint64_t raw, rejected_release, rejected_interval, accepted;
+        portENTER_CRITICAL(&wheel_lock);
+        raw = reed_filter.rawFalls();
+        rejected_release = reed_filter.rejectedRelease();
+        rejected_interval = reed_filter.rejectedInterval();
+        accepted = wheel_input.pulses;
+        portEXIT_CRITICAL(&wheel_lock);
+        Serial.printf("[WHEEL] raw_falls=%llu accepted=%llu rejected_release=%llu "
+                      "rejected_interval=%llu level=%d release_us=%lu interval_us=%lu "
+                      "debounce_us=%lu\n",
+                      raw, accepted, rejected_release, rejected_interval, digitalRead(kReed),
+                      static_cast<unsigned long>(kReedReleaseUs),
+                      static_cast<unsigned long>(wheel_interval_us.load(std::memory_order_relaxed)),
+                      static_cast<unsigned long>(debounce_us.load(std::memory_order_relaxed)));
       } else if (!strcmp(buffer, "plan-status")) {
         vega::Strategy current;
-        bool loaded = strategy(current);
-        Serial.printf("[PLAN] state=%u loaded=%u id=%s\n",
+        static PlanChoices choices{};
+        const bool loaded = plan_state.load() == vega::PlanState::Ready && strategy(current);
+        const bool have_choices = planChoices(choices);
+        Serial.printf("[PLAN] state=%u loaded=%u id=%s selected=%u choices=%u reason=%s\n",
                       static_cast<unsigned>(plan_state.load()), loaded,
-                      loaded ? current.plan_id : "-");
+                      loaded ? current.plan_id : "-", have_choices ? choices.selected : 255,
+                      have_choices ? choices.count : 0,
+                      have_choices ? choices.message : "not scanned");
+      } else if (!strcmp(buffer, "plan-refresh")) {
+        Command refresh{};
+        refresh.kind = CommandKind::RefreshStrategies;
+        Serial.printf("[PLAN] refresh queued=%u\n", submit(refresh));
       } else if (!strncmp(buffer, "plan-upload ", 12)) {
         char *end = nullptr;
         unsigned long length = strtoul(buffer + 12, &end, 10);
@@ -1144,6 +1742,58 @@ void serialPoll() {
             Serial.printf("[PLAN UPLOAD] ready bytes=%lu\n", length);
           } else Serial.println("[PLAN UPLOAD] allocation failed");
         }
+      } else if (!strncmp(buffer, "course-upload ", 14)) {
+        char folder[41]{}, filename[16]{};
+        unsigned long length = 0, crc = 0;
+        int consumed = 0;
+        vega::Snapshot current;
+        const bool parsed = sscanf(buffer + 14, "%40s %15s %lu %lu %n", folder,
+                                   filename, &length, &crc, &consumed) == 4 &&
+                            buffer[14 + consumed] == 0;
+        if (!parsed || !length || !safeCourseFile(folder, filename, length) ||
+            !sd_ready || !snapshot(current) ||
+            current.race.phase != vega::RacePhase::Waiting ||
+            current.engine != vega::EnginePhase::Off) {
+          Serial.println("[COURSE UPLOAD] rejected: state, path, or size");
+        } else {
+          incoming_course.contents = static_cast<uint8_t *>(
+              heap_caps_malloc(length, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+          if (!incoming_course.contents)
+            Serial.println("[COURSE UPLOAD] allocation failed");
+          else {
+            incoming_course.length = length;
+            incoming_course.crc32 = static_cast<uint32_t>(crc);
+            snprintf(incoming_course.folder, sizeof(incoming_course.folder), "%s", folder);
+            snprintf(incoming_course.filename, sizeof(incoming_course.filename), "%s", filename);
+            course_received = 0;
+            course_last_ms = millis();
+            Serial.printf("[COURSE UPLOAD] ready bytes=%lu\n", length);
+          }
+        }
+      } else if (!strcmp(buffer, "course-list")) {
+        Serial.printf("[COURSE LIST] count=%u\n", static_cast<unsigned>(courseCount()));
+        for (size_t i = 0; i < courseCount(); ++i)
+          Serial.printf("[COURSE LIST] %u %s\n", static_cast<unsigned>(i),
+                        courseAsset(i).data->id);
+      } else if (!strncmp(buffer, "course-select ", 14)) {
+        bool queued = false;
+        for (size_t i = 0; i < courseCount(); ++i)
+          if (!strcmp(buffer + 14, courseAsset(i).data->id)) {
+            Command select{};
+            select.kind = CommandKind::SelectCourse;
+            select.choice = i;
+            queued = submit(select);
+            break;
+          }
+        Serial.printf("[COURSE SELECT] queued=%u\n", queued);
+      } else if (!strcmp(buffer, "course-reboot")) {
+        vega::Snapshot current;
+        if (snapshot(current) && current.race.phase == vega::RacePhase::Waiting &&
+            current.engine == vega::EnginePhase::Off) {
+          Serial.println("[COURSE] rebooting to load microSD catalog");
+          Serial.flush();
+          esp_restart();
+        } else Serial.println("[COURSE] reboot rejected: timing or electrical active");
       } else if (!strcmp(buffer, "settings")) {
         vega::Snapshot s;
         if (snapshot(s))
@@ -1179,6 +1829,7 @@ void serialPoll() {
           Command c{};
           c.kind = CommandKind::Configure;
           c.settings = s.settings;
+          c.scope = vega::SettingsScope::General;
           char *end = nullptr;
           double number = strtod(value, &end);
           bool known = true;
@@ -1191,12 +1842,16 @@ void serialPoll() {
               known = false;
           } else if (!strcmp(key, "wheel_circumference_m"))
             c.settings.wheel_circumference_m = number;
-          else if (!strcmp(key, "course_corridor_m"))
+          else if (!strcmp(key, "course_corridor_m")) {
+            c.scope = vega::SettingsScope::Course;
             c.settings.course_corridor_m = number;
+          }
           else if (!strcmp(key, "max_gps_step_m"))
             c.settings.max_gps_step_m = number;
-          else if (!strcmp(key, "min_lap_progress_m"))
+          else if (!strcmp(key, "min_lap_progress_m")) {
+            c.scope = vega::SettingsScope::Course;
             c.settings.min_lap_progress_m = number;
+          }
           else if (number > UINT32_MAX || number != std::floor(number))
             known = false;
           else if (!strcmp(key, "ecu_ready_ms"))
@@ -1205,14 +1860,19 @@ void serialPoll() {
             c.settings.ignition_pulse_ms = number;
           else if (!strcmp(key, "pulse_debounce_us"))
             c.settings.pulse_debounce_us = number;
+          else if (!strcmp(key, "speed_average_intervals"))
+            c.settings.speed_average_intervals = number;
           else if (!strcmp(key, "speed_zero_ms"))
             c.settings.speed_zero_ms = number;
           else if (!strcmp(key, "gps_stale_ms"))
             c.settings.gps_stale_ms = number;
-          else if (!strcmp(key, "min_lap_ms"))
+          else if (!strcmp(key, "min_lap_ms")) {
+            c.scope = vega::SettingsScope::Course;
             c.settings.min_lap_ms = number;
-          else if (!strcmp(key, "lap_duplicate_ms"))
+          } else if (!strcmp(key, "lap_duplicate_ms")) {
+            c.scope = vega::SettingsScope::Course;
             c.settings.lap_duplicate_ms = number;
+          }
           else if (!strcmp(key, "pulses_per_revolution"))
             c.settings.pulses_per_revolution = number;
           else

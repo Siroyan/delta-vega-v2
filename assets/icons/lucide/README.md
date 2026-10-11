@@ -1,9 +1,10 @@
 # 操作用アイコン
 
-[Lucide](https://lucide.dev/) の `power`、`flame`、`menu`、`x`、`arrow-left`、`settings` を使用します。
+[Lucide](https://lucide.dev/) の `power`、`flame`、`menu`、`x`、`arrow-left`、`settings`、`route` を使用します。
 取得元: https://github.com/lucide-icons/lucide/tree/66d8f9fc394b8530377e5f6112f0b8908ba01280/icons
 
-- `power.svg` / `flame.svg` / `menu.svg` / `x.svg` / `arrow-left.svg` / `settings.svg`: 上記コミットから取得した原本。
+- `power.svg` / `flame.svg` / `menu.svg` / `x.svg` / `arrow-left.svg` / `settings.svg` / `route.svg`: 上記コミットから取得した原本。
+- `route_dark.*`: COURSE / STRATEGYのメニュー項目に使う40 pxの経路アイコン。
 - `electrical_power_off.*`: 青緑の電源マーク。
 - `electrical_power_on.*`: 白い電源マーク。
 - `ignition_flame.*`: 白い炎マーク。
@@ -22,4 +23,4 @@ LucideのISC LicenseとFeather由来アイコンのMIT Licenseの全文・著作
 円内のアイコン領域の左上座標は電源（68, 44）、炎（38, 38）です。
 炎は電源との視覚的なバランスを補正するため、中心位置を維持して12.5%大きくしています。
 
-メニュー・閉じる・戻るは32 px、設定は40 pxの濃色アイコン（`*_dark.*`）を使用しています。
+メニュー・閉じる・戻るは32 px、設定と経路は40 pxの濃色アイコン（`*_dark.*`）を使用しています。

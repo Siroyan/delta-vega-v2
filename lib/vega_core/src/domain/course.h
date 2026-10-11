@@ -35,7 +35,7 @@ class Course {
   double routeLength(CourseRoute route) const;
   bool hasRoute(CourseRoute route) const;
   uint8_t lapCount() const {
-    return data_.lap_count >= 2 && data_.lap_count <= kLapCount ? data_.lap_count : kLapCount;
+    return data_.lap_count >= 2 && data_.lap_count <= kMaxRaceLaps ? data_.lap_count : kLapCount;
   }
   double forwardDelta(double from, double to) const;
   double forwardDelta(double from, double to, CourseRoute route) const;

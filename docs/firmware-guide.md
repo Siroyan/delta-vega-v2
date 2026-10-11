@@ -8,13 +8,15 @@
 - 有効なGPS通過またはMANUAL LAP +1で周回を進める。最終周（茂木7/7、テストコース4/4）で別地点のゴール通過を検出するとFinishedになる。最終周では手動ラップボタンが赤い`GOAL / FINISH`に変わり、GPSがゴールを取り逃した場合は確認画面の`FINISH TIMING`で現在時刻の結果を確定できる。`KEEP TIMING`では計測を続ける。手動完走はSD記録に`manual_finish`イベントとして残る。
 - GPSの短い途切れでは周回進捗を保持するが、途切れ中に計測線を越えたと推定して周回を進めることはしない。GPS自動周回の直後は、次周の進捗が十分になるまで手動ラップを無効にする。GPSを失った場合は手動ラップ補正を利用できる。手動ゴールは確認画面を通せば、直前の周回更新からの待ち時間なしに確定する。
 - 取消はメニュー/SettingsのCANCEL TIMING → 確認画面のCANCEL TIMING。KEEP TIMINGで継続。取消後は新規開始可能。完走後の再計測は提供しない。
-- 左下の青緑の電源トグルはエンジン系電装への指令。ON後1000 ms待って点火ボタンを有効にする。右下の炎ボタンはECUへの1000 ms HIGHパルス。電装ONごとに1回まで。
+- 左下の青緑の電源トグルはエンジン系電装への指令。ON後、設定されたECU準備時間（初期1000 ms）は右下の点火ボタンが無効時と同じ薄い赤から時計回りに通常の赤へ変わり、操作できない。準備完了時に全面が通常の赤となり、炎ボタンを操作できる。炎ボタンはECUへの1000 ms HIGHパルス。電装ONごとに1回まで。
 - 電装OFFは準備待ち/パルスを中止する。計測とTab5は動作継続。Tab5はエンジンの実運転状態を確認できない。
-- 全体42:00・各周06:00のTARGETとスタート/周回更新/ゴールの各緯度経度をSettingsで編集できる。`ADVANCED SETTINGS`から車輪・GPS・周回判定・ECU関連の13項目とGPS接続先を変更できる。数値画面のSETは編集値の確定、SAVE SETTINGSは一括保存。Advancedの戻る矢印はSettingsへ戻り、Settingsの戻る矢印は未保存の編集を破棄する。
+- ハンバーガーメニューの`COURSE MENU`から、全体42:00・各周06:00のTARGETとスタート/周回更新/ゴールの各緯度経度を編集できる。`COURSE DETAILS`には回廊幅・最小周回距離・最小周回時間・重複抑制を置く。`GENERAL MENU`からは車輪・電装・ECU・GPS関連値とGPS接続先、`DISPLAY BRIGHTNESS`を編集できる。輝度は25～100%相当（内部値64～255）で、操作中は画面へ反映する。初期値は127。数値画面のSETは一時編集の確定、各ページのSAVE SETTINGSはその範囲だけの保存。戻る矢印で未保存の編集と輝度プレビューを破棄する。
 - 電装極性（POWER HIGH）は`1`でHIGH=ON、`0`でLOW=ON。電装ON中は極性・ECU準備時間・点火パルス幅の編集を無効にし、アプリケーション側も変更を拒否する。これらの値は実車接続前に回路とECUの仕様に合わせて確認する。
 - 計測中はUIとApplicationの双方で設定変更を拒否する。全体TARGETと各周合計の一致は強制しない。大会制限39:16とは独立した値。
-- Settingsは版付きNVS blob。旧版の設定を読み込むとGPS接続先はM5Busとなり、既存のTARGET・座標・車両設定は維持される。次回保存時に新版形式へ移行する。再起動しても設定を保持する。電装状態・始動権・進行中レースの復元は行わない。
-- GPS接続先はAdvanced Settingsの`GPS INPUT`で`M5BUS`または`PORT.A`を選び、`SAVE SETTINGS`で確定する。切替は計測前または計測取消後のみ可能。保存成功時にUART、NMEAパーサ、直前のGPS位置・受信状態を初期化して選択先から受信し直す。Port.AのAT6558 Unit GPSは最初のRMC受信後、[CASICプロトコル](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/950/Multimode_satellite_navigation_receiver_cn.pdf)のコマンドで測位を5 Hz（200 ms）、RMCを毎回、GGAを5回に1回へ変更する。設定はGPS内のFLASHに保存せず、UARTを開き直すたびに送信する。M5BusのGT-502MGG-Nにはこのコマンドを送らない。GPSの測位確認には屋外の開けた場所で待つ。シリアルの`status`で`gps_source`・`gps_bytes`（受信バイト数）・`gps_rmc`（チェックサムが正しいRMC文の件数）・`gps_rmc_hz`（直近5秒間のRMC受信頻度）・`gps`（新鮮な測位の有無）を確認できる。
+- NVSは端末共通の`vega-device/settings`と、選択コースの名前空間にある`course`を別々に保存する。従来のv1～v3 `settings` blobからの初回移行では、端末共通値は選択コースの旧設定を優先し、なければ旧`vega/settings`から電装極性・GPS入力先・車輪校正・ECU時間・輝度などを引き継ぐ。コース固有値は選択コースの旧設定だけから引き継ぎ、存在しなければそのコースのカタログ初期値を使う。既存の`vega-device/settings`があればそれを優先する。旧v1ではGPS入力先をM5Bus、旧v1/v2では輝度を127として扱う。保存した共通輝度はコースを切り替えても変わらず、再起動後も保持する。電装状態・始動権・進行中レースは復元しない。
+- 修正前の開発版で一度起動し、`vega-device/settings`へ既に誤った初期値が保存された個体は、自動的には旧値へ戻らない。どの値が意図的に変更されたか判別できないため、実車の回路を接続する前にGENERAL SETTINGSの`POWER HIGH`、`ECU READY`、`IGNITION PULSE`などを回路仕様と照合し、必要なら再保存する。
+- GPS接続先はGeneral Settingsの`GPS INPUT`で`M5BUS`または`PORT.A`を選び、`SAVE SETTINGS`で確定する。切替は計測前または計測取消後のみ可能。保存成功時にUART、NMEAパーサ、直前のGPS位置・受信状態を初期化して選択先から受信し直す。Port.AのAT6558 Unit GPSは最初のRMC受信後、[CASICプロトコル](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/950/Multimode_satellite_navigation_receiver_cn.pdf)のコマンドで測位を5 Hz（200 ms）、RMCを毎回、GGAを5回に1回へ変更する。設定はGPS内のFLASHに保存せず、UARTを開き直すたびに送信する。M5BusのGT-502MGG-Nにはこのコマンドを送らない。GPSの測位確認には屋外の開けた場所で待つ。シリアルの`status`で`gps_source`・`gps_bytes`（受信バイト数）・`gps_rmc`（チェックサムが正しいRMC文の件数）・`gps_rmc_hz`（直近5秒間のRMC受信頻度）・`gps`（新鮮な測位の有無）を確認できる。
+- GENERAL SETTINGSの`SPEED AVG (N)`はCURRENT SPEEDに使う直近の車輪パルス間隔数。1〜8、初期値3。変更後に`SAVE SETTINGS`で端末共通NVSへ保存する。距離とAVERAGE SPEEDの積算は変更しない。
 - 2026-10-01、Port.AのUnit GPSを接続してTab5を再起動したところ、起動ログに5 Hzの設定要求が出て、`gps_rmc_hz`は4.9～5.0を示した。この確認時は屋内で未FIXだったため、5 Hzの位置更新や実走での周回判定は未検証。
 - コース地図にはSettingsで保存したスタート地点を青緑の点、ゴール地点を赤の点、周回更新地点をコースに垂直な紫の線として表示する。`START`・`GOAL`・`LAP`の文字は地図下端の凡例にまとめる。GPS未接続でも表示し、座標変更を保存すると対応する点・線が移動する。周回更新線は通過判定用の基準経路に投影した位置へ置き、回廊外や画像範囲外の場合は非表示にする。
 
@@ -22,15 +24,15 @@
 
 | 用途 | GPIO / 値 | 根拠・扱い |
 |---|---|---|
-| 車速 | 16 / FALLING / INPUT_PULLUP | M5Bus 2。リードスイッチを対GNDで接続する想定。入力回路・ノイズ耐性は実車で確認 |
+| 車速 | 16 / CHANGE / INPUT_PULLUP | M5Bus 2。リードスイッチを対GNDで接続し、HIGH→LOWを車輪パルスとして採用。入力回路・ノイズ耐性は実車で確認 |
 | GPS UART1 / M5Bus | RX 7、TX 6 / 9600 bps | 初期選択。M5Bus 15/16。GT-502MGG-NのNMEA / 1 Hz初期設定 |
 | GPS UART1 / Port.A | RX 54、TX 53 / 9600 bps | AT6558 Unit GPSの白線TXをG54、黄線RXをG53へ接続。Port.Aの5 V給電を使用。受信開始後にRMC 5 Hz / GGA 1 Hzを要求 |
-| 電装 | 45 / 初期HIGH=ON | M5Bus 8。極性はAdvanced Settingsまたは校正コマンドで変更可能 |
+| 電装 | 45 / 初期HIGH=ON | M5Bus 8。極性はGeneral Settingsまたは校正コマンドで変更可能 |
 | 始動パルス | 48 / HIGH 1000 ms | M5Bus 22。ユーザー指定の暫定値 |
 | ECU準備 | 1000 ms | ユーザー指定の暫定値 |
 | 車輪 | 1.03 m、1 pulse/revolution | 旧版の定数を引き継ぐ。累積パルス差から距離を求める |
-| チャタリング | 3000 µs | 最後に受理したFALLINGから3 ms未満を除外する暫定値 |
-| 車速停止判定 | 3000 ms | 受理パルスがない間、最後の周期/経過時間から速度を減衰し、3秒で0とする |
+| チャタリング | 設定値3000 µs、開放確認10 ms | 受理した立ち下がりから設定値および最高速度75 km/h相当の間隔（標準車輪で約49 ms）以上離れ、かつ接点が10 ms以上連続してHIGHだった場合だけ次を採用する。75 km/hは想定最高速度60 km/hに25%の余裕を持たせた暫定ガード。実車の入力波形と最高速度で検証する |
+| 車速停止判定 | 3000 ms | 最後の受理パルスから3秒までは計算済み車速を保持し、その後は0とする。長い停止後の最初の1パルスでは古い周期を再利用しない |
 | GPS鮮度 | 3000 ms | 有効なRMC受信から3秒。無効RMC、古い/順序逆転の入力を通過として扱わない |
 | コース回廊 | 60 m | 指定の近似座標と既存GPSから作成したコースを考慮。実走行で校正 |
 | GPS最大ステップ | 80 m | 隣接測位間の不連続ジャンプを除外する暫定値。5 Hzでの実走に合わせて校正が必要 |
@@ -38,29 +40,36 @@
 | 重複抑制 | 10000 ms | 自動/手動を共通の更新契約で受理。同じ通過の手動補正はGPS検出器も再初期化 |
 | ゴール判定 | 前方100 m以上、最終周になってから10秒以上 | 最終周より前は無視。最終周への更新自体で完走にしない |
 
+車速入力の切り分けにはシリアルで`wheel-debug`を送る。`raw_falls`は入力で観測した立ち下がり数、`accepted`は距離・速度に使う累積数、`rejected_release`と`rejected_interval`は各条件で除外した数。`interval_us`は速度ガードとSettingsの`DEBOUNCE (us)`の大きい方。実機に保存されていた100000 µsでは、標準車輪・1パルス/回転の60 km/h（約61800 µs/回転）を取りこぼすため、車輪試験では設定を見直す。手動短絡と実ホイールの波形が異なる可能性があるため、正式版では実ホイールと独立カウンタで照合する。
+
+CURRENT SPEEDは最新の受理パルスから最大N区間を取り、`N区間の距離 ÷ その始終パルスの時間差`で算出する。まだN区間に満たないときは取得済みの区間だけを使う。次のパルスまでは値を保持し、停止判定で0にする。最初の1パルスだけでは速度を表示しない。MQTT・SDの`speed`も同じ計算値を使い、距離と停止時間込みのAVERAGE SPEEDには平滑化を適用しない。
+
 最初のパルスまでは車速/平均速度は欠損表示。速度の算出には2つの受理パルスが必要だが、1つだけでも停止判定時間を過ぎれば有効0になる。一度入力があった後の停止と配線断は、この入力だけでは区別できない。
 
 リセット中やファームウェア起動前のOFFは回路側の責務。初期active HIGHなら外部プルダウン、極性変更時はそれに対応するOFF条件を設計する。ソフトウェアは設定を読んでからOFFレベルを設定し、出力ドライバを有効にする。実車側の絶縁回路・出力波形は未検証。
 
-通常コースは`assets/motegi_oval_full/motegi_course_full.json`の進入路・周回路・ゴール分岐。`scripts/generate_course_data.py`は座標と変換行列をC++ヘッダーへ埋め込むデータ変換で、画像生成ツールではない。`platformio.ini`の`VEGA_TEST_COURSE=1`では[玉川学園前駅のテストコース](../assets/tamagawagakuen_station_loop/README.md)、`2`では[飛田給・榊原記念病院周回のテストコース](../assets/tobitakyu_hospital_loop/README.md)を使う。両テストコースはそれぞれ専用のNVS領域を使い、`0`に戻すと通常コースと元の設定を使う。現在位置は実緯度経度の画素変換で表示し、投影線へ吸着させない。通常コースの1周目は進入路を含む経路、2〜6周目は周回路、7周目はゴール分岐を含む経路を表示上の基準にする。周回更新はSettingsの座標を周回路へ投影して判定する。通常コースのゴールは7周目に分岐路のGPS点が連続して前進した場合だけ受理し、本流から約27 mの距離にあるゴール付近での誤完走を抑える。合流・分岐と地点座標は近似値であり、実走評価で校正する。
+玉川学園前・飛田給・茂木の編集元はリポジトリに収録し、実機はmicroSDの`/vega/courses/`からコース形状・地図画像・初期設定を起動時に読み込む。Waiting画面のメニューから選択して画像、地点、周回判定を切り替える。microSDがない場合はコースを選択できず、新規計測も開始できない。計測中にカードが抜けても読み込み済みコースで画面と周回判定は継続するが、SDログはエラーとなる。コース固有のデータと配置手順は[コースアセット](../assets/maps/README.md)を参照。現在位置は緯度経度を画像へ変換して表示し、投影線へ吸着させない。周回更新は選択したコースのSettingsにある座標を周回路へ投影して判定する。合流・分岐と地点座標は近似値であり、実走評価で校正する。
 
 ### Tab5専用variant
 
 `platformio.ini`のMCU/パーティションは既存のESP32-P4設定を使用し、Arduinoのピン定義だけを`variants/m5tab5/pins_arduino.h`で置き換える。
 
-汎用EV BoardのvariantはGPIO45をSD電源として操作し、電装出力と競合していた。Tab5ではM5UnifiedがIOエキスパンダからカード電源を供給するため、この定義を除去した。SDはGPIO43/44/39/40/41/42、LDO4、4 bit、20 MHz。Wi-Fi内部SDIOは12/13/11/10/9/8、リセット15で、リードスイッチと競合しない。
+汎用EV BoardのvariantはGPIO45をSD電源として操作し、電装出力と競合していた。Tab5ではM5UnifiedがIOエキスパンダからカード電源を供給するため、この定義を除去した。SDはGPIO43/44/39/40/41/42、LDO4、4 bit、20 MHz。microSDの挿抜検出ピンがないため、選択画面を開いている間は5秒ごとにカードを再マウントして状態を確認する。SDMMCのIO電源用LDO4は起動時に一度確保し、再マウントでも同じハンドルを使う。計測中の記録ファイルを開いている間は再マウントしない。Wi-Fi内部SDIOは12/13/11/10/9/8、リセット15で、リードスイッチと競合しない。
 
 参照: [Tab5](https://docs.m5stack.com/en/core/Tab5)、[M5Stack公式SDMMC実装](https://github.com/m5stack/M5Tab5-UserDemo/blob/main/platforms/tab5/components/m5stack_tab5/m5stack_tab5.c)、[Tab5公式Wi-Fi例](https://docs.m5stack.com/en/arduino/m5tab5/wifi)、[GPS製品](https://akizukidenshi.com/catalog/g/g117980/)。M5Unified/M5GFXは検証したコミットへ固定した。
 
 ## 保存・通信
 
-現在のビルドは`platformio.ini`の`VEGA_ENABLE_MQTT=1`でAWS/MQTT送信を有効にしている。起動時にmbedTLSの動的メモリ確保先をPSRAMへ変更し、TLS接続中もESP-Hosted Wi-Fiが使う内部DMAメモリを確保する。Wi-FiがIPを取得した後にMQTTを開始し、Wi-Fi切断時は停止、復旧時に再開する。USB給電の実機でMQTT接続とNTP同期、約6秒の計測と取消、AWS IoT Coreでの新着JSON受信を確認した。GPSを外したバッテリー駆動では、ボタンに触れない10分間で水色画面・再起動が起きなかった。正式版の長時間エージングは[試験計画](release-test-plan.md)に従って別途行う。
+現在のビルドは`platformio.ini`の`VEGA_ENABLE_MQTT=1`でAWS/MQTT送信を有効にしている。起動時にmbedTLSの動的メモリ確保先をPSRAMへ変更し、LVGLの画面部品用1 MiBプールと描画バッファもPSRAMに置いて、ESP-Hosted Wi-Fiが使う内部DMAメモリを確保する。Wi-FiがIPを取得した後にMQTTを開始し、Wi-Fi切断時は停止、復旧時に再開する。シリアルの`net-mem`で内部/DMAメモリの空き量と最大連続領域を確認できる。USB給電の実機でMQTT接続とNTP同期、約6秒の計測と取消、AWS IoT Coreでの新着JSON受信を確認した。GPSを外したバッテリー駆動では、ボタンに触れない10分間で水色画面・再起動が起きなかった。正式版の長時間エージングは[試験計画](release-test-plan.md)に従って別途行う。
 
-2026-10-01の切り分けでは、GPSを外したバッテリー駆動中にMQTT接続試行を有効にすると、内部DMA用の最大連続空き領域が約1.5 KBまで減り、保存されたクラッシュ情報に`transport_drv_sta_tx ... (copy_buff)`が残った。MQTTだけを停止し、ボタンに触れずに再試験すると、同じバッテリー条件で10分35秒連続稼働し、内部DMA用の最大連続空き領域は約67 KBを維持した。手動Resetでもリセット理由`7`が記録されるため、この番号単独では自動再起動と判定しない。関連する[Espressifの報告](https://github.com/espressif/esp-hosted-mcu/issues/144)がある。現在の対策はTLSのメモリ確保先を変更して送信バッファ用の内部DMAメモリを残すもの。TLSが扱う秘密鍵もPSRAMに置かれるため、実車投入前にメモリ保護要件を確認する。
+2026-10-01の切り分けでは、GPSを外したバッテリー駆動中にMQTT接続試行を有効にすると、内部DMA用の最大連続空き領域が約1.5 KBまで減り、保存されたクラッシュ情報に`transport_drv_sta_tx ... (copy_buff)`が残った。MQTTだけを停止し、ボタンに触れずに再試験すると、同じバッテリー条件で10分35秒連続稼働し、内部DMA用の最大連続空き領域は約67 KBを維持した。手動Resetでもリセット理由`7`が記録されるため、この番号単独では自動再起動と判定しない。関連する[Espressifの報告](https://github.com/espressif/esp-hosted-mcu/issues/144)がある。この時点ではTLSのメモリ確保先を変更して送信バッファ用の内部DMAメモリを残した。TLSが扱う秘密鍵もPSRAMに置かれるため、実車投入前にメモリ保護要件を確認する。
 
-- 走行戦略は起動時にmicroSDの`/vega/strategy.json`から読み、7周分の経路IDとON/OFF地点を検証する。Waitingで1周目をプレビューし、Mainでは現在周回の橙色のエンジン使用区間、青色の惰性区間、点火/OFF地点を地図へ重ねる。GPSが有効なら次の地点までの距離を表示する。形式とダミーは[走行戦略データREADME](../assets/strategy/README.md)。プランは表示専用で、GPIO出力を変更しない。
+2026-10-03にはWi-FiがIPを取得しMQTTを開始した直後、`sdio_push_data_to_queue sdio_drv.c:705 (pkt_rxbuff)`でassertして再起動する現象を実機で捕捉した。TLSの確保先をPSRAMにしていても、LVGLの画面部品は内部ヒープを使っていた。変更前のMQTT開始直後は内部DMA空き約25 KB、最大連続領域約12 KB。LVGLの画面部品をPSRAMへ移した後は、MQTT接続時の内部DMA空き約309 KB、最大連続領域約303 KBになった。Wi-Fi受信バッファの確保失敗を直接防ぐための変更であり、正式版では通信と表示を同時に使う長時間試験が必要。
+
+- 走行戦略はWaiting画面からmicroSDの`/vega/strategies/*.json`または互換ファイル`/vega/strategy.json`を選び、選択したコースの周回数・経路ID・ON/OFF地点を検証する。Waitingで1周目をプレビューし、Mainでは現在周回の橙色のエンジン使用区間、青色の惰性区間、点火/OFF地点を地図へ重ねる。GPSが有効なら次の地点までの距離を表示する。形式とダミーは[走行戦略データREADME](../assets/strategy/README.md)。プランは表示専用で、GPIO出力を変更しない。
+- Tab5内蔵スピーカーは、画面のボタン操作で短い1音を鳴らす。電装・点火の大きなボタンも同様。戦略を読み込んで計測している間は、GPS位置がコース内で有効な場合に限り、各エンジンON/OFF地点の30 m手前に入ると「ピピ、ピピ」と予告する。同じ地点は同一周回・計測セッション内で一度だけ予告し、GPSの一時的な欠落や位置の揺れでは鳴り直さない。0 mの始動地点には手前の予告地点がないため鳴らない。音声処理は別タスクに送り、タッチや画面描画を待たせない。予告音は運転操作の補助であり、エンジン出力を自動操作しない。
 - 計測開始から取消/完走までのみ、`/vega/session-0000000001.jsonl`のような個別ファイルをmicroSDへ保存する。NVSの連番と既存ファイルの確認で再起動後も上書きを防ぐ。
-- 最初の行は設定メタデータ（`schema_version:3`）。500 ms周期のサンプルはMQTTの10項目に加え、`gps_seen`、`gps_fix_valid`、`gps_fresh`、`gps_speed_kmh`、`gps_satellites`、`gps_hdop`、`gps_gga_fix_quality`、`gps_utc_ms_of_day`、`gps_age_ms`、`gps_quality_age_ms`を記録する。GGA未受信などで不明な数値は`null`。`gps_age_ms`は最後のRMC受信から、`gps_quality_age_ms`は最後のGGA受信からの経過時間。`gps_utc_ms_of_day`はRMCのUTC時刻を午前0時からのミリ秒で表す。開始・取消・完走・手動補正・電装操作は`type:event`で記録し、取消データも残す。
+- 最初の行はコースID・周回数と設定メタデータ（`schema_version:3`）。500 ms周期のサンプルはMQTTの10項目に加え、`gps_seen`、`gps_fix_valid`、`gps_fresh`、`gps_speed_kmh`、`gps_satellites`、`gps_hdop`、`gps_gga_fix_quality`、`gps_utc_ms_of_day`、`gps_age_ms`、`gps_quality_age_ms`を記録する。GGA未受信などで不明な数値は`null`。`gps_age_ms`は最後のRMC受信から、`gps_quality_age_ms`は最後のGGA受信からの経過時間。`gps_utc_ms_of_day`はRMCのUTC時刻を午前0時からのミリ秒で表す。開始・取消・完走・手動補正・電装操作は`type:event`で記録し、取消データも残す。
 - GPSのNMEA原文と画面上のアイコン座標を記録する一時的な診断機能は撤去した。位置、速度、衛星数、HDOPなどは500 ms周期の通常サンプルに残る。
 - USB接続時にTab5が再起動しても、シリアルの`log`でNVSの記録番号を使って最新のSDセッションを読み出せる。`log-read 番号`で古いセッションも指定できる。
 - SD Writerは別タスク。48件のキューを使い、500 msサンプルだけなら約24秒分（イベント数で減少）。書込、flush/fsync、キューあふれを警告し、計測を継続する。同期はセッション開始時、1秒周期、終了時。エラー表示は次のセッションのファイルを正常に開き、メタデータを同期できた場合に解除する。突然の電源断で直近の未同期データが失われる可能性がある。計測復元は未実装。
@@ -96,7 +105,8 @@ Walking modeで玉川学園コースを歩いたセッション50は約10分45�
 | コマンド | 動作 |
 |---|---|
 | `status` | 計測・指令・GPIO読み取り・GPS・パルス・SD・通信・TARGET。`sd_last_failure`は最後のSD異常種類、`sd_record_lost`は記録の欠落件数 |
-| `settings` | UIで編集可能な27項目の現在値 |
+| `net-mem` | 内部RAM、DMA対応RAM、PSRAMの空き量と最大連続領域。接続時のメモリ不足を切り分ける |
+| `settings` | UIで編集可能な28項目の現在値 |
 | `plan-status` | 走行戦略の読込状態と採用したID |
 | `plan-upload BYTES` | 4096バイト以内のJSONを後続の生バイトで受け取り、SDに`/vega/strategy.json`がない場合だけ検証・保存。通常は`scripts/upload_strategy.py`から実行 |
 | `start` / `cancel` / `lap` | UIと同じ中核へ計測コマンドを送る |
@@ -105,16 +115,17 @@ Walking modeで玉川学園コースを歩いたセッション50は約10分45�
 | `log-read NUMBER` | 指定したセッション番号の計測ファイルをSDから読み戻す。記録中は拒否。SD上のファイルは変更しない |
 | `gps-nav` | Port.AのUnit GPSからCASICの動作モード・静止判定しきい値を読み出す。Waiting時のみ |
 | `gps-walk` | Port.AのUnit GPSを試験用Walking modeへ一時変更し、ACK後に再読出しする。FLASHには保存しない。Waiting時のみ |
-| `ui-status` / `ui-settings` / `ui-back` | 現在のUI状態確認・設定への遷移・復帰 |
+| `ui-status` / `ui-settings` / `ui-general-menu` / `ui-back` | 現在のUI状態確認・コース設定または一般設定への遷移・復帰 |
 | `ui-course-markers` | メイン画面のスタート・ゴールマーカーと周回更新線の画像内座標・表示状態 |
 | `ui-plan` | Main上の戦略線・地点マーカー・次の操作案内の状態 |
-| `ui-advanced` / `ui-advanced-back` | Advanced Settingsを開く/Settingsへ戻る |
+| `ui-advanced` / `ui-advanced-back` | Course Detailsを開く/Settingsへ戻る |
+| `ui-general` / `ui-general-back` | 一般設定オーバーレイを開く/ダッシュボードへ戻る |
 | `ui-inspect-field 8` | 指定した設定欄を開き、表示文字列を出力して閉じる。値は変更しない |
-| `ui-edit 0 39:16` / `ui-save` | 生成ボタン/編集イベントを通したUIテスト。項目番号0=全体、1〜7=各周、8〜13=地点緯度経度、14〜26=Advanced Settings |
+| `ui-edit 0 39:16` / `ui-save` | 生成ボタン/編集イベントを通したUIテスト。項目番号0=全体、1〜7=各周、8〜13=地点緯度経度、14〜21・23・27=General Settings、22・24〜26=Course Details。一般設定の保存は`ui-save-general` |
 | `ui-start` / `ui-cancel` / `ui-confirm-cancel` | 生成UIの開始/取消操作経路のテスト |
 | `config KEY VALUE` | 校正用設定の永続保存。中核の設定検証・計測中ロックを通す |
 
-校正キー: `power_active_high`（0/1）、`ecu_ready_ms`、`ignition_pulse_ms`、`wheel_circumference_m`、`pulses_per_revolution`、`pulse_debounce_us`、`speed_zero_ms`、`gps_stale_ms`、`course_corridor_m`、`max_gps_step_m`、`min_lap_progress_m`、`min_lap_ms`、`lap_duplicate_ms`。すべてAdvanced Settingsから編集できる。電装極性・ECU待ち・パルス幅の変更は電装OFF時だけ受理する。NVSの設定形式バージョンとSDログ連番は内部管理値で、Settingsの編集項目ではない。
+校正キー: `power_active_high`（0/1）、`ecu_ready_ms`、`ignition_pulse_ms`、`wheel_circumference_m`、`pulses_per_revolution`、`pulse_debounce_us`、`speed_average_intervals`、`speed_zero_ms`、`gps_stale_ms`、`max_gps_step_m`は端末共通。`course_corridor_m`、`min_lap_progress_m`、`min_lap_ms`、`lap_duplicate_ms`はコース別。電装極性・ECU待ち・パルス幅の変更は電装OFF時だけ受理する。NVSの設定形式バージョンとSDログ連番は内部管理値で、Settingsの編集項目ではない。
 
 ## 検証記録
 
@@ -155,3 +166,5 @@ SD読み戻しの終了マーカーがUSB出力で欠ける事象を検出し、
 2026-09-29、7周のダミー戦略を`/vega/strategy.json`へシリアル転送してmicroSDに保存した。再書込・再起動後も`plan-status`が`loaded=1 id=dummy-race-001`を報告。Mainで`ui-plan`は`PLAN DEMO`、橙・青の線とON/OFFマーカーを表示状態と報告した。GPSなしで手動ラップを1〜7周まで進め、各周でマーカー座標が変わることを確認し、最後に取消してWaiting・電装OFFへ戻した。nativeテストは実コースとサンプルの全7周、欠周・重複・経路不一致・範囲外データの拒否、次地点までの距離と表示モデルを検証した。初回の戦略描画は経路点への繰り返し投影をやめ、実機の`perf`でView最大437 msから22 msへ短縮した。同じ場面のLVGL描画最大は約294 ms。実GPSによる案内距離、画面の目視、車両での戦略妥当性は未検証。
 
 待機画面の1周目プレビューを追加したファームウェアも書き込み済み。書き込み直後は画面とUSBシリアルが応答しなかったが、電源ボタンで再起動すると復帰した。復帰後の`plan-status`は読込完了、`ui-plan`はWaitingで1周目の橙・青の線とON/OFFマーカーを表示状態と報告した。`ui-start`後のMainでも同じ描画と`PLAN DEMO`を確認し、計測取消後はWaiting・電装OFFに戻った。再実行したnativeテストとPlatformIOビルドは成功。書き込み後の自動再起動が確実かは別途確認する。
+
+2026-10-03、Issue #9の手動GPIO16短絡で、修正前の累積パルスが1回の操作で106→108へ増えた。修正版はTab5単体（車両回路なし）へ書き込み、ハッシュ照合成功。書き込み直後はUSBシリアルが応答せず、Resetボタンで通常起動後にWaiting・電装OFF・SD readyを確認した。保存されていた`pulse_debounce_us=100000`は60 km/h時の標準車輪周期約61800 µsより長いため3000 µsへ変更し、シリアルで保存値と有効最小間隔49440 µsを確認した。この設定で確実な1回の手動接触は`raw_falls=4, accepted=1, rejected_release=3`、続く5回の独立した接触後は`raw_falls=41, accepted=6, rejected_release=35`となった。CURRENT SPEEDに極端な値が出ないことも利用者が確認した。車両の実リードスイッチと60 km/h相当の入力波形は未試験であり、B-03で確認する。
