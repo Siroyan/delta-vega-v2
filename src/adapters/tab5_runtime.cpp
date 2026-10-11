@@ -319,7 +319,8 @@ class SettingsStore final : public vega::ISettingsStore {
     const auto read_selected = [index](vega::Settings &s) {
       if (courseCount()) return readLegacy(index, s);
       // Output polarity must be migrated before M5.begin() and SD mounting.
-      // Only old firmware namespaces are needed at this stage.
+      // An empty selection means pre-catalog firmware; the legacy lookup
+      // resolves it to that firmware's default course namespace.
       const SavedSelection selected = loadSelection();
       const char *current = legacyNamespaceForId(selected.course_id, false);
       const char *older = legacyNamespaceForId(selected.course_id, true);

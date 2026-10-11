@@ -245,8 +245,16 @@ bool loadCoursesFromSd() {
       valid = false;
       break;
     }
-    for (int old = 0; old < i; ++old)
-      if (strcmp(asset.id_storage, courses[old].id_storage) == 0) valid = false;
+    for (int old = 0; old < i; ++old) {
+      if (strcmp(asset.id_storage, courses[old].id_storage) == 0) {
+        printf("[COURSE] duplicate course ID at catalog index %d\n", i);
+        valid = false;
+      }
+      if (strcmp(asset.namespace_storage, courses[old].namespace_storage) == 0) {
+        printf("[COURSE] duplicate settings namespace at catalog index %d\n", i);
+        valid = false;
+      }
+    }
     if (!valid) break;
   }
   if (valid) count.store(length);
@@ -273,17 +281,5 @@ size_t courseIndex(const char *id) {
   if (id) for (size_t i = 0; i < count.load(); ++i)
     if (strcmp(id, courses[i].data->id) == 0) return i;
   return 0;
-}
-const char *legacyNamespaceForId(const char *id, bool older) {
-  if (!id) return nullptr;
-  struct Entry { const char *id, *current, *older; };
-  static const Entry migrations[] = {
-      {"tamagawagakuen_station_loop_test_v1", "vega-test4", "vega-test"},
-      {"tobitakyu_hospital_loop_test_v2", "vega-tobi4", "vega-tobi2"},
-      {"motegi_oval_2025_full_v2", "vega", nullptr},
-  };
-  for (const auto &entry : migrations)
-    if (!strcmp(id, entry.id)) return older ? entry.older : entry.current;
-  return nullptr;
 }
 }  // namespace tab5

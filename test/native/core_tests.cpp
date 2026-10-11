@@ -12,6 +12,7 @@
 #include "../../assets/maps/misato_loop/course_data.h"
 #include "../../assets/maps/tamagawagakuen_station_loop/course_data.h"
 #include "../../assets/maps/tobitakyu_hospital_loop/course_data.h"
+#include "../../assets/legacy_course_settings.h"
 #include "../../src/control_gesture.h"
 #include "../../src/adapters/settings_migration.h"
 #include "../../src/adapters/reed_pulse_filter.h"
@@ -1000,6 +1001,40 @@ void settingsMigrationTest() {
   old_vehicle.ecu_ready_ms = 1500;
   old_vehicle.ignition_pulse_ms = 450;
   old_vehicle.display_brightness = 200;
+
+  // A pre-catalog standard build has no vega-select record. On first boot,
+  // before the SD catalog is mounted, its Tamagawa NVS blob must win over
+  // the older Motegi/device blob when choosing the electrical OFF polarity.
+  Settings old_default_course = old_vehicle;
+  old_default_course.power_active_high = true;
+  old_default_course.gps_source = GpsSource::M5Bus;
+  old_default_course.wheel_circumference_m = 1.42;
+  old_default_course.total_target_s = 2356;
+  unsigned default_reads = 0;
+  auto read_pre_catalog_default = [&](Settings &s) {
+    const char *current = tab5::legacyNamespaceForId("", false);
+    const char *older = tab5::legacyNamespaceForId("", true);
+    assert(current && std::strcmp(current, "vega-test4") == 0);
+    assert(older && std::strcmp(older, "vega-test") == 0);
+    ++default_reads;
+    s = old_default_course;
+    return true;
+  };
+  auto read_old_device = [&](Settings &s) {
+    s = old_vehicle;
+    return true;
+  };
+  auto migrated_general = tab5::migratedGeneralSettings(
+      course_defaults, read_pre_catalog_default, read_old_device);
+  auto migrated_course = tab5::migratedCourseSettings(
+      course_defaults, read_pre_catalog_default);
+  assert(default_reads == 2 && migrated_general.power_active_high);
+  assert(migrated_general.gps_source == GpsSource::M5Bus &&
+         migrated_general.wheel_circumference_m == 1.42);
+  assert(migrated_course.total_target_s == 2356);
+  assert(std::strcmp(tab5::legacyNamespaceForId("tobitakyu_hospital_loop_test_v2", false),
+                     "vega-tobi4") == 0);
+  assert(tab5::legacyNamespaceForId("unknown", false) == nullptr);
 
   // A new course must inherit only device-wide values from the old "vega" blob.
   unsigned selected_reads = 0, device_reads = 0;

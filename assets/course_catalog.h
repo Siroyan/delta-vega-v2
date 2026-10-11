@@ -5,6 +5,7 @@
 #include <lvgl.h>
 #include "domain/course.h"
 #include "domain/settings_scopes.h"
+#include "legacy_course_settings.h"
 
 namespace tab5 {
 constexpr size_t kMaxCourses = 8;
@@ -35,6 +36,4 @@ bool loadCoursesFromSd();
 size_t courseCount();
 const CourseAsset &courseAsset(size_t index);
 size_t courseIndex(const char *id);
-// NVS upgrade compatibility before microSD is mounted; not a runtime course catalog.
-const char *legacyNamespaceForId(const char *id, bool older);
 }  // namespace tab5
