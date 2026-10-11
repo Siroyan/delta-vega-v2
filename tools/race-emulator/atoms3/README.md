@@ -1,14 +1,14 @@
-# AtomS3 GPS・車速シミュレーター
+# race-emulator AtomS3ファームウェア
 
 Tab5の長時間試験用対向機です。`assets/maps/course_manifest.json` に登録された各 `assets/maps/<コース>/course.json` をAtomS3のLittleFSへ配置し、起動時に**Tab5と同じJSON**を読み込みます。生成されたC++のコース配列は使いません。同じ走行距離からGPSのNMEA文と車輪パルスを生成します。
 
-100周エージング試験には`motegi_oval_full_100`を選びます。[コースの定義](../../assets/maps/motegi_oval_full_100/README.md)を参照し、race-emulatorのGUIでこのコースの試験ケースを作成してください。コースの変更後は下記の`uploadfs`を行い、Tab5側にも更新したmicroSDコース一式と100周対応ファームウェアを用意してください。
+100周エージング試験には`motegi_oval_full_100`を選びます。[コースの定義](../../../assets/maps/motegi_oval_full_100/README.md)を参照し、race-emulatorのGUIでこのコースの試験ケースを作成してください。コースの変更後は下記の`uploadfs`を行い、Tab5側にも更新したmicroSDコース一式と100周対応ファームウェアを用意してください。
 
 AtomS3の画面には、コース名、走行状態、現在の周回、設定速度、走行距離、送出した車速パルス数、GPSの異常注入状態、送出遅れのパルス数を表示します。画面下端の細いバーは現在のルートの進行率です。`READY`、`RUN`、`PAUSE`、`GOAL` は本体ボタンまたはUSBシリアルからの走行操作と連動します。`MISS` が0以外ならパルス送出が間に合っていないため、試験結果を確認してください。
 
 ## 接続
 
-ブラウザから試験を管理する現在の標準構成では、**AtomS3をPCのUSBへ接続し、Tab5をバッテリーで動かし**、[race-emulator](../race-emulator/README.md)からAtomS3を操作します。Tab5の計測開始・終了は実機で行い、PCはTab5のログや再起動を監視しません。両機をPCへUSB接続できる場合は、race-emulatorをUSBログ取得方式に切り替えられます。単体運用ではAtomS3を独立したUSBモバイルバッテリーで給電することもできます。AtomS3をTab5のPort.Aの5Vから給電するとTab5の電源変動が対向機にも波及するため、この試験では使用しません。両機の**GNDを共通化**します。AtomS3のPort.CUSTOMの**白（G1、UART TX）**をTab5のPort.Aの**白（G54、UART RX）**へ接続します。Tab5の設定で `GPS INPUT = PORT.A` を選びます。必要ならAtomS3の黄（G2、UART RX）とTab5 Port.Aの黄（G53、UART TX）も接続できます。GPS出力は9600 bps、8N1、RMC 5 Hz、GGA 1 Hzです。
+ブラウザから試験を管理する現在の標準構成では、**AtomS3をPCのUSBへ接続し、Tab5をバッテリーで動かし**、[race-emulatorのホストアプリ](../host/README.md)からAtomS3を操作します。Tab5の計測開始・終了は実機で行い、PCはTab5のログや再起動を監視しません。両機をPCへUSB接続できる場合は、race-emulatorをUSBログ取得方式に切り替えられます。単体運用ではAtomS3を独立したUSBモバイルバッテリーで給電することもできます。AtomS3をTab5のPort.Aの5Vから給電するとTab5の電源変動が対向機にも波及するため、この試験では使用しません。両機の**GNDを共通化**します。AtomS3のPort.CUSTOMの**白（G1、UART TX）**をTab5のPort.Aの**白（G54、UART RX）**へ接続します。Tab5の設定で `GPS INPUT = PORT.A` を選びます。必要ならAtomS3の黄（G2、UART RX）とTab5 Port.Aの黄（G53、UART TX）も接続できます。GPS出力は9600 bps、8N1、RMC 5 Hz、GGA 1 Hzです。
 
 車速用にはAtomS3底面の **G5** をTab5 M5Busの **G16** に直結します。G5はオープンドレイン出力で、パルス中だけGNDへ引き下げ、通常は解放します。両機器の5V線は接続しません。AtomS3のG5が3.3Vロジックであり、Tab5側G16が現行ファームのプルアップ入力である前提です。実車のECU・リレー・実GPSを同時に接続しないでください。異なる電圧の車両回路を接続する場合は、この直結方式を使わず絶縁してください。
 
@@ -31,10 +31,10 @@ Tab5はPort.Aの実GPS向けにCASIC設定コマンドも送る。このシミ�
 
 ### Tab5をUSB接続できる場合の再起動記録
 
-Tab5だけをPCのUSBへ接続し、VS Codeなど他のシリアルモニターを閉じてから、以下を実行する。ポート名は `pio device list` で確認する。ログは `tools/atoms3-simulator/logs/` に保存される。
+Tab5だけをPCのUSBへ接続し、VS Codeなど他のシリアルモニターを閉じてから、以下を実行する。ポート名は `pio device list` で確認する。ログは `tools/race-emulator/atoms3/logs/` に保存される。
 
 ```sh
-~/.platformio/penv/bin/python tools/atoms3-simulator/scripts/monitor_tab5.py --port /dev/cu.usbmodemXXXX
+~/.platformio/penv/bin/python tools/race-emulator/atoms3/scripts/monitor_tab5.py --port /dev/cu.usbmodemXXXX
 ```
 
 各シリアル行にPC側の日時が付き、USB切断・再接続を `DISCONNECTED` / `CONNECTED` として記録する。起動メッセージを検出すると `BOOT MARKER` も記録する。Tab5の再起動でポート名が変わっても、USBシリアル番号が取得できる場合は自動追跡する。終了はCtrl+C。この方法ではAtomS3を独立したUSBモバイルバッテリーで給電する。両機をPCへUSB接続できる場合は、race-emulatorのUSBログ取得方式を使う。
@@ -53,13 +53,13 @@ Tab5だけをPCのUSBへ接続し、VS Codeなど他のシリアルモニター�
 ## ビルド・書き込み
 
 ```sh
-pio run -d tools/atoms3-simulator
-pio run -d tools/atoms3-simulator -t uploadfs --upload-port /dev/cu.usbmodemXXXX
-pio run -d tools/atoms3-simulator -t upload --upload-port /dev/cu.usbmodemXXXX
-pio device monitor -d tools/atoms3-simulator -p /dev/cu.usbmodemXXXX -b 115200
+pio run -d tools/race-emulator/atoms3
+pio run -d tools/race-emulator/atoms3 -t uploadfs --upload-port /dev/cu.usbmodemXXXX
+pio run -d tools/race-emulator/atoms3 -t upload --upload-port /dev/cu.usbmodemXXXX
+pio device monitor -d tools/race-emulator/atoms3 -p /dev/cu.usbmodemXXXX -b 115200
 ```
 
-リポジトリ直下ではなく、このディレクトリが独立したPlatformIOプロジェクトです。VS Codeでも `tools/atoms3-simulator` を別のワークスペースとして開けます。ビルド時と`uploadfs`時に、共通の`assets/maps/course_manifest.json`と各`course.json`を内容を変えずに、Git管理外の`data/`へ自動配置します。**コースを変更したときは`uploadfs`が必須**です。ファームウェアの書き込みだけではAtomS3内のコースJSONは更新されません。初回も`uploadfs`と`upload`の両方が必要です。JSONを読み込めない場合、車速出力を止め、画面に`COURSE DATA UNAVAILABLE`を表示します。
+リポジトリ直下ではなく、このディレクトリが独立したPlatformIOプロジェクトです。VS Codeでも `tools/race-emulator/atoms3` を別のワークスペースとして開けます。ビルド時と`uploadfs`時に、共通の`assets/maps/course_manifest.json`と各`course.json`を内容を変えずに、Git管理外の`data/`へ自動配置します。**コースを変更したときは`uploadfs`が必須**です。ファームウェアの書き込みだけではAtomS3内のコースJSONは更新されません。初回も`uploadfs`と`upload`の両方が必要です。JSONを読み込めない場合、車速出力を止め、画面に`COURSE DATA UNAVAILABLE`を表示します。
 
 Apple SiliconのMacでは、PlatformIOに付属するLittleFS作成ツールがIntel専用の場合があります。その場合は`brew install mklittlefs`を実行してください。このプロジェクトはインストールされたネイティブ版を自動で使用します。
 
