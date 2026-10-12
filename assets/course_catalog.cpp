@@ -84,6 +84,8 @@ bool loadPath(const cJSON *routes, const char *key, CourseAsset &asset, size_t i
                                       cJSON_IsTrue(item(route, "closed")) != 0};
   return true;
 }
+// 1コースの設定、経路、画像を読み込む。各段階で不正値を拒否し、呼び出し側が
+// カタログ全体を公開するかどうかを最後に判断する。
 bool loadOne(const cJSON *entry, CourseAsset &asset) {
   char folder[48]{};
   if (!string(entry, "folder", folder, sizeof(folder)) ||
@@ -213,6 +215,8 @@ bool loadOne(const cJSON *entry, CourseAsset &asset) {
 }
 }  // namespace
 
+// SD 上のコース一式を検証してから公開する。途中で失敗した場合は
+// 読み込み済みの画像・経路も破棄し、不完全な一覧を画面へ渡さない。
 bool loadCoursesFromSd() {
   if (count.load()) return true;
   cJSON_Hooks hooks{};

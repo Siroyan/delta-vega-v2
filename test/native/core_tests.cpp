@@ -16,6 +16,7 @@
 #include "../../src/control_gesture.h"
 #include "../../src/adapters/settings_migration.h"
 #include "../../src/adapters/reed_pulse_filter.h"
+#include "../../src/adapters/serial_config.h"
 #include "application/application.h"
 #include "application/telemetry_json.h"
 #include "domain/nmea.h"
@@ -1083,6 +1084,28 @@ void settingsMigrationTest() {
              .power_active_high == course_defaults.power_active_high);
   assert(tab5::migratedCourseSettings(course_defaults, invalid_legacy).total_target_s == 2400);
 }
+void serialConfigTest() {
+  Settings current;
+  Command command{};
+  assert(tab5::serialConfigCommand("power_active_high", "0", current, command));
+  assert(command.kind == CommandKind::Configure &&
+         command.scope == SettingsScope::General && !command.settings.power_active_high);
+  assert(current.power_active_high);
+
+  assert(tab5::serialConfigCommand("course_corridor_m", "45.5", current, command));
+  assert(command.scope == SettingsScope::Course && command.settings.course_corridor_m == 45.5);
+  assert(tab5::serialConfigCommand("min_lap_ms", "8000", current, command));
+  assert(command.scope == SettingsScope::Course && command.settings.min_lap_ms == 8000);
+  assert(tab5::serialConfigCommand("speed_average_intervals", "6", current, command));
+  assert(command.scope == SettingsScope::General &&
+         command.settings.speed_average_intervals == 6);
+
+  assert(!tab5::serialConfigCommand("speed_average_intervals", "6.2", current, command));
+  assert(!tab5::serialConfigCommand("power_active_high", "2", current, command));
+  assert(!tab5::serialConfigCommand("wheel_circumference_m", "nan", current, command));
+  assert(!tab5::serialConfigCommand("min_lap_ms", "-1", current, command));
+  assert(!tab5::serialConfigCommand("unknown", "1", current, command));
+}
 void fourLapStrategyTest() {
   std::ifstream input("assets/strategy/tamagawa_demo.json");
   assert(input);
@@ -1364,6 +1387,7 @@ int main() {
   misatoCourseTest();
   courseSelectionTest();
   settingsMigrationTest();
+  serialConfigTest();
   fourLapStrategyTest();
   realCourseTest();
   combinedLapTest();

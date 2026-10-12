@@ -23,6 +23,7 @@ with tempfile.TemporaryDirectory(prefix="vega-native-") as folder:
         "-I",
         str(CORE),
         *map(str, sources),
+        str(ROOT / "src/adapters/serial_config.cpp"),
         str(ROOT / "test/native/core_tests.cpp"),
         "-o",
         str(executable),

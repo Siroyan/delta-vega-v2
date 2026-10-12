@@ -2,7 +2,6 @@
 #include "domain/types.h"
 #include "ports/ports.h"
 #include "presentation/presenter.h"
-#include "course_catalog.h"
 
 namespace tab5 {
 using vega::Command;
