@@ -17,6 +17,7 @@ class Application {
   bool manualFinish();
   void power(bool on);
   bool ignite();
+  bool releaseIgnition(Millis released_ms);
   bool configure(const Settings &settings, SettingsScope scope);
   bool selectCourse(const Course &course, uint8_t index, const Settings &settings);
   // Strategy targets affect the live snapshot and session log, never NVS.

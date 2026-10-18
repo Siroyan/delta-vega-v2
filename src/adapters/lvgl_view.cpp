@@ -29,7 +29,7 @@ namespace tab5 {
 void finishEdit();
 void pressKey(size_t index);
 lv_obj_t *controlHit(int16_t x, int16_t y);
-void controlAction(lv_obj_t *control);
+void controlAction(lv_obj_t *control, ControlEvent event);
 void controlCleanup();
 void manualFinishConfirm();
 void manualFinishDismiss();
@@ -473,7 +473,7 @@ lv_obj_t *fieldButton(size_t i) {
                         objects.settings_advanced_wheel_circ_button,
                         objects.settings_advanced_pulses_per_rev_button,
                         objects.settings_advanced_ecu_ready_button,
-                        objects.settings_advanced_ignition_pulse_button,
+                        objects.settings_advanced_ignition_release_delay_button,
                         objects.settings_advanced_power_high_button,
                         objects.settings_advanced_debounce_button,
                         objects.settings_advanced_zero_speed_button,
@@ -516,7 +516,8 @@ bool sameSettings(const vega::Settings &a, const vega::Settings &b) {
          a.goal.longitude == b.goal.longitude &&
          a.wheel_circumference_m == b.wheel_circumference_m &&
          a.pulses_per_revolution == b.pulses_per_revolution &&
-         a.ecu_ready_ms == b.ecu_ready_ms && a.ignition_pulse_ms == b.ignition_pulse_ms &&
+         a.ecu_ready_ms == b.ecu_ready_ms &&
+         a.ignition_release_delay_ms == b.ignition_release_delay_ms &&
          a.power_active_high == b.power_active_high && a.pulse_debounce_us == b.pulse_debounce_us &&
          a.speed_average_intervals == b.speed_average_intervals &&
          a.speed_zero_ms == b.speed_zero_ms && a.gps_stale_ms == b.gps_stale_ms &&
@@ -1043,7 +1044,8 @@ void viewBegin() {
     visible(arc, false);
     if (flame) lv_obj_move_foreground(flame);
   }
-  tab5_lvgl_set_control_handlers(controlHit, controlAction, controlCleanup);
+  tab5_lvgl_set_control_handlers(controlHit, controlAction, controlCleanup,
+                                 requestIgnitionRelease);
   brightness_slider = lv_slider_create(objects.settings_brightness_control);
   lv_obj_set_pos(brightness_slider, 4, 0);
   lv_obj_set_size(brightness_slider, 204, 46);
@@ -1494,14 +1496,6 @@ void manualFinishConfirm() {
   }
 }
 void manualFinishDismiss() { visible(finish_overlay, false); }
-void ignite() {
-  if (request(CommandKind::Ignite)) {
-    ignition_pending = true;
-    enabled(objects.ignition_switch, false);
-    enabled(objects.waiting_ignition_switch, false);
-    enabled(objects.finished_ignition_switch, false);
-  }
-}
 lv_obj_t *controlHit(int16_t x, int16_t y) {
   auto *screen = lv_screen_active();
   const ControlPage *page = nullptr;
@@ -1525,10 +1519,18 @@ lv_obj_t *controlHit(int16_t x, int16_t y) {
   if (hit == page->ignition && !lv_obj_has_state(hit, LV_STATE_DISABLED)) return hit;
   return nullptr;
 }
-void controlAction(lv_obj_t *control) {
+void controlAction(lv_obj_t *control, ControlEvent event) {
+  if (event == ControlEvent::Release) {
+    for (const auto &page : control_pages)
+      if (control == page.ignition) {
+        tab5_lvgl_finish_control_release();
+        return;
+      }
+    return;
+  }
   for (const auto &page : control_pages) {
     if (lv_screen_active() != page.screen) continue;
-    if (control == page.power) {
+    if (event == ControlEvent::Tap && control == page.power) {
       const auto next = power_intent.nextTap();
       if (next == PowerRequest::None) return;
       if (request(next == PowerRequest::On ? CommandKind::PowerOn : CommandKind::PowerOff)) {
@@ -1538,10 +1540,16 @@ void controlAction(lv_obj_t *control) {
       }
       return;
     }
-    if (control == page.ignition && !lv_obj_has_state(control, LV_STATE_DISABLED)) {
+    if (event == ControlEvent::Press && control == page.ignition &&
+        !lv_obj_has_state(control, LV_STATE_DISABLED)) {
       ++ignition_taps;
-      ignite();
-      audioButton();
+      if (request(CommandKind::Ignite)) {
+        ignition_pending = true;
+        for (const auto &control_page : control_pages)
+          enabled(control_page.ignition, false);
+        tab5_lvgl_arm_control_release();
+        audioButton();
+      }
       return;
     }
   }

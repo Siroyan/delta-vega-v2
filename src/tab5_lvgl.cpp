@@ -32,9 +32,26 @@ ControlGesture control_gesture;
 ControlHitTest control_hit_test = nullptr;
 ControlAction control_action = nullptr;
 ControlCleanup control_cleanup = nullptr;
-lv_obj_t *pending_controls[32]{};
+ControlReleaseFallback control_release = nullptr;
+std::atomic<bool> control_release_armed{false};
+std::atomic<uint64_t> last_touch_release_us{0};
+struct PendingControl {
+  lv_obj_t *object;
+  ControlEvent event;
+};
+PendingControl pending_controls[32]{};
 size_t pending_control_count = 0;
 uint32_t control_overflows = 0;
+void finish_control_release(uint64_t released_us) {
+  if (control_release_armed.exchange(false) && control_release) control_release(released_us);
+}
+void queue_control(uintptr_t object, ControlEvent event) {
+  if (!object) return;
+  if (pending_control_count < sizeof(pending_controls) / sizeof(pending_controls[0]))
+    pending_controls[pending_control_count++] = {reinterpret_cast<lv_obj_t *>(object), event};
+  else
+    ++control_overflows;
+}
 
 void touch_task(void *) {
   bool was_pressed = false;
@@ -60,6 +77,7 @@ void touch_task(void *) {
     if (!sample.pressed) {
       sample.x = latest_touch.x;
       sample.y = latest_touch.y;
+      if (was_pressed) last_touch_release_us = sample.sampled_us;
     }
     latest_touch = sample;
     portEXIT_CRITICAL(&touch_lock);
@@ -68,6 +86,7 @@ void touch_task(void *) {
       if (sample.pressed) ++touch_presses;
       else ++touch_releases;
       was_pressed = sample.pressed;
+      if (!sample.pressed) finish_control_release(sample.sampled_us);
     }
     max_touch_poll_us = std::max(max_touch_poll_us.load(),
                                   static_cast<uint32_t>(esp_timer_get_time() - started));
@@ -113,23 +132,31 @@ void read_touch(lv_indev_t *, lv_indev_data_t *data) {
     // latest-touch fallback without producing duplicate actions.
     const bool needs_hit = sample.pressed || control_gesture.touching();
     auto *hit = needs_hit ? control_hit_test(sample.x, sample.y) : nullptr;
-    auto accepted = control_gesture.sample(sample.pressed, reinterpret_cast<uintptr_t>(hit));
-    if (accepted) {
-      if (pending_control_count < sizeof(pending_controls) / sizeof(pending_controls[0]))
-        pending_controls[pending_control_count++] = reinterpret_cast<lv_obj_t *>(accepted);
-      else
-        ++control_overflows;
-    }
+    auto result = control_gesture.sample(sample.pressed, reinterpret_cast<uintptr_t>(hit));
+    queue_control(result.pressed, ControlEvent::Press);
+    queue_control(result.released, ControlEvent::Release);
+    queue_control(result.tapped, ControlEvent::Tap);
   }
 }
 
 }  // namespace
 
 void tab5_lvgl_set_control_handlers(ControlHitTest hit_test, ControlAction action,
-                                   ControlCleanup cleanup) {
+                                   ControlCleanup cleanup, ControlReleaseFallback release) {
   control_hit_test = hit_test;
   control_action = action;
   control_cleanup = cleanup;
+  control_release = release;
+}
+void tab5_lvgl_arm_control_release() {
+  control_release_armed = true;
+  portENTER_CRITICAL(&touch_lock);
+  const bool pressed = latest_touch.pressed;
+  portEXIT_CRITICAL(&touch_lock);
+  if (!pressed) finish_control_release(last_touch_release_us.load());
+}
+void tab5_lvgl_finish_control_release() {
+  finish_control_release(last_touch_release_us.load());
 }
 
 bool tab5_lvgl_begin() {
@@ -193,7 +220,7 @@ void tab5_lvgl_update() {
       lv_indev_get_state(touch_indev) == LV_INDEV_STATE_RELEASED)
     control_cleanup();
   for (size_t i = 0; i < pending_control_count; ++i)
-    control_action(pending_controls[i]);
+    control_action(pending_controls[i].object, pending_controls[i].event);
   pending_control_count = 0;
   max_lvgl_us = std::max(max_lvgl_us,
                          static_cast<uint32_t>(esp_timer_get_time() - lvgl_started));

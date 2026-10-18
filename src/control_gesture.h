@@ -2,32 +2,41 @@
 
 #include <stdint.h>
 
-// A touch must start and finish on the same enabled control. Once the finger
-// leaves it, returning to the control does not turn that drag into a tap.
+struct ControlGestureResult {
+  uintptr_t pressed = 0;
+  uintptr_t released = 0;
+  uintptr_t tapped = 0;
+};
+
+// A tap must start and finish on the same enabled control. A hold ends on
+// physical release even if the control becomes disabled while it is held.
 class ControlGesture {
  public:
-  uintptr_t sample(bool pressed, uintptr_t hit) {
+  ControlGestureResult sample(bool pressed, uintptr_t hit) {
+    ControlGestureResult result;
     if (pressed) {
       if (!touching_) {
         touching_ = true;
-        target_ = hit;
-      } else if (hit != target_) {
-        target_ = 0;
+        held_ = tap_target_ = hit;
+        result.pressed = hit;
+      } else if (hit != tap_target_) {
+        tap_target_ = 0;
       }
-      return 0;
+      return result;
     }
-    if (!touching_) return 0;
+    if (!touching_) return result;
     touching_ = false;
-    const uintptr_t accepted = target_ && target_ == hit ? target_ : 0;
-    target_ = 0;
-    return accepted;
+    result.released = held_;
+    result.tapped = tap_target_ && tap_target_ == hit ? tap_target_ : 0;
+    held_ = tap_target_ = 0;
+    return result;
   }
 
   bool touching() const { return touching_; }
 
  private:
   bool touching_ = false;
-  uintptr_t target_ = 0;
+  uintptr_t held_ = 0, tap_target_ = 0;
 };
 
 enum class PowerRequest : uint8_t { None, On, Off };

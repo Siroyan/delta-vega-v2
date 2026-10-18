@@ -15,7 +15,7 @@ GeneralSettings generalSettings(const Settings &s) {
   g.wheel_circumference_m = s.wheel_circumference_m;
   g.pulses_per_revolution = s.pulses_per_revolution;
   g.ecu_ready_ms = s.ecu_ready_ms;
-  g.ignition_pulse_ms = s.ignition_pulse_ms;
+  g.ignition_release_delay_ms = s.ignition_release_delay_ms;
   g.power_active_high = s.power_active_high;
   g.pulse_debounce_us = s.pulse_debounce_us;
   g.speed_zero_ms = s.speed_zero_ms;
@@ -43,7 +43,7 @@ void applyGeneral(Settings &s, const GeneralSettings &g) {
   s.wheel_circumference_m = g.wheel_circumference_m;
   s.pulses_per_revolution = g.pulses_per_revolution;
   s.ecu_ready_ms = g.ecu_ready_ms;
-  s.ignition_pulse_ms = g.ignition_pulse_ms;
+  s.ignition_release_delay_ms = g.ignition_release_delay_ms;
   s.power_active_high = g.power_active_high;
   s.pulse_debounce_us = g.pulse_debounce_us;
   s.speed_zero_ms = g.speed_zero_ms;

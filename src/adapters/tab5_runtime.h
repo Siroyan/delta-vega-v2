@@ -23,6 +23,8 @@ struct PlanChoices {
 };
 // UI sends value commands; the application task exclusively owns domain state.
 bool submit(const Command &command);
+// Thread-safe release path used by the touch sampler and UI fallback.
+void requestIgnitionRelease(uint64_t released_us);
 bool prepareOutputs();
 void outputsOff();
 bool begin();
