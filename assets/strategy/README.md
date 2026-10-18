@@ -1,4 +1,4 @@
-# 走行戦略データ（schema 1）
+# 走行戦略データ（schema 2）
 
 地図上で戦略を編集する場合は[走行戦略エディタ](../../tools/strategy-editor/README.md)を使用できます。既存JSONの読込と、この形式に適合するJSONの書き出しに対応しています。
 
@@ -22,14 +22,16 @@ python3 scripts/upload_strategy.py assets/strategy/motegi_demo.json --port /dev/
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "course_id": "motegi_oval_2025_full_v2",
   "plan_id": "example-001",
   "plan_type": "demo",
+  "total_target_s": 2520,
   "laps": [
     {
       "lap": 1,
       "route_id": "first_lap",
+      "lap_target_s": 360,
       "runs": [{"on_s_m": 0, "off_s_m": 300}]
     }
   ]
@@ -40,12 +42,14 @@ python3 scripts/upload_strategy.py assets/strategy/motegi_demo.json --port /dev/
 
 | 項目 | 意味 |
 |---|---|
-| `schema_version` | 現在は`1`のみ |
+| `schema_version` | 新形式は`2`。旧形式`1`も読み込み可能 |
 | `course_id` | microSDから読み込んだコースのIDと完全一致させる |
 | `plan_id` | 戦略の識別子。英数字、`_`、`-`、`.`のみ、39文字以内 |
 | `plan_type` | `demo`なら画面に`PLAN DEMO`と表示。実戦略は`race` |
+| `total_target_s` | 目標ゴールタイム（秒）。1〜86400 |
 | `lap` | 1〜コースの周回数。順序は自由だが全周必須 |
 | `route_id` | 1周目は`first_lap`、中間周は`regular_lap`、最終周は`final_lap` |
+| `lap_target_s` | その周の目標ラップタイム（秒）。1〜86400 |
 | `runs` | その周の点火から電装OFFまでの区間。1〜3件、距離順 |
 | `on_s_m` | 経路の始点から測った、エンジン始動を促す地点（m） |
 | `off_s_m` | 同じ経路上で電装OFF・惰性走行開始を促す地点（m） |
@@ -54,6 +58,10 @@ python3 scripts/upload_strategy.py assets/strategy/motegi_demo.json --port /dev/
 
 距離`s_m`は緯度経度でもレース全体の通算距離でもなく、**各`route_id`の始点からの距離**です。対象コースのJSONの`routes.*.points[].s_m`と同じ定義です。経路長を超えるON/OFF地点は拒否します。
 
-ファイルはUTF-8のJSON、4096バイト以内です。キー名と識別子はASCII英数字、`_`、`-`、`.`を使用し、数値は0以上の通常の10進表記にします。各周で`0 <= on_s_m < off_s_m <= 経路長`、次の`on_s_m > 前のoff_s_m`を満たしてください。未知の項目、重複した項目、コースID不一致、範囲外の距離はファイル全体を不採用にします。運用時は`plan_id`を変更して版を識別してください。
+schema 2では全体・各周の目標時間が必須です。`TOTAL`と`LAP`の`TARGET`表示、目標超過判定、計測開始時のmicroSDログには選択中の戦略の値を使います。全体目標と周回目標の合計は一致しなくても構いません。計測中は戦略と目標時間を切り替えられません。Tab5の設定画面から目標時間は編集できません。
+
+旧schema 1の戦略も引き続き読み込みます。その場合と`NO STRATEGY`では、既存のコース別設定に残る目標時間を表示します。新しい戦略エディタに旧ファイルを読み込むと、コースの初期値を目標時間に入れてschema 2へ移行するため、出力前に確認してください。既存のmicroSD上の戦略を置き換えなくても起動はできますが、戦略ごとの目標時間を使うにはschema 2へ更新してください。
+
+ファイルはUTF-8のJSON、4096バイト以内です。キー名と識別子はASCII英数字、`_`、`-`、`.`を使用し、数値は0以上の通常の10進表記にします。各周で`0 <= on_s_m < off_s_m <= 経路長`、次の`on_s_m > 前のoff_s_m`を満たしてください。未知の項目、重複した項目、コースID不一致、範囲外の距離・目標時間はファイル全体を不採用にします。運用時は`plan_id`を変更して版を識別してください。
 
 開発時に最初に配布した`dummy-race-001`だけは、旧形式の`plan_type`省略を`demo`として読み込めます。新規ファイルには必ず`plan_type`を指定してください。

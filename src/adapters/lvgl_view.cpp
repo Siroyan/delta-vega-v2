@@ -139,7 +139,7 @@ lv_obj_t *brightness_value = nullptr;
 bool refreshing_brightness = false;
 uint64_t save_started = 0;
 uint32_t pending_settings_attempt = 0;
-char message[180] = "TARGET / MM:SS - COORDINATES / DEGREES";
+char message[180] = "START / TIMING / GOAL - COORDINATES / DEGREES";
 constexpr int32_t kCourseMapSize = 480;
 constexpr size_t kCourseMapCount = 10;
 constexpr double kLapLineHalfLength = 22.0;
@@ -465,10 +465,8 @@ void updateCourseMarkers(const vega::Settings &settings) {
 }
 
 lv_obj_t *fieldButton(size_t i) {
-  lv_obj_t *fields[] = {objects.settings_total_button,      objects.settings_lap1_button,
-                        objects.settings_lap2_button,       objects.settings_lap3_button,
-                        objects.settings_lap4_button,       objects.settings_lap5_button,
-                        objects.settings_lap6_button,       objects.settings_lap7_button,
+  lv_obj_t *fields[] = {nullptr, nullptr, nullptr, nullptr,
+                        nullptr, nullptr, nullptr, nullptr,
                         objects.settings_start_lat_button,  objects.settings_start_lon_button,
                         objects.settings_timing_lat_button, objects.settings_timing_lon_button,
                         objects.settings_goal_lat_button,   objects.settings_goal_lon_button,
@@ -489,7 +487,7 @@ lv_obj_t *fieldButton(size_t i) {
   return i < vega::kSettingsFieldCount ? fields[i] : nullptr;
 }
 void refreshFields() {
-  for (size_t i = 0; i < vega::kSettingsFieldCount; ++i) {
+  for (size_t i = 8; i < vega::kSettingsFieldCount; ++i) {
     char value[32];
     vega::settingText(draft, i, value, sizeof(value));
     text(lv_obj_get_child(fieldButton(i), 0), value);
@@ -698,7 +696,7 @@ class View final : public vega::IView {
     }
     bool editable = m.phase != vega::RacePhase::Measuring && !save_pending;
     enabled(brightness_slider, editable);
-    for (size_t i = 0; i < vega::kSettingsFieldCount; ++i) enabled(fieldButton(i), editable);
+    for (size_t i = 8; i < vega::kSettingsFieldCount; ++i) enabled(fieldButton(i), editable);
     enabled(objects.settings_advanced_gps_m5bus_button, editable);
     enabled(objects.settings_advanced_gps_port_a_button, editable);
     for (size_t i = 16; i <= 18; ++i) enabled(fieldButton(i), editable && !m.power_on);
@@ -1254,16 +1252,6 @@ void viewUpdate() {
     choices_initialized = false;
     text(selection_message, "LOADING STRATEGIES...");
   }
-  lv_obj_t *extra_lap_fields[] = {
-      objects.settings_lap5_title, objects.settings_lap5_button,
-      objects.settings_lap6_title, objects.settings_lap6_button,
-      objects.settings_lap7_title, objects.settings_lap7_button};
-  for (size_t i = 0; i < 3; ++i) {
-    visible(extra_lap_fields[i * 2], s.lap_count > i + 4);
-    visible(extra_lap_fields[i * 2 + 1], s.lap_count > i + 4);
-  }
-  text(objects.settings_lap7_title, s.lap_count > vega::kLapCount
-                                       ? "LAP 7+ TARGET" : "LAP 7 TARGET");
   if (painted_course_index != s.course_index) {
     for (size_t i = 0; i < courseCount() && i < 8; ++i)
       if (course_buttons[i]) styleSelectionButton(course_buttons[i], i == s.course_index);
@@ -1314,7 +1302,8 @@ void viewUpdate() {
   }
   presenter.render(s, ui_status, plan_loaded ? &strategy_data : nullptr);
   enabled(objects.start_button, s.race.phase == vega::RacePhase::Waiting &&
-                                ui_status.sd_ready && courseCount() != 0);
+                                ui_status.sd_ready && courseCount() != 0 &&
+                                ui_status.plan_state != vega::PlanState::Loading);
   static PlanChoices choices{};
   if (planChoices(choices) && choices.course_index == s.course_index) {
     refreshSelectionList(choices);
@@ -1359,7 +1348,7 @@ void viewOpenSettings() {
   refreshBrightnessControl();
   setMessage(presenter.phase() == vega::RacePhase::Measuring
                  ? "TIMING ACTIVE - SETTINGS LOCKED"
-                 : "TARGET / MM:SS - COORDINATES / DEGREES");
+                 : "START / TIMING / GOAL - COORDINATES / DEGREES");
   visible(objects.settings_advanced_overlay, false);
   visible(objects.settings_general_overlay, false);
   visible(objects.settings_editor_overlay, false);
@@ -1400,21 +1389,17 @@ void selectGpsSource(vega::GpsSource source) {
 }
 
 void editField(size_t index) {
-  if (index >= vega::kSettingsFieldCount || presenter.phase() == vega::RacePhase::Measuring ||
+  if (index < 8 || index >= vega::kSettingsFieldCount ||
+      presenter.phase() == vega::RacePhase::Measuring ||
       save_pending)
     return;
   editing_field = index;
   char value[32];
   vega::settingText(draft, index, value, sizeof(value));
-  vega::Snapshot current;
-  const bool extended_laps = snapshot(current) && current.lap_count > vega::kLapCount;
-  text(objects.settings_editor_title,
-       index == 7 && extended_laps
-           ? "LAP 7+ TARGET" : vega::settingTitle(index));
+  text(objects.settings_editor_title, vega::settingTitle(index));
   // set_text filters each character using the current accepted_chars.
   lv_textarea_set_accepted_chars(objects.settings_editor_input,
-                                 index < 8                          ? "0123456789:"
-                                 : index < 14                       ? "0123456789.-"
+                                 index < 14                         ? "0123456789.-"
                                  : index == 14 || (index >= 22 && index <= 24)
                                                                      ? "0123456789."
                                                                      : "0123456789");
@@ -1442,8 +1427,7 @@ void finishEdit() {
   if (!vega::editSetting(draft, editing_field,
                          lv_textarea_get_text(objects.settings_editor_input))) {
     text(objects.settings_editor_title,
-         editing_field < 8 ? "INVALID - USE MM:SS"
-         : editing_field < 14 ? "INVALID COORDINATE" : "INVALID VALUE OR RANGE");
+         editing_field < 14 ? "INVALID COORDINATE" : "INVALID VALUE OR RANGE");
     return;
   }
   refreshFields();
@@ -1667,7 +1651,7 @@ bool viewDiagnostic(const char *command) {
     unsigned index;
     char extra;
     if (sscanf(command + 17, "%u%c", &index, &extra) == 1 &&
-        index < vega::kSettingsFieldCount) {
+        index >= 8 && index < vega::kSettingsFieldCount) {
       if ((index >= 14 && index <= 21) || index == 23 || index == 27) viewOpenGeneral();
       else if (index >= 22) viewOpenAdvanced();
       lv_obj_send_event(fieldButton(index), LV_EVENT_CLICKED, nullptr);
@@ -1682,7 +1666,8 @@ bool viewDiagnostic(const char *command) {
   else if (!strncmp(command, "ui-edit ", 8)) {
     unsigned index;
     char value[25];
-    if (sscanf(command + 8, "%u %24s", &index, value) == 2 && index < vega::kSettingsFieldCount) {
+    if (sscanf(command + 8, "%u %24s", &index, value) == 2 &&
+        index >= 8 && index < vega::kSettingsFieldCount) {
       if ((index >= 14 && index <= 21) || index == 23 || index == 27) viewOpenGeneral();
       else if (index >= 22) viewOpenAdvanced();
       lv_obj_send_event(fieldButton(index), LV_EVENT_CLICKED, nullptr);

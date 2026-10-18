@@ -67,7 +67,11 @@ struct Recorder : ISessionRecorder {
   unsigned begins = 0, samples = 0, ends = 0, finished_events = 0, manual_finish_events = 0;
   EndReason reason{};
   Snapshot last{};
-  void begin(uint32_t, const Settings &, Millis) override { ++begins; }
+  Settings begun_settings{};
+  void begin(uint32_t, const Settings &settings, Millis) override {
+    ++begins;
+    begun_settings = settings;
+  }
   void sample(const Snapshot &s) override {
     ++samples;
     last = s;
@@ -628,22 +632,23 @@ void settingsTest() {
   cfg.total_target_s = 2356;
   cfg.goal = {36.01, 140};
   assert(f.app.configure(cfg, SettingsScope::Course));
-  assert(f.app.snapshot().settings.total_target_s == 2356);
-  assert(f.store.course.total_target_s == 2356);
+  assert(f.app.snapshot().settings.total_target_s == 2520);
+  assert(f.store.course.total_target_s == 2520);
   cfg.lap_target_s[2] = 0;
-  assert(!f.app.configure(cfg, SettingsScope::Course));
+  assert(f.app.configure(cfg, SettingsScope::Course));
+  assert(f.store.course.lap_target_s[2] == 360);
   cfg = f.settings;
   cfg.goal.latitude = std::numeric_limits<double>::quiet_NaN();
   assert(!f.app.configure(cfg, SettingsScope::Course));
   f.store.fail = true;
   assert(!f.app.configure(f.settings, SettingsScope::Course));
-  assert(f.app.snapshot().settings.total_target_s == 2356);
+  assert(f.app.snapshot().settings.total_target_s == 2520);
   assert(f.app.snapshot().settings_attempt == 4 && !f.app.snapshot().settings_accepted);
   f.store.fail = false;
   f.app.power(true);
   assert(f.app.configure(f.settings, SettingsScope::General));
   assert(f.output.on);
-  assert(f.app.snapshot().settings.total_target_s == 2356);
+  assert(f.app.snapshot().settings.total_target_s == 2520);
   cfg = f.settings;
   cfg.power_active_high = false;
   assert(!f.app.configure(cfg, SettingsScope::General));
@@ -662,7 +667,7 @@ void settingsTest() {
   assert(f.app.snapshot().settings.speed_average_intervals == 5);
   assert(f.store.general.display_brightness == 200);
   assert(f.store.general.speed_average_intervals == 5);
-  assert(f.store.course.total_target_s == 2356);
+  assert(f.store.course.total_target_s == 2520);
   f.app.power(true);
   f.clock.time += 1000;
   f.app.tick();
@@ -725,8 +730,8 @@ void presenterTest() {
 void settingsFormTest() {
   Settings s;
   char value[32];
-  assert(editSetting(s, 0, "39:16") && s.total_target_s == 2356);
-  assert(editSetting(s, 1, "1:02:03") && s.lap_target_s[0] == 3723);
+  assert(!editSetting(s, 0, "39:16") && s.total_target_s == 2520);
+  assert(!editSetting(s, 1, "1:02:03") && s.lap_target_s[0] == 360);
   assert(!editSetting(s, 1, "6:60") && !editSetting(s, 1, "0:00"));
   assert(!editSetting(s, 1, "99999:00") && !editSetting(s, 1, "06:00junk"));
   assert(!editSetting(s, 1, "6::00") && !editSetting(s, 1, "6"));
@@ -872,6 +877,8 @@ void strategyTest() {
                        error, sizeof(error)));
   assert(std::strcmp(plan.plan_id, "dummy-race-002") == 0);
   assert(plan.demo);
+  assert(plan.targets_explicit && plan.total_target_s == 2520);
+  assert(plan.laps[0].lap_target_s == 360);
   assert(plan.laps[0].route == CourseRoute::First && plan.laps[0].runs[0].on_s_m == 0);
   assert(plan.laps[6].route == CourseRoute::Final);
   for (const auto &lap : plan.laps) assert(lap.run_count == 3);
@@ -919,9 +926,25 @@ void strategyTest() {
     assert(error[0] && std::strcmp(result.plan_id, plan.plan_id) == 0);
   };
   std::string original_demo = json;
+  auto strip = [&](const char *line) {
+    auto pos = original_demo.find(line);
+    assert(pos != std::string::npos);
+    original_demo.erase(pos, std::strlen(line));
+  };
+  strip("  \"total_target_s\": 2520,\n");
+  while (original_demo.find(", \"lap_target_s\": 360") != std::string::npos)
+    strip(", \"lap_target_s\": 360");
+  auto schema_at = original_demo.find("\"schema_version\": 2");
+  assert(schema_at != std::string::npos);
+  original_demo.replace(schema_at, std::strlen("\"schema_version\": 2"),
+                        "\"schema_version\": 1");
   auto legacy_id = original_demo.find("dummy-race-002");
   assert(legacy_id != std::string::npos);
   original_demo.replace(legacy_id, std::strlen("dummy-race-002"), "dummy-race-001");
+  Strategy legacy_plan{};
+  assert(parseStrategy(original_demo.data(), original_demo.size(), course,
+                       asset_motegi_oval_full::course_data.id, legacy_plan, error, sizeof(error)));
+  assert(!legacy_plan.targets_explicit);
   auto demo_type = original_demo.find("  \"plan_type\": \"demo\",\n");
   assert(demo_type != std::string::npos);
   original_demo.erase(demo_type, std::strlen("  \"plan_type\": \"demo\",\n"));
@@ -929,6 +952,7 @@ void strategyTest() {
   assert(parseStrategy(original_demo.data(), original_demo.size(), course,
                        asset_motegi_oval_full::course_data.id, older_demo, error, sizeof(error)));
   assert(older_demo.demo);
+  assert(!older_demo.targets_explicit);
   auto unnamed_type = original_demo;
   auto name_at = unnamed_type.find("dummy-race-001");
   assert(name_at != std::string::npos);
@@ -946,10 +970,52 @@ void strategyTest() {
   replace("\"route_id\": \"final_lap\"", "\"route_id\": \"regular_lap\"");
   replace("\"off_s_m\": 300", "\"off_s_m\": 99999");
   replace("\"on_s_m\": 0", "\"on_s_m\": 400");
-  replace("\"schema_version\": 1", "\"schema_version\": 2");
+  replace("\"schema_version\": 2", "\"schema_version\": 3");
+  replace("\"total_target_s\": 2520", "\"total_target_s\": 0");
+  replace("\"lap_target_s\": 360", "\"lap_target_s\": 0");
   replace("\"on_s_m\": 0", "\"on_s_m\": 0, \"on_s_m\": 1");
   invalid(json + "unexpected");
   invalid(std::string(kMaxStrategyFileBytes + 1, ' '));
+}
+void strategyTargetsTest() {
+  Fixture f;
+  Strategy plan{};
+  plan.targets_explicit = true;
+  plan.total_target_s = 2356;
+  plan.laps[0].lap_target_s = 250;
+  plan.laps[1].lap_target_s = 300;
+  f.app.setStrategyTargets(&plan);
+  auto snapshot = f.app.snapshot();
+  assert(snapshot.settings.total_target_s == 2356);
+  assert(snapshot.settings.lap_target_s[0] == 250);
+  assert(snapshot.settings.lap_target_s[1] == 300);
+  View view;
+  Presenter presenter(view);
+  presenter.render(snapshot, {});
+  assert(std::strcmp(view.model.total_target, "TARGET 39:16") == 0);
+  assert(std::strcmp(view.model.lap_target, "TARGET 04:10") == 0);
+  assert(f.app.start());
+  assert(f.recorder.begun_settings.total_target_s == 2356);
+  assert(f.recorder.begun_settings.lap_target_s[0] == 250);
+  f.app.setStrategyTargets(nullptr);  // plan cannot change during measurement
+  assert(f.app.snapshot().settings.total_target_s == 2356);
+  f.clock.time += 10000;
+  assert(f.app.manualLap());
+  presenter.render(f.app.snapshot(), {});
+  assert(std::strcmp(view.model.lap_target, "TARGET 05:00") == 0);
+  f.clock.time += 2350000;
+  presenter.render(f.app.snapshot(), {});
+  assert(view.model.overtime);
+  assert(f.app.cancel());
+  f.app.setStrategyTargets(nullptr);
+  assert(f.app.snapshot().settings.total_target_s == 2520);
+  f.app.setStrategyTargets(&plan);
+  Settings changed = f.app.snapshot().settings;
+  changed.timing = {36.001, 140.005};
+  assert(f.app.configure(changed, SettingsScope::Course));
+  assert(f.app.snapshot().settings.total_target_s == 2356);
+  assert(f.store.course.total_target_s == 2520);
+  assert(f.store.course.lap_target_s[0] == 360);
 }
 void courseSelectionTest() {
   Fixture f;
@@ -1383,6 +1449,7 @@ int main() {
   settingsFormTest();
   gpsSourceSettingsTest();
   strategyTest();
+  strategyTargetsTest();
   strategyWarningTest();
   misatoCourseTest();
   courseSelectionTest();

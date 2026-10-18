@@ -20,10 +20,35 @@ function notice(message) {
 function courseSummary() { return state.courses.find(c => c.folder === $("course-select").value); }
 function routeId(lap) { return lap === 1 ? "first_lap" : lap === state.course.data.lap_count ? "final_lap" : "regular_lap"; }
 function activeLap() { return state.strategy.laps[state.lap - 1]; }
+function formatSeconds(value) {
+  if (!Number.isInteger(value) || value < 1 || value > 86400) return "";
+  const seconds = String(value % 60).padStart(2, "0");
+  const minutes = String(Math.floor(value / 60) % 60).padStart(2, "0");
+  return value >= 3600 ? `${Math.floor(value / 3600)}:${minutes}:${seconds}`
+    : `${String(Math.floor(value / 60)).padStart(2, "0")}:${seconds}`;
+}
+function parseTime(value) {
+  const parts = value.trim().split(":");
+  if (parts.length < 2 || parts.length > 3 || !parts.every(part => /^\d{1,5}$/.test(part))) return null;
+  const numbers = parts.map(Number);
+  if (numbers.at(-1) >= 60 || (parts.length === 3 && numbers[1] >= 60)) return null;
+  const seconds = parts.length === 2 ? numbers[0] * 60 + numbers[1]
+    : numbers[0] * 3600 + numbers[1] * 60 + numbers[2];
+  return seconds >= 1 && seconds <= 86400 ? seconds : null;
+}
+function upgradeLegacyPlan(strategy, summary) {
+  if (strategy.schema_version !== 1) return false;
+  strategy.schema_version = 2;
+  strategy.total_target_s = summary.total_target_s;
+  strategy.laps.forEach(lap => { lap.lap_target_s = summary.lap_target_s; });
+  return true;
+}
 function freshPlan(course) {
-  return { schema_version: 1, course_id: course.summary.course_id, plan_id: "new-strategy",
-    plan_type: "race", laps: Array.from({ length: course.summary.lap_count }, (_, i) => ({
+  return { schema_version: 2, course_id: course.summary.course_id, plan_id: "new-strategy",
+    plan_type: "race", total_target_s: course.summary.total_target_s,
+    laps: Array.from({ length: course.summary.lap_count }, (_, i) => ({
       lap: i + 1, route_id: i === 0 ? "first_lap" : i + 1 === course.summary.lap_count ? "final_lap" : "regular_lap",
+      lap_target_s: course.summary.lap_target_s,
       runs: [{ on_s_m: 0, off_s_m: 0 }]
     })) };
 }
@@ -39,6 +64,7 @@ function persist() {
 function syncSetup() {
   $("plan-id").value = state.strategy.plan_id;
   $("plan-type").value = state.strategy.plan_type;
+  $("total-target").value = formatSeconds(state.strategy.total_target_s);
   $("destination-name").textContent = $("filename").value || "strategy.json";
   const summary = courseSummary();
   $("course-notice").hidden = summary.supported;
@@ -75,6 +101,7 @@ function renderRows() {
   $("lap-title").textContent = `LAP ${state.lap}`;
   $("route-name").textContent = `${routeNames[lap.route_id]} · ${state.course.data.routes[lap.route_id].length_m.toFixed(1)} m`;
   $("route-length").textContent = `${state.course.data.routes[lap.route_id].length_m.toFixed(1)} m`;
+  $("lap-target").value = formatSeconds(lap.lap_target_s);
   const rows = lap.runs.map((run, index) => {
     const row = document.createElement("div"); row.className = "run-row";
     const label = document.createElement("div"); label.className = "run-number";
@@ -209,6 +236,7 @@ async function importBytes(bytes, suggestedFilename) {
     if (!Array.isArray(strategy.laps) || strategy.laps.length !== summary.lap_count)
       throw new Error("周回数がコースと一致しません。");
     if (!strategy.plan_type && strategy.plan_id === "dummy-race-001") strategy.plan_type = "demo";
+    const upgraded = upgradeLegacyPlan(strategy, summary);
     const filename = /^[A-Za-z0-9_-]{1,30}\.json$/.test(suggestedFilename) ?
       suggestedFilename : filenameFromPlan(strategy.plan_id || "strategy");
     const check = await send("/api/validate", { strategy, filename });
@@ -217,7 +245,9 @@ async function importBytes(bytes, suggestedFilename) {
     state.strategy = strategy;
     state.strategy.laps.sort((a, b) => a.lap - b.lap);
     $("filename").value = filename;
-    syncSetup(); render(); persist(); notice("戦略を読み込みました。内容を確認してください。");
+    syncSetup(); render(); persist(); notice(upgraded
+      ? "旧形式の戦略を移行しました。目標時間にはコース初期値を入れています。必ず確認してください。"
+      : "戦略を読み込みました。内容を確認してください。");
   } catch (error) { notice(error.message); }
 }
 async function initialize() {
@@ -243,8 +273,11 @@ async function initialize() {
     if (draft && draft.folder === folder && draft.strategy?.course_id === state.course.summary.course_id &&
         Array.isArray(draft.strategy.laps) && draft.strategy.laps.length === state.course.summary.lap_count) {
       state.strategy = draft.strategy;
+      const upgraded = upgradeLegacyPlan(state.strategy, state.course.summary);
       $("filename").value = draft.filename;
-      syncSetup(); render(); notice("前回の下書きを復元しました。");
+      syncSetup(); render(); if (upgraded) persist(); notice(upgraded
+        ? "旧形式の下書きを移行しました。目標時間を確認してください。"
+        : "前回の下書きを復元しました。");
     }
     selector.onchange = () => {
       $("example-select").value = "";
@@ -275,6 +308,12 @@ async function initialize() {
       persist(); validate();
     };
     $("plan-type").onchange = event => { state.strategy.plan_type = event.target.value; persist(); validate(); };
+    $("total-target").onchange = event => {
+      state.strategy.total_target_s = parseTime(event.target.value); persist(); validate();
+    };
+    $("lap-target").onchange = event => {
+      activeLap().lap_target_s = parseTime(event.target.value); persist(); validate();
+    };
     $("filename").oninput = event => { $("destination-name").textContent = event.target.value || "strategy.json"; persist(); validate(); };
     $("add-run").onclick = () => { activeLap().runs.push({ on_s_m: 0, off_s_m: 0 }); persist(); render(); };
     $("copy-lap").onclick = () => {

@@ -48,33 +48,9 @@ const char *settingTitle(size_t field) {
   return field < kSettingsFieldCount ? titles[field] : "";
 }
 bool editSetting(Settings &s, size_t field, const char *text) {
-  if (!text || !text[0] || field >= kSettingsFieldCount) return false;
+  if (!text || !text[0] || field >= kSettingsFieldCount || field < 8) return false;
   Settings candidate = s;
-  if (field < 8) {
-    // Explicit MM:SS / H:MM:SS, bounded digits and components; never silently truncate.
-    unsigned parts[3]{}, count = 0, digits = 0;
-    for (const char *p = text;; ++p) {
-      if (*p >= '0' && *p <= '9') {
-        if (++digits > 5) return false;
-        parts[count] = parts[count] * 10 + (*p - '0');
-      } else if (*p == ':' || *p == '\0') {
-        if (!digits) return false;
-        ++count;
-        digits = 0;
-        if (*p == '\0') break;
-        if (count >= 3) return false;
-      } else
-        return false;
-    }
-    if (count < 2 || parts[count - 1] >= 60 || (count == 3 && parts[1] >= 60)) return false;
-    uint64_t seconds = count == 2 ? uint64_t(parts[0]) * 60 + parts[1]
-                                  : uint64_t(parts[0]) * 3600 + parts[1] * 60 + parts[2];
-    if (!seconds || seconds > 86400) return false;
-    if (field == 0)
-      candidate.total_target_s = seconds;
-    else
-      candidate.lap_target_s[field - 1] = seconds;
-  } else if (field < 14) {
+  if (field < 14) {
     // Reject whitespace, hexadecimal/exponent syntax and trailing text.
     bool digit = false;
     for (const char *p = text; *p; ++p) {

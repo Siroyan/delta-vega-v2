@@ -1100,6 +1100,12 @@ void applicationTask(void *) {
   };
   diagnostic("[APP] ready; electrical OFF; commands: status/start/cancel/lap/on/off/ignite/log");
   for (;;) {
+    // Apply a fully validated plan before accepting START. The override is
+    // copied into snapshots but never persisted with course settings.
+    vega::Strategy target_strategy{};
+    const bool target_ready = plan_state.load() == vega::PlanState::Ready &&
+                              xQueuePeek(strategies, &target_strategy, 0) == pdTRUE;
+    app.setStrategyTargets(target_ready ? &target_strategy : nullptr);
     if (urgent_off.exchange(false)) {
       app.power(false);
       diagnostic("[APP] electrical OFF; old ON/IGNITE commands invalidated");
@@ -1228,7 +1234,8 @@ void applicationTask(void *) {
       bool ok = true;
       switch (command.kind) {
         case CommandKind::Start:
-          ok = sd_ready && courseCount() && app.start();
+          ok = sd_ready && courseCount() && plan_state.load() != vega::PlanState::Loading &&
+               app.start();
           break;
         case CommandKind::Cancel:
           ok = app.cancel();
