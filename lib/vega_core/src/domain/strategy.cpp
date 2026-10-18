@@ -122,9 +122,16 @@ bool parseLap(Reader &r, unsigned &lap_number, StrategyLap &lap) {
         if (!parseRun(r, lap.runs[lap.run_count++])) return false;
       }
       if (!r.take(']')) return false;
+    } else if (!std::strcmp(key, "lap_target_s")) {
+      if (fields & 8) return r.fail("duplicate lap_target_s");
+      fields |= 8;
+      unsigned target = 0;
+      if (!r.integer(target) || target == 0 || target > 86400)
+        return r.fail("invalid lap_target_s");
+      lap.lap_target_s = target;
     } else return r.fail("unknown lap field");
   }
-  return r.take('}') && (fields == 7 || r.fail("missing lap field"));
+  return r.take('}') && ((fields & 7) == 7 || r.fail("missing lap field"));
 }
 }  // namespace
 
@@ -143,6 +150,7 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
   Strategy candidate{};
   unsigned schema = 0, fields = 0;
   bool seen[kLapCount]{};
+  bool lap_targets[kLapCount]{};
   if (!r.take('{')) return report(r.error());
   for (bool first = true; !r.is('}'); first = false) {
     if (!first && !r.take(',')) return report(r.error());
@@ -168,6 +176,13 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
       if (!std::strcmp(type, "demo")) candidate.demo = true;
       else if (!std::strcmp(type, "race")) candidate.demo = false;
       else return report("unknown plan_type");
+    } else if (!std::strcmp(key, "total_target_s")) {
+      if (fields & 32) return report("duplicate total_target_s");
+      fields |= 32;
+      unsigned target = 0;
+      if (!r.integer(target) || target == 0 || target > 86400)
+        return report("invalid total_target_s");
+      candidate.total_target_s = target;
     } else if (!std::strcmp(key, "laps")) {
       if (fields & 8) return report("duplicate laps");
       fields |= 8;
@@ -180,6 +195,7 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
         if (lap_number < 1 || lap_number > course.lapCount() || seen[lap_number - 1])
           return report("invalid or duplicate lap number");
         seen[lap_number - 1] = true;
+        lap_targets[lap_number - 1] = lap.lap_target_s != 0;
         candidate.laps[lap_number - 1] = lap;
       }
       if (!r.take(']')) return report(r.error());
@@ -188,14 +204,18 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
   if (!r.take('}') || !r.end()) return report("trailing or invalid JSON");
   // The first bundled dummy was installed on development cards before
   // plan_type existed. Accept only that named demo for compatibility.
-  if (fields == 15 && !std::strcmp(candidate.plan_id, "dummy-race-001"))
+  if (schema == 1 && fields == 15 && !std::strcmp(candidate.plan_id, "dummy-race-001"))
     candidate.demo = true;
-  else if (fields != 31)
+  else if (fields != (schema == 2 ? 63u : 31u))
     return report("missing strategy field");
-  if (schema != 1) return report("unsupported schema");
+  if (schema != 1 && schema != 2) return report("unsupported schema");
+  if (schema == 1 && (fields & 32)) return report("target fields require schema 2");
+  candidate.targets_explicit = schema == 2;
   if (std::strcmp(candidate.course_id, expected_course_id)) return report("course_id mismatch");
   for (size_t i = 0; i < course.lapCount(); ++i) {
     if (!seen[i]) return report("missing lap");
+    if (lap_targets[i] != candidate.targets_explicit)
+      return report("lap_target_s does not match schema");
     auto &lap = candidate.laps[i];
     const auto expected_route = i == 0 ? CourseRoute::First
                                 : i == course.lapCount() - 1 ? CourseRoute::Final

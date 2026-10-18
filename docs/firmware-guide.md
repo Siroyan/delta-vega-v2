@@ -10,9 +10,9 @@
 - 取消はメニュー/SettingsのCANCEL TIMING → 確認画面のCANCEL TIMING。KEEP TIMINGで継続。取消後は新規開始可能。完走後の再計測は提供しない。
 - 左下の青緑の電源トグルはエンジン系電装への指令。ON後、設定されたECU準備時間（初期1000 ms）は右下の点火ボタンが無効時と同じ薄い赤から時計回りに通常の赤へ変わり、操作できない。準備完了時に全面が通常の赤となり、炎ボタンを操作できる。炎ボタンはECUへの1000 ms HIGHパルス。電装ONごとに1回まで。
 - 電装OFFは準備待ち/パルスを中止する。計測とTab5は動作継続。Tab5はエンジンの実運転状態を確認できない。
-- ハンバーガーメニューの`COURSE MENU`から、全体42:00・各周06:00のTARGETとスタート/周回更新/ゴールの各緯度経度を編集できる。`COURSE DETAILS`には回廊幅・最小周回距離・最小周回時間・重複抑制を置く。`GENERAL MENU`からは車輪・電装・ECU・GPS関連値とGPS接続先、`DISPLAY BRIGHTNESS`を編集できる。輝度は25～100%相当（内部値64～255）で、操作中は画面へ反映する。初期値は127。数値画面のSETは一時編集の確定、各ページのSAVE SETTINGSはその範囲だけの保存。戻る矢印で未保存の編集と輝度プレビューを破棄する。
+- ハンバーガーメニューの`COURSE MENU`から、スタート/周回更新/ゴールの各緯度経度を編集できる。`COURSE DETAILS`には回廊幅・最小周回距離・最小周回時間・重複抑制を置く。全体と各周のTARGETは走行戦略JSONで編集し、Tab5のSettingsでは変更できない。`GENERAL MENU`からは車輪・電装・ECU・GPS関連値とGPS接続先、`DISPLAY BRIGHTNESS`を編集できる。輝度は25～100%相当（内部値64～255）で、操作中は画面へ反映する。初期値は127。数値画面のSETは一時編集の確定、各ページのSAVE SETTINGSはその範囲だけの保存。戻る矢印で未保存の編集と輝度プレビューを破棄する。
 - 電装極性（POWER HIGH）は`1`でHIGH=ON、`0`でLOW=ON。電装ON中は極性・ECU準備時間・点火パルス幅の編集を無効にし、アプリケーション側も変更を拒否する。これらの値は実車接続前に回路とECUの仕様に合わせて確認する。
-- 計測中はUIとApplicationの双方で設定変更を拒否する。全体TARGETと各周合計の一致は強制しない。大会制限39:16とは独立した値。
+- 計測中はUIとApplicationの双方で設定変更を拒否する。全体TARGETと各周合計の一致は強制しない。大会制限39:16とは独立した値。旧schema 1の戦略または`NO STRATEGY`では、コース別NVSの旧目標時間へフォールバックする。
 - NVSは端末共通の`vega-device/settings`と、選択コースの名前空間にある`course`を別々に保存する。従来のv1～v3 `settings` blobからの初回移行では、端末共通値は選択コースの旧設定を優先し、なければ旧`vega/settings`から電装極性・GPS入力先・車輪校正・ECU時間・輝度などを引き継ぐ。コース固有値は選択コースの旧設定だけから引き継ぎ、存在しなければそのコースのカタログ初期値を使う。既存の`vega-device/settings`があればそれを優先する。旧v1ではGPS入力先をM5Bus、旧v1/v2では輝度を127として扱う。保存した共通輝度はコースを切り替えても変わらず、再起動後も保持する。電装状態・始動権・進行中レースは復元しない。
 - 修正前の開発版で一度起動し、`vega-device/settings`へ既に誤った初期値が保存された個体は、自動的には旧値へ戻らない。どの値が意図的に変更されたか判別できないため、実車の回路を接続する前にGENERAL SETTINGSの`POWER HIGH`、`ECU READY`、`IGNITION PULSE`などを回路仕様と照合し、必要なら再保存する。
 - GPS接続先はGeneral Settingsの`GPS INPUT`で`M5BUS`または`PORT.A`を選び、`SAVE SETTINGS`で確定する。切替は計測前または計測取消後のみ可能。保存成功時にUART、NMEAパーサ、直前のGPS位置・受信状態を初期化して選択先から受信し直す。Port.AのAT6558 Unit GPSは最初のRMC受信後、[CASICプロトコル](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/950/Multimode_satellite_navigation_receiver_cn.pdf)のコマンドで測位を5 Hz（200 ms）、RMCを毎回、GGAを5回に1回へ変更する。設定はGPS内のFLASHに保存せず、UARTを開き直すたびに送信する。M5BusのGT-502MGG-Nにはこのコマンドを送らない。GPSの測位確認には屋外の開けた場所で待つ。シリアルの`status`で`gps_source`・`gps_bytes`（受信バイト数）・`gps_rmc`（チェックサムが正しいRMC文の件数）・`gps_rmc_hz`（直近5秒間のRMC受信頻度）・`gps`（新鮮な測位の有無）を確認できる。
@@ -66,7 +66,7 @@ CURRENT SPEEDは最新の受理パルスから最大N区間を取り、`N区間�
 
 2026-10-03にはWi-FiがIPを取得しMQTTを開始した直後、`sdio_push_data_to_queue sdio_drv.c:705 (pkt_rxbuff)`でassertして再起動する現象を実機で捕捉した。TLSの確保先をPSRAMにしていても、LVGLの画面部品は内部ヒープを使っていた。変更前のMQTT開始直後は内部DMA空き約25 KB、最大連続領域約12 KB。LVGLの画面部品をPSRAMへ移した後は、MQTT接続時の内部DMA空き約309 KB、最大連続領域約303 KBになった。Wi-Fi受信バッファの確保失敗を直接防ぐための変更であり、正式版では通信と表示を同時に使う長時間試験が必要。
 
-- 走行戦略はWaiting画面からmicroSDの`/vega/strategies/*.json`または互換ファイル`/vega/strategy.json`を選び、選択したコースの周回数・経路ID・ON/OFF地点を検証する。Waitingで1周目をプレビューし、Mainでは現在周回の橙色のエンジン使用区間、青色の惰性区間、点火/OFF地点を地図へ重ねる。GPSが有効なら次の地点までの距離を表示する。形式とダミーは[走行戦略データREADME](../assets/strategy/README.md)。プランは表示専用で、GPIO出力を変更しない。
+- 走行戦略はWaiting画面からmicroSDの`/vega/strategies/*.json`または互換ファイル`/vega/strategy.json`を選び、選択したコースの周回数・経路ID・ON/OFF地点・目標時間を検証する。schema 2なら全体・各周TARGETを戦略から読み、計測開始時のmicroSDログにも反映する。Waitingで1周目をプレビューし、Mainでは現在周回の橙色のエンジン使用区間、青色の惰性区間、点火/OFF地点を地図へ重ねる。GPSが有効なら次の地点までの距離を表示する。形式とダミーは[走行戦略データREADME](../assets/strategy/README.md)。プランは表示専用で、GPIO出力を変更しない。
 - Tab5内蔵スピーカーは、画面のボタン操作で短い1音を鳴らす。電装・点火の大きなボタンも同様。戦略を読み込んで計測している間は、GPS位置がコース内で有効な場合に限り、各エンジンON/OFF地点の30 m手前に入ると「ピピ、ピピ」と予告する。同じ地点は同一周回・計測セッション内で一度だけ予告し、GPSの一時的な欠落や位置の揺れでは鳴り直さない。0 mの始動地点には手前の予告地点がないため鳴らない。音声処理は別タスクに送り、タッチや画面描画を待たせない。予告音は運転操作の補助であり、エンジン出力を自動操作しない。
 - 計測開始から取消/完走までのみ、`/vega/session-0000000001.jsonl`のような個別ファイルをmicroSDへ保存する。NVSの連番と既存ファイルの確認で再起動後も上書きを防ぐ。
 - 最初の行はコースID・周回数と設定メタデータ（`schema_version:3`）。500 ms周期のサンプルはMQTTの10項目に加え、`gps_seen`、`gps_fix_valid`、`gps_fresh`、`gps_speed_kmh`、`gps_satellites`、`gps_hdop`、`gps_gga_fix_quality`、`gps_utc_ms_of_day`、`gps_age_ms`、`gps_quality_age_ms`を記録する。GGA未受信などで不明な数値は`null`。`gps_age_ms`は最後のRMC受信から、`gps_quality_age_ms`は最後のGGA受信からの経過時間。`gps_utc_ms_of_day`はRMCのUTC時刻を午前0時からのミリ秒で表す。開始・取消・完走・手動補正・電装操作は`type:event`で記録し、取消データも残す。

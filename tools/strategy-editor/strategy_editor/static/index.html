@@ -11,7 +11,7 @@
     <div>
       <div class="eyebrow">DELTA VEGA · TAB5</div>
       <h1>STRATEGY EDITOR</h1>
-      <p>コース上のエンジンON / OFF地点を設定し、Tab5用の戦略JSONを書き出します。</p>
+      <p>目標時間とエンジンON / OFF地点を設定し、Tab5用の戦略JSONを書き出します。</p>
     </div>
     <div class="header-badge">LOCAL TOOL <span aria-hidden="true">●</span></div>
   </header>
@@ -44,6 +44,12 @@
           <input id="filename" spellcheck="false">
         </label>
       </div>
+      <div class="target-row">
+        <label>目標ゴールタイム <span class="hint">MM:SS または H:MM:SS</span>
+          <input id="total-target" inputmode="numeric" spellcheck="false" placeholder="42:00">
+        </label>
+        <p>周回目標の合計と一致させる必要はありません。Tab5は選択中の戦略の値を表示します。</p>
+      </div>
       <p class="notice" id="course-notice" hidden></p>
     </section>
 
@@ -62,6 +68,9 @@
         <div class="section-title"><div><span class="section-number">03</span><h2>周回ごとの指示</h2></div><span id="lap-count" class="quiet"></span></div>
         <div class="lap-tabs" id="lap-tabs" role="tablist" aria-label="周回を選択"></div>
         <div class="lap-heading"><div><h3 id="lap-title">LAP 1</h3><span id="route-name"></span></div><button class="ghost" id="copy-lap" type="button">この区間を他の周回へコピー</button></div>
+        <label class="lap-target-field">この周の目標ラップタイム <span class="hint">MM:SS または H:MM:SS</span>
+          <input id="lap-target" inputmode="numeric" spellcheck="false" placeholder="06:00">
+        </label>
         <div class="run-list" id="run-list"></div>
         <button class="add-run" id="add-run" type="button">＋ エンジン使用区間を追加</button>
         <p class="small-note">各周1〜3区間。前のOFFより後に次のONを設定してください。指示はドライバーへの案内で、車両の電装を自動操作しません。</p>

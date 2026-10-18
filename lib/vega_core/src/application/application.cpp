@@ -35,6 +35,10 @@ Snapshot Application::snapshot() const {
   s.course_index = course_index_;
   s.lap_count = race_.lapCount();
   s.settings = settings_;
+  if (strategy_targets_active_) {
+    s.settings.total_target_s = strategy_total_target_s_;
+    s.settings.lap_target_s = strategy_lap_target_s_;
+  }
   s.race = race_.reading(s.now_ms, wheel_.pulses, settings_);
   s.engine = engine_.phase();
   s.ecu_prepare_permille = engine_.preparationPermille(s.now_ms, settings_.ecu_ready_ms);
@@ -81,7 +85,7 @@ bool Application::start() {
   resetFinishBranch();
   last_sample_ = now;
   auto s = snapshot();
-  recorder_.begin(s.race.session, settings_, now);
+  recorder_.begin(s.race.session, s.settings, now);
   recorder_.event(Event::Started, s);
   recorder_.sample(s);
   telemetry_.publish(s);
@@ -144,9 +148,13 @@ bool Application::configure(const Settings &requested, SettingsScope scope) {
   Settings s = settings_;
   if (scope == SettingsScope::General)
     applyGeneral(s, generalSettings(requested));
-  else if (scope == SettingsScope::Course)
+  else if (scope == SettingsScope::Course) {
     applyCourse(s, courseSettings(requested));
-  else
+    // Targets are owned by the strategy. Keep legacy course values only as
+    // read-only fallback for old plans and NO STRATEGY.
+    s.total_target_s = settings_.total_target_s;
+    s.lap_target_s = settings_.lap_target_s;
+  } else
     return false;
   if (race_.phase() == RacePhase::Measuring || !validSettings(s)) return false;
   if (engine_.phase() != EnginePhase::Off && (s.power_active_high != settings_.power_active_high ||
@@ -182,8 +190,18 @@ bool Application::selectCourse(const Course &course, uint8_t index, const Settin
   course_ = &course;
   course_index_ = index;
   settings_ = combined;
+  strategy_targets_active_ = false;
   resetGps();
   return true;
+}
+void Application::setStrategyTargets(const Strategy *strategy) {
+  if (race_.phase() != RacePhase::Waiting) return;
+  strategy_targets_active_ = strategy && strategy->targets_explicit;
+  if (!strategy_targets_active_) return;
+  strategy_total_target_s_ = strategy->total_target_s;
+  for (size_t i = 0; i < kLapCount; ++i)
+    strategy_lap_target_s_[i] = strategy->laps[i].lap_target_s
+                                   ? strategy->laps[i].lap_target_s : settings_.lap_target_s[i];
 }
 void Application::gps(const GpsFix &fix) {
   auto now = clock_.now();

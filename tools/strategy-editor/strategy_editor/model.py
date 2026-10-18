@@ -24,6 +24,8 @@ class Course:
     name: str
     data: dict
     image: Path
+    total_target_s: int
+    lap_target_s: int
 
     @property
     def id(self):
@@ -40,6 +42,8 @@ class Course:
             "course_id": self.id,
             "lap_count": self.lap_count,
             "supported": self.lap_count <= MAX_STRATEGY_LAPS,
+            "total_target_s": self.total_target_s,
+            "lap_target_s": self.lap_target_s,
             "lengths_m": {
                 name: route["length_m"] for name, route in self.data["routes"].items()
             },
@@ -62,7 +66,8 @@ class Catalog:
             image = self.maps / folder / data["render"]["background"]
             if not image.is_file() or data["course_id"] in self.by_id or folder in self.courses:
                 raise ValueError(f"invalid course assets: {folder}")
-            course = Course(folder, entry["name"], data, image)
+            course = Course(folder, entry["name"], data, image,
+                            entry["total_target_s"], entry["lap_target_s"])
             self.courses[folder] = course
             self.by_id[course.id] = course
 
@@ -103,10 +108,11 @@ def _number_text(value):
 def _encode_strategy(strategy):
     lines = [
         "{",
-        '  "schema_version": 1,',
+        '  "schema_version": 2,',
         f'  "course_id": "{strategy["course_id"]}",',
         f'  "plan_id": "{strategy["plan_id"]}",',
         f'  "plan_type": "{strategy["plan_type"]}",',
+        f'  "total_target_s": {strategy["total_target_s"]},',
         '  "laps": [',
     ]
     for index, lap in enumerate(strategy["laps"]):
@@ -118,6 +124,7 @@ def _encode_strategy(strategy):
         comma = "," if index + 1 < len(strategy["laps"]) else ""
         lines.append(
             f'    {{"lap": {lap["lap"]}, "route_id": "{lap["route_id"]}", '
+            f'"lap_target_s": {lap["lap_target_s"]}, '
             f'"runs": [{runs}]}}{comma}'
         )
     lines += ["  ]", "}", ""]
@@ -129,10 +136,10 @@ def validate_strategy(value, catalog, filename):
     errors = []
     if not isinstance(value, dict):
         return ["戦略JSONはオブジェクトにしてください。"], None, None
-    if set(value) != {"schema_version", "course_id", "plan_id", "plan_type", "laps"}:
-        errors.append("トップ階層の項目は schema_version / course_id / plan_id / plan_type / laps のみです。")
-    if type(value.get("schema_version")) is not int or value.get("schema_version") != 1:
-        errors.append("schema_version は 1 にしてください。")
+    if set(value) != {"schema_version", "course_id", "plan_id", "plan_type", "total_target_s", "laps"}:
+        errors.append("トップ階層には schema_version / course_id / plan_id / plan_type / total_target_s / laps を指定してください。")
+    if type(value.get("schema_version")) is not int or value.get("schema_version") != 2:
+        errors.append("schema_version は 2 にしてください。")
     course = catalog.by_id.get(value.get("course_id")) if isinstance(value.get("course_id"), str) else None
     if course is None:
         errors.append("収録コースの course_id を選択してください。")
@@ -143,6 +150,9 @@ def validate_strategy(value, catalog, filename):
         errors.append("plan_id は39文字以内の英数字・_・-・.で指定してください。")
     if value.get("plan_type") not in ("race", "demo"):
         errors.append("plan_type は race または demo にしてください。")
+    total_target = value.get("total_target_s")
+    if type(total_target) is not int or not 1 <= total_target <= 86400:
+        errors.append("目標ゴールタイムは1〜86400秒で指定してください。")
     if not isinstance(filename, str) or not FILENAME.fullmatch(filename):
         errors.append("ファイル名は英数字・_・-の30文字以内と .json にしてください。")
 
@@ -157,8 +167,8 @@ def validate_strategy(value, catalog, filename):
 
     normalized_laps = {}
     for entry in laps:
-        if not isinstance(entry, dict) or set(entry) != {"lap", "route_id", "runs"}:
-            errors.append("各周には lap / route_id / runs のみを指定してください。")
+        if not isinstance(entry, dict) or set(entry) != {"lap", "route_id", "lap_target_s", "runs"}:
+            errors.append("各周には lap / route_id / lap_target_s / runs を指定してください。")
             continue
         number = entry["lap"]
         if type(number) is not int or not 1 <= number <= course.lap_count:
@@ -174,6 +184,10 @@ def validate_strategy(value, catalog, filename):
         route = course.data["routes"].get(route_id)
         if not route:
             errors.append(f"LAP {number}: 経路データがありません。")
+            continue
+        lap_target = entry["lap_target_s"]
+        if type(lap_target) is not int or not 1 <= lap_target <= 86400:
+            errors.append(f"LAP {number}: 目標時間は1〜86400秒で指定してください。")
             continue
         runs = entry["runs"]
         if not isinstance(runs, list) or not 1 <= len(runs) <= MAX_RUNS_PER_LAP:
@@ -196,7 +210,8 @@ def validate_strategy(value, catalog, filename):
                 continue
             normalized_runs.append({"on_s_m": on, "off_s_m": off})
             previous_off = off
-        normalized_laps[number] = {"lap": number, "route_id": route_id, "runs": normalized_runs}
+        normalized_laps[number] = {"lap": number, "route_id": route_id,
+                                   "lap_target_s": lap_target, "runs": normalized_runs}
 
     for number in range(1, course.lap_count + 1):
         if number not in normalized_laps:
@@ -204,10 +219,11 @@ def validate_strategy(value, catalog, filename):
     if errors:
         return errors, None, None
     normalized = {
-        "schema_version": 1,
+        "schema_version": 2,
         "course_id": course.id,
         "plan_id": plan_id,
         "plan_type": value["plan_type"],
+        "total_target_s": total_target,
         "laps": [normalized_laps[number] for number in range(1, course.lap_count + 1)],
     }
     payload = _encode_strategy(normalized)

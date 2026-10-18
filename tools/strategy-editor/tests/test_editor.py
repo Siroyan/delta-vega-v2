@@ -23,13 +23,15 @@ CORE = ROOT / "lib" / "vega_core" / "src"
 
 def simple_strategy(course):
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "course_id": course.id,
         "plan_id": "test-001",
         "plan_type": "race",
+        "total_target_s": course.total_target_s,
         "laps": [
             {"lap": number, "route_id": "first_lap" if number == 1 else
              "final_lap" if number == course.lap_count else "regular_lap",
+             "lap_target_s": course.lap_target_s,
              "runs": [{"on_s_m": 0, "off_s_m": 10}]}
             for number in range(1, course.lap_count + 1)
         ],
@@ -75,6 +77,18 @@ class ModelTests(unittest.TestCase):
             parse_import(b'{"plan_id":"a","plan_id":"b"}')
         with self.assertRaises(ValueError):
             parse_import(b'{"x":NaN}')
+
+    def test_targets_are_required_and_bounded(self):
+        course = self.catalog.courses["misato_loop"]
+        plan = simple_strategy(course)
+        plan["total_target_s"] = 0
+        self.assertTrue(validate_strategy(plan, self.catalog, "test.json")[0])
+        plan["total_target_s"] = 900
+        plan["laps"][0]["lap_target_s"] = 86401
+        self.assertTrue(validate_strategy(plan, self.catalog, "test.json")[0])
+        plan["laps"][0]["lap_target_s"] = 180
+        plan["schema_version"] = 1
+        self.assertTrue(validate_strategy(plan, self.catalog, "test.json")[0])
 
     def test_no_exponent_in_export(self):
         course = self.catalog.courses["misato_loop"]

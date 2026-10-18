@@ -1076,12 +1076,9 @@ void applicationTask(void *) {
   portEXIT_CRITICAL(&wheel_lock);
   attachInterrupt(digitalPinToInterrupt(kReed), reedInterrupt, CHANGE);
   vega::NmeaParser parser;
-  enum class PlanLoadMode { KeepCurrent, ClearCurrent };
-  auto requestPlan = [&](uint8_t index, const char *name, PlanLoadMode mode) {
-    if (mode == PlanLoadMode::ClearCurrent) {
-      xQueueReset(strategies);
-      plan_state = vega::PlanState::Loading;
-    }
+  auto requestPlan = [&](uint8_t index, const char *name) {
+    xQueueReset(strategies);
+    plan_state = vega::PlanState::Loading;
     PlanRequest request{};
     request.course_index = index;
     snprintf(request.filename, sizeof(request.filename), "%s", name);
@@ -1099,7 +1096,21 @@ void applicationTask(void *) {
     return true;
   };
   diagnostic("[APP] ready; electrical OFF; commands: status/start/cancel/lap/on/off/ignite/log");
+  auto applyPlanTargets = [&]() {
+    vega::Strategy ready_strategy{};
+    const auto state = plan_state.load();
+    if (state == vega::PlanState::Ready) {
+      if (xQueuePeek(strategies, &ready_strategy, 0) != pdTRUE) return false;
+      app.setStrategyTargets(&ready_strategy);
+    } else {
+      app.setStrategyTargets(nullptr);
+    }
+    return true;
+  };
   for (;;) {
+    // Apply a fully validated plan before accepting START. The override is
+    // copied into snapshots but never persisted with course settings.
+    applyPlanTargets();
     if (urgent_off.exchange(false)) {
       app.power(false);
       diagnostic("[APP] electrical OFF; old ON/IGNITE commands invalidated");
@@ -1228,7 +1239,10 @@ void applicationTask(void *) {
       bool ok = true;
       switch (command.kind) {
         case CommandKind::Start:
-          ok = sd_ready && courseCount() && app.start();
+          // SD may have published a ready plan since the loop began. Capture
+          // its targets before app.start() freezes the session settings.
+          ok = sd_ready && courseCount() && plan_state.load() != vega::PlanState::Loading &&
+               applyPlanTargets() && app.start();
           break;
         case CommandKind::Cancel:
           ok = app.cancel();
@@ -1272,7 +1286,7 @@ void applicationTask(void *) {
             ok = vega::validSettings(replacement) &&
                  saveSelection(courseAsset(index).data->id, "none");
             if (ok) ok = activateCourse(index, replacement);
-            if (ok) requestPlan(index, "none", PlanLoadMode::ClearCurrent);
+            if (ok) requestPlan(index, "none");
           }
           break;
         }
@@ -1288,7 +1302,7 @@ void applicationTask(void *) {
             const char *name = command.choice == 0 ? "none" :
                                choices.items[command.choice].filename;
             ok = saveSelection(courseAsset(current.course_index).data->id, name);
-            if (ok) requestPlan(current.course_index, name, PlanLoadMode::ClearCurrent);
+            if (ok) requestPlan(current.course_index, name);
           }
           break;
         }
@@ -1299,7 +1313,7 @@ void applicationTask(void *) {
           if (ok) {
             char name[48];
             savedPlanName(name, sizeof(name));
-            requestPlan(current.course_index, name, PlanLoadMode::ClearCurrent);
+            requestPlan(current.course_index, name);
           }
           break;
         }
@@ -1309,7 +1323,7 @@ void applicationTask(void *) {
                current.engine == vega::EnginePhase::Off &&
                command.choice == current.course_index &&
                saveSelection(courseAsset(current.course_index).data->id, "strategy.json");
-          if (ok) requestPlan(current.course_index, "strategy.json", PlanLoadMode::ClearCurrent);
+          if (ok) requestPlan(current.course_index, "strategy.json");
           break;
         }
         case CommandKind::LoadSdCourses: {
@@ -1323,7 +1337,7 @@ void applicationTask(void *) {
             if (ok) {
               char name[48];
               savedPlanName(name, sizeof(name));
-              requestPlan(index, name, PlanLoadMode::KeepCurrent);
+              requestPlan(index, name);
             }
           }
           break;

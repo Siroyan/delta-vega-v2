@@ -1,12 +1,13 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "course_id": "tamagawagakuen_station_loop_test_v1",
   "plan_id": "tamagawa-demo-001",
   "plan_type": "demo",
+  "total_target_s": 2400,
   "laps": [
-    {"lap": 1, "route_id": "first_lap", "runs": [{"on_s_m": 0, "off_s_m": 30}]},
-    {"lap": 2, "route_id": "regular_lap", "runs": [{"on_s_m": 0, "off_s_m": 30}]},
-    {"lap": 3, "route_id": "regular_lap", "runs": [{"on_s_m": 0, "off_s_m": 30}]},
-    {"lap": 4, "route_id": "final_lap", "runs": [{"on_s_m": 0, "off_s_m": 30}]}
+    {"lap": 1, "route_id": "first_lap", "lap_target_s": 600, "runs": [{"on_s_m": 0, "off_s_m": 30}]},
+    {"lap": 2, "route_id": "regular_lap", "lap_target_s": 600, "runs": [{"on_s_m": 0, "off_s_m": 30}]},
+    {"lap": 3, "route_id": "regular_lap", "lap_target_s": 600, "runs": [{"on_s_m": 0, "off_s_m": 30}]},
+    {"lap": 4, "route_id": "final_lap", "lap_target_s": 600, "runs": [{"on_s_m": 0, "off_s_m": 30}]}
   ]
 }
