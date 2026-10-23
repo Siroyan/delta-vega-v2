@@ -65,6 +65,8 @@ Apple SiliconのMacでは、PlatformIOに付属するLittleFS作成ツールがI
 
 ## 操作
 
+戦略JSONに沿って加速・惰性減速するモードも利用できます。[戦略走行の設定と操作](../strategy-driving.md)を参照してください。戦略を使わない場合は従来の一定速度で動きます。
+
 USBシリアルモニターからコマンドを送ります。起動時は選択コースのSTART地点で有効なGPSを送信し、車速パルスは出しません。`start` で移動を開始します。ルートは `first_lap` → `regular_lap` の繰り返し → `final_lap` の順です。最後のGOALで自動停止します。
 
 ```text

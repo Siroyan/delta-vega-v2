@@ -75,6 +75,24 @@ def get_case(case_id: str):
         bad_request(exc)
 
 
+@app.get("/api/strategies")
+def list_strategies(course_id: str):
+    try:
+        return controller.strategies.list(course_id)
+    except (ValueError, OSError) as exc:
+        bad_request(exc)
+
+
+@app.put("/api/strategies/{filename}")
+def import_strategy(filename: str, data: dict):
+    try:
+        if not isinstance(data.get("text"), str) or len(data["text"]) > 4096:
+            raise ValueError("strategy text must be at most 4096 bytes")
+        return controller.strategies.save(filename, data["text"].encode("utf-8"), data.get("course_id"))
+    except (ValueError, OSError) as exc:
+        bad_request(exc)
+
+
 @app.put("/api/cases/{case_id}")
 def save_case(case_id: str, data: dict):
     if data.get("id") != case_id:

@@ -1,13 +1,16 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 #include <Preferences.h>
+#include <LittleFS.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 #include "course_data.h"
+#include "motion_settings.h"
 #include "sim_display.h"
+#include "strategy_storage.h"
 
 namespace {
 
@@ -19,14 +22,14 @@ constexpr uint32_t kGgaPeriodMs = 1000;
 constexpr uint32_t kPulseWidthUs = 5000;
 constexpr double kPi = 3.14159265358979323846;
 
-enum class Mode { Idle, Running, Paused, Finished, Stopped };
+enum class Mode { Idle, Running, Paused, Finished, Stopped, Stalled };
+sim::Motion motion;
+sim::StrategyStorage driving_strategy;
+sim::MotionConfig driving_config;
 
 struct State {
   uint8_t course_index = 0;
-  uint8_t lap_index = 0;
   Mode mode = Mode::Idle;
-  double route_s_m = 0;
-  double total_m = 0;
   double speed_kmh = 12;
   double wheel_circumference_m = 1.03;
   uint32_t pulses_per_revolution = 1;
@@ -63,6 +66,11 @@ void saveWheel() {
   }
 }
 
+void saveMotionSettings() {
+  if (preferences_ready && !sim::saveMotionSettings(preferences, driving_config))
+    Serial.println("[SIM] motion settings save failed; current settings are not persistent");
+}
+
 void loadSettings() {
   preferences_ready = preferences.begin("atom-sim", false);
   if (!preferences_ready) {
@@ -70,23 +78,31 @@ void loadSettings() {
     return;
   }
   const uint8_t stored_course = preferences.getUChar("course", 0);
-  const float stored_speed = preferences.getFloat("speed", 12);
   const float stored_wheel = preferences.getFloat("wheel", 1.03);
   const uint32_t stored_ppr = preferences.getUInt("ppr", 1);
   if (stored_course < sim::course_count) state.course_index = stored_course;
-  if (isfinite(stored_speed) && stored_speed >= 1 && stored_speed <= 60)
-    state.speed_kmh = stored_speed;
   if (isfinite(stored_wheel) && stored_wheel >= 0.1 && stored_wheel <= 10)
     state.wheel_circumference_m = stored_wheel;
   if (stored_ppr >= 1 && stored_ppr <= 100)
     state.pulses_per_revolution = stored_ppr;
+  driving_config.max_speed_kmh = state.speed_kmh;
+  const auto loaded = sim::loadMotionSettings(preferences, driving_config);
+  if (loaded == sim::MotionSettingsLoad::Invalid)
+    Serial.println("[SIM] invalid saved motion settings; defaults will be used");
+  else if (loaded == sim::MotionSettingsLoad::Legacy)
+    saveMotionSettings();
+  state.speed_kmh = driving_config.max_speed_kmh;
 }
 
 const sim::Course &course() { return sim::courses[state.course_index]; }
+sim::CourseSpec courseSpec() {
+  return {course().strategy_course_id, course().lap_count, course().first.length_m,
+          course().regular.length_m, course().final.length_m};
+}
 
 const sim::Route &route() {
-  if (state.lap_index == 0) return course().first;
-  if (state.lap_index + 1 == course().lap_count) return course().final;
+  if (motion.state().lap_index == 0) return course().first;
+  if (motion.state().lap_index + 1 == course().lap_count) return course().final;
   return course().regular;
 }
 
@@ -97,6 +113,7 @@ const char *modeName() {
     case Mode::Paused: return "paused";
     case Mode::Finished: return "finished";
     case Mode::Stopped: return "stopped";
+    case Mode::Stalled: return "stalled";
   }
   return "?";
 }
@@ -113,9 +130,8 @@ void releasePulse() {
 void resetRace() {
   releasePulse();
   state.mode = Mode::Idle;
-  state.lap_index = 0;
-  state.route_s_m = 0;
-  state.total_m = 0;
+  driving_config.max_speed_kmh = state.speed_kmh;
+  motion.reset(courseSpec(), driving_config, driving_strategy.plan());
   state.pulse_count = 0;
   state.pulse_missed = 0;
   state.next_pulse_m = pulseDistance();
@@ -151,6 +167,8 @@ void stopRace() {
 }
 
 void selectNextCourse() {
+  driving_strategy.clear();
+  if (preferences_ready) preferences.remove("strategy");
   state.course_index = (state.course_index + 1) % sim::course_count;
   saveCourse();
   resetRace();
@@ -178,7 +196,7 @@ void pollButton(uint32_t now_ms) {
       } else if (state.mode == Mode::Paused) {
         if (held_ms >= 2000) resetRace();
         else resumeRace();
-      } else if (state.mode == Mode::Finished || state.mode == Mode::Stopped) {
+      } else if (state.mode == Mode::Finished || state.mode == Mode::Stopped || state.mode == Mode::Stalled) {
         resetRace();
       }
     }
@@ -186,42 +204,36 @@ void pollButton(uint32_t now_ms) {
   was_pressed = pressed;
 }
 
+void motionEvent(const sim::MotionEvent &event, void *) {
+  const char *kind = event.kind == sim::MotionEventKind::EngineOn ? "ENGINE ON" :
+                     event.kind == sim::MotionEventKind::EngineOff ? "ENGINE OFF" :
+                     event.kind == sim::MotionEventKind::Lap ? "LAP END" :
+                     event.kind == sim::MotionEventKind::Goal ? "GOAL" : "STALLED";
+  Serial.printf("[SIM] %s course=%s lap=%u s=%.3f speed=%.2f elapsed_s=%.3f "
+                "lap_elapsed_s=%.3f target_s=%lu\n", kind, course().id, event.lap,
+                event.s_m, event.speed_kmh, event.elapsed_s, event.lap_elapsed_s,
+                static_cast<unsigned long>(event.target_s));
+}
+
 void advanceMotion(uint64_t now_us) {
-  double dt = static_cast<double>(now_us - state.last_step_us) / 1000000.0;
+  const double dt = static_cast<double>(now_us - state.last_step_us) / 1000000.0;
   state.last_step_us = now_us;
   if (state.mode != Mode::Running || dt <= 0) return;
-  // Preserve elapsed distance through brief scheduler delays, with a visible warning.
   if (dt > 0.25) Serial.printf("[SIM] scheduler delay %.0f ms\n", dt * 1000);
-  double remaining = dt * state.speed_kmh / 3.6;
-  while (remaining > 0 && state.mode == Mode::Running) {
-    const double available = route().length_m - state.route_s_m;
-    const double step = fmin(remaining, available);
-    state.route_s_m += step;
-    state.total_m += step;
-    remaining -= step;
-    if (state.route_s_m + 0.00001 < route().length_m) break;
-    if (state.lap_index + 1 >= course().lap_count) {
-      state.mode = Mode::Finished;
-      releasePulse();
-      Serial.printf("[SIM] GOAL course=%s distance=%.1f m pulses=%llu\n",
-                    course().id, state.total_m,
-                    static_cast<unsigned long long>(state.pulse_count));
-    } else {
-      ++state.lap_index;
-      state.route_s_m = 0;
-      Serial.printf("[SIM] LAP %u/%u distance=%.1f m\n", state.lap_index + 1,
-                    course().lap_count, state.total_m);
-    }
+  motion.advance(dt, motionEvent);
+  if (motion.state().finished || motion.state().stalled) {
+    state.mode = motion.state().finished ? Mode::Finished : Mode::Stalled;
+    releasePulse();
   }
 }
 
 void updateWheel(uint64_t now_us) {
   if (state.pulse_low && now_us >= state.release_pulse_us) releasePulse();
-  if (state.mode != Mode::Running || state.pulse_low || state.total_m < state.next_pulse_m)
+  if (state.mode != Mode::Running || state.pulse_low || motion.state().total_m < state.next_pulse_m)
     return;
   const double interval = pulseDistance();
   // An overloaded loop must not produce a physically impossible catch-up burst.
-  while (state.total_m >= state.next_pulse_m + interval) {
+  while (motion.state().total_m >= state.next_pulse_m + interval) {
     state.next_pulse_m += interval;
     ++state.pulse_missed;
   }
@@ -237,11 +249,11 @@ struct Position { double east, north, heading; };
 Position position() {
   const sim::Route &r = route();
   uint16_t i = 1;
-  while (i + 1 < r.count && r.points[i].s_m < state.route_s_m) ++i;
+  while (i + 1 < r.count && r.points[i].s_m < motion.state().route_s_m) ++i;
   const sim::Point &a = r.points[i - 1];
   const sim::Point &b = r.points[i];
   const double span = b.s_m - a.s_m;
-  const double t = span > 0 ? fmax(0.0, fmin(1.0, (state.route_s_m - a.s_m) / span)) : 0;
+  const double t = span > 0 ? fmax(0.0, fmin(1.0, (motion.state().route_s_m - a.s_m) / span)) : 0;
   const double east = a.east_m + (b.east_m - a.east_m) * t;
   const double north = a.north_m + (b.north_m - a.north_m) * t;
   const double heading = fmod(atan2(b.east_m - a.east_m, b.north_m - a.north_m) *
@@ -304,6 +316,10 @@ const char *gpsStatus(uint32_t now_ms) {
   return "GPS OK";
 }
 
+double reportedSpeedKmh() {
+  return state.mode == Mode::Running || state.mode == Mode::Idle ? motion.state().speed_mps * 3.6 : 0;
+}
+
 void updateDisplay(uint32_t now_ms) {
   sim_display::Mode mode = sim_display::Mode::Idle;
   switch (state.mode) {
@@ -312,13 +328,15 @@ void updateDisplay(uint32_t now_ms) {
     case Mode::Paused: mode = sim_display::Mode::Paused; break;
     case Mode::Finished: mode = sim_display::Mode::Finished; break;
     case Mode::Stopped: mode = sim_display::Mode::Stopped; break;
+    case Mode::Stalled: mode = sim_display::Mode::Stalled; break;
   }
   const sim_display::Snapshot snapshot{
-      course().short_name, mode, static_cast<uint8_t>(state.lap_index + 1),
-      course().lap_count, static_cast<float>(state.speed_kmh),
-      static_cast<float>(state.total_m),
-      static_cast<float>(state.route_s_m / route().length_m), state.pulse_count,
-      state.pulse_missed, gpsStatus(now_ms)};
+      course().short_name, mode, static_cast<uint8_t>(motion.state().lap_index + 1),
+      course().lap_count, static_cast<float>(reportedSpeedKmh()),
+      static_cast<float>(motion.state().total_m),
+      static_cast<float>(motion.state().route_s_m / route().length_m), state.pulse_count,
+      state.pulse_missed, gpsStatus(now_ms), driving_strategy.plan() != nullptr,
+      state.mode == Mode::Running && motion.state().engine_on};
   sim_display::update(snapshot, now_ms);
 }
 
@@ -349,7 +367,7 @@ void sendFix(bool gga, uint32_t now_ms) {
   snprintf(ddmmyy, sizeof(ddmmyy), "%02d%02d%02d", utc.tm_mday,
            utc.tm_mon + 1, (utc.tm_year + 1900) % 100);
   const bool valid = !activeUntil(state.invalid_until_ms, now_ms);
-  const double knots = state.mode == Mode::Running ? state.speed_kmh / 1.852 : 0;
+  const double knots = state.mode == Mode::Running ? motion.state().speed_mps * 3.6 / 1.852 : 0;
   if (gga) {
     snprintf(body, sizeof(body), "GPGGA,%s,%s,%c,%s,%c,%u,%02u,0.9,40.0,M,0.0,M,,",
              hhmmss, lat, ns, lon, ew, valid ? 1u : 0u, valid ? 10u : 0u);
@@ -366,11 +384,18 @@ void printStatus() {
   const double lon = course().origin_lon + p.east / course().east_per_lon;
   Serial.printf("[SIM] mode=%s course=%s lap=%u/%u route=%.1f/%.1f m total=%.1f m "
                 "speed=%.1f km/h pulses=%llu missed=%u lat=%.7f lon=%.7f "
-                "noise=%.1f m bias=(%.1f,%.1f)\n",
-                modeName(), course().id, state.lap_index + 1, course().lap_count,
-                state.route_s_m, route().length_m, state.total_m, state.speed_kmh,
+                "noise=%.1f m bias=(%.1f,%.1f) motion=%s engine=%u plan=%s "
+                "sha256=%s max_speed=%.2f initial_speed=%.2f accel=%.4f coast=%.4f elapsed_s=%.3f protocol=2\n",
+                modeName(), course().id, motion.state().lap_index + 1, course().lap_count,
+                motion.state().route_s_m, route().length_m, motion.state().total_m, reportedSpeedKmh(),
                 static_cast<unsigned long long>(state.pulse_count), state.pulse_missed,
-                lat, lon, state.noise_sigma_m, state.bias_e_m, state.bias_n_m);
+                lat, lon, state.noise_sigma_m, state.bias_e_m, state.bias_n_m,
+                driving_strategy.plan() ? "strategy" : "constant", state.mode == Mode::Running && motion.state().engine_on,
+                driving_strategy.plan() ? driving_strategy.plan()->plan_id.c_str() : "none",
+                driving_strategy.plan() ? driving_strategy.sha256().c_str() : "none",
+                state.speed_kmh, driving_config.initial_speed_kmh,
+                driving_config.acceleration_mps2, driving_config.coast_deceleration_mps2,
+                motion.state().elapsed_s);
 }
 
 void printHelp() {
@@ -383,6 +408,16 @@ void printHelp() {
   Serial.println("[SIM] dropout <ms> | invalid <ms> | corrupt <sentence_count> "
                  "(0 clears each fault)");
   Serial.println("[SIM] nmea on|off  (mirror generated sentences to USB serial)");
+  Serial.println("[SIM] strategies | strategy <filename.json|none> | "
+                 "dynamics <accel_mps2> <coast_mps2> <initial_kmh>");
+  Serial.println("[SIM] plan-begin <bytes> <sha256> | plan-chunk <hex> | plan-end");
+}
+
+void planAccepted() {
+  if (preferences_ready) preferences.putString("strategy", driving_strategy.filename().c_str());
+  resetRace();
+  Serial.printf("[SIM PLAN] ready=1 plan=%s sha256=%s\n",
+                driving_strategy.plan()->plan_id.c_str(), driving_strategy.sha256().c_str());
 }
 
 void command(char *line) {
@@ -391,18 +426,61 @@ void command(char *line) {
   if (!verb) return;
   char *arg1 = strtok_r(nullptr, " \t", &save);
   char *arg2 = strtok_r(nullptr, " \t", &save);
+  char *arg3 = strtok_r(nullptr, " \t", &save);
+  const bool stopped = state.mode != Mode::Running && state.mode != Mode::Paused;
+  std::string error;
   if (!strcmp(verb, "help")) printHelp();
   else if (!strcmp(verb, "status")) printStatus();
   else if (!strcmp(verb, "courses")) {
     for (uint8_t i = 0; i < sim::course_count; ++i)
       Serial.printf("[SIM] %u: %s (%u laps)\n", i, sim::courses[i].id,
                     sim::courses[i].lap_count);
-  } else if (!strcmp(verb, "course") && arg1 && state.mode != Mode::Running &&
-             state.mode != Mode::Paused) {
+  } else if (!strcmp(verb, "strategies")) {
+    File folder = LittleFS.open("/strategies");
+    for (File file = folder.openNextFile(); file; file = folder.openNextFile())
+      Serial.printf("[SIM PLAN] file=%s\n", file.name());
+  } else if (!strcmp(verb, "strategy") && arg1 && stopped) {
+    if (!strcmp(arg1, "none")) {
+      driving_strategy.clear();
+      if (preferences_ready) preferences.remove("strategy");
+      resetRace();
+      Serial.println("[SIM PLAN] ready=1 plan=none sha256=none");
+    } else if (driving_strategy.load(arg1, courseSpec(), error)) planAccepted();
+    else Serial.printf("[SIM PLAN] error=%s\n", error.c_str());
+  } else if (!strcmp(verb, "plan-begin") && arg1 && arg2 && stopped) {
+    char *end = nullptr;
+    const unsigned long bytes = strtoul(arg1, &end, 10);
+    if (*end || !driving_strategy.beginUpload(bytes, arg2, error))
+      Serial.printf("[SIM PLAN] error=%s\n", error.empty() ? "invalid size" : error.c_str());
+    else Serial.println("[SIM PLAN] offset=0");
+  } else if (!strcmp(verb, "plan-chunk") && arg1 && stopped) {
+    if (!driving_strategy.chunk(arg1, error)) Serial.printf("[SIM PLAN] error=%s\n", error.c_str());
+    else Serial.printf("[SIM PLAN] offset=%u\n", static_cast<unsigned>(driving_strategy.received()));
+  } else if (!strcmp(verb, "plan-end") && stopped) {
+    if (driving_strategy.finishUpload(courseSpec(), error)) planAccepted();
+    else Serial.printf("[SIM PLAN] error=%s\n", error.c_str());
+  } else if (!strcmp(verb, "dynamics") && arg1 && arg2 && arg3 && stopped) {
+    sim::MotionConfig replacement = driving_config;
+    char *end1 = nullptr, *end2 = nullptr, *end3 = nullptr;
+    replacement.acceleration_mps2 = strtod(arg1, &end1);
+    replacement.coast_deceleration_mps2 = strtod(arg2, &end2);
+    replacement.initial_speed_kmh = strtod(arg3, &end3);
+    replacement.max_speed_kmh = state.speed_kmh;
+    if (*end1 || *end2 || *end3 || !sim::validMotionConfig(replacement))
+      Serial.println("[SIM PLAN] error=invalid dynamics parameters");
+    else {
+      driving_config = replacement;
+      saveMotionSettings();
+      resetRace();
+      Serial.println("[SIM PLAN] dynamics=ready");
+    }
+  } else if (!strcmp(verb, "course") && arg1 && stopped) {
     for (uint8_t i = 0; i < sim::course_count; ++i) {
       if (!strcmp(arg1, sim::courses[i].id) ||
           (strlen(arg1) == 1 && arg1[0] == '0' + i)) {
         state.course_index = i;
+        driving_strategy.clear();
+        if (preferences_ready) preferences.remove("strategy");
         saveCourse();
         resetRace();
         printStatus();
@@ -420,12 +498,15 @@ void command(char *line) {
     stopRace();
   } else if (!strcmp(verb, "reset")) {
     resetRace();
-  } else if (!strcmp(verb, "speed") && arg1 && state.mode != Mode::Running) {
+  } else if (!strcmp(verb, "speed") && arg1 && stopped) {
     const double value = atof(arg1);
     if (value >= 1 && value <= 60) {
       state.speed_kmh = value;
-      if (preferences_ready) preferences.putFloat("speed", value);
+      driving_config.max_speed_kmh = value;
+      if (driving_config.initial_speed_kmh > value) driving_config.initial_speed_kmh = value;
+      saveMotionSettings();
       Serial.printf("[SIM] speed=%.1f km/h\n", value);
+      resetRace();
     } else Serial.println("[SIM] speed must be 1..60 km/h");
   } else if (!strcmp(verb, "wheel") && arg1 && arg2 && state.mode != Mode::Running) {
     const double circumference = atof(arg1);
@@ -433,7 +514,7 @@ void command(char *line) {
     if (circumference >= 0.1 && circumference <= 10 && ppr >= 1 && ppr <= 100) {
       state.wheel_circumference_m = circumference;
       state.pulses_per_revolution = ppr;
-      state.next_pulse_m = state.total_m + pulseDistance();
+      state.next_pulse_m = motion.state().total_m + pulseDistance();
       saveWheel();
       Serial.printf("[SIM] wheel=%.3f m x %ld pulses/rev\n", circumference, ppr);
     } else Serial.println("[SIM] wheel range: 0.1..10 m, 1..100 pulses/rev");
@@ -517,6 +598,14 @@ void setup() {
   }
   Serial.printf("[SIM] course JSON ready after %lu ms\n", millis());
   loadSettings();
+  if (preferences_ready) {
+    const String selected = preferences.getString("strategy", "");
+    std::string error;
+    if (selected.length() && !driving_strategy.load(selected.c_str(), courseSpec(), error)) {
+      Serial.printf("[SIM PLAN] restore failed: %s; strategy cleared\n", error.c_str());
+      preferences.remove("strategy");
+    }
+  }
   // HardwareSerial otherwise writes into only the UART FIFO and can block long
   // enough at 9600 bps to miss wheel pulse deadlines.
   Serial1.setTxBufferSize(512);

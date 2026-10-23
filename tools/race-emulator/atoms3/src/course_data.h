@@ -11,6 +11,7 @@ struct Point { float east_m, north_m, s_m; };
 struct Route { Point *points = nullptr; uint16_t count = 0; float length_m = 0; };
 struct Course {
   char id[41]{};
+  char strategy_course_id[48]{};
   char name[48]{};
   char short_name[24]{};
   uint8_t lap_count = 0;

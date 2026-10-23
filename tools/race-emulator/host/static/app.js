@@ -3,6 +3,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp
 const fmtTime = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 let state = null, cases = [], selected = null, editOriginal = null, socket = null;
 let courseOptions = [];
+let strategyListSequence = 0;
 let draftPorts = {}, lastSeq = 0, shownEvents = [], toastTimer = null;
 let tab5Mode = localStorage.getItem("race-emulator-tab5-mode") === "usb" ? "usb" : "standalone";
 
@@ -40,7 +41,7 @@ function renderDevice(name) {
   const ports = state.ports.map(port => `<option value="${esc(port.device)}" ${port.device === chosen ? "selected" : ""}>${esc(port.device)} · ${esc(port.description)}</option>`).join("");
   const status = device.status;
   const tags = name === "atom"
-    ? [["MODE", status.mode], ["COURSE", status.course], ["LAP", status.lap], ["PULSES", status.pulses], ["MISSED", status.missed]]
+    ? [["MODE", status.mode], ["COURSE", status.course], ["LAP", status.lap], ["SPEED", status.speed], ["DRIVE", status.motion], ["ENGINE", status.motion === "strategy" ? (status.engine === "1" ? "ON" : "COAST") : undefined], ["PULSES", status.pulses], ["MISSED", status.missed]]
     : [["PHASE", status.phase], ["COURSE", status.course], ["GPS", status.gps], ["PULSES", status.pulses], ["SD", status.sd_ready === undefined ? undefined : status.sd_ready === "1" ? "OK" : "NG"], ["BOOTS", device.boot_count]];
   const runActive = state.run && ["preparing", "running"].includes(state.run.state);
   const modeControl = name === "tab5" ? `<label class="mode-label">接続方式<select id="tab5-mode" ${runActive ? "disabled" : ""}><option value="standalone">バッテリー単体</option><option value="usb" selected>USB接続・ログ取得</option></select></label>` : "";
@@ -100,7 +101,7 @@ async function loadCases() {
   renderCases(); renderSelected(); renderState();
 }
 function renderCases() {
-  $("#case-list").innerHTML = cases.length ? cases.map(item => `<button class="case-item ${selected?.id === item.id ? "active" : ""}" data-id="${esc(item.id)}"><strong>${esc(item.name || item.id)}</strong><small>${esc(item.error || item.description || "説明なし")}</small>${item.error ? "" : `<span class="case-tags"><span>${esc(item.course_id)}</span><span>${esc(item.speed_kmh)} km/h</span><span>${item.actions.length} actions</span></span>`}</button>`).join("") : "<p class='empty'>試験ケースがありません。</p>";
+  $("#case-list").innerHTML = cases.length ? cases.map(item => `<button class="case-item ${selected?.id === item.id ? "active" : ""}" data-id="${esc(item.id)}"><strong>${esc(item.name || item.id)}</strong><small>${esc(item.error || item.description || "説明なし")}</small>${item.error ? "" : `<span class="case-tags"><span>${esc(item.course_id)}</span><span>${item.motion_mode === "strategy" ? "戦略走行 / MAX " : ""}${esc(item.speed_kmh)} km/h</span><span>${item.actions.length} actions</span></span>`}</button>`).join("") : "<p class='empty'>試験ケースがありません。</p>";
   document.querySelectorAll(".case-item").forEach(element => element.onclick = () => {
     selected = cases.find(item => item.id === element.dataset.id && !item.error) || null;
     renderCases(); renderSelected(); renderState();
@@ -110,7 +111,7 @@ function renderCases() {
 }
 function renderSelected() {
   $("#selected-case").innerHTML = !selected ? "<p>左から試験ケースを選択してください。</p>" :
-    `<h3>${esc(selected.name)}</h3><p>${esc(selected.description || "説明なし")}</p><dl><div><dt>COURSE</dt><dd>${esc(selected.course_id)}</dd></div><div><dt>SPEED</dt><dd>${esc(selected.speed_kmh)} km/h</dd></div><div><dt>GPS ACTIONS</dt><dd>${selected.actions.length}</dd></div></dl>`;
+    `<h3>${esc(selected.name)}</h3><p>${esc(selected.description || "説明なし")}</p><dl><div><dt>COURSE</dt><dd>${esc(selected.course_id)}</dd></div><div><dt>${selected.motion_mode === "strategy" ? "MAX SPEED" : "SPEED"}</dt><dd>${esc(selected.speed_kmh)} km/h</dd></div><div><dt>GPS ACTIONS</dt><dd>${selected.actions.length}</dd></div></dl>${selected.motion_mode === "strategy" ? `<p class="motion-help">戦略: ${esc(selected.strategy_file)}<br>加速 ${esc(selected.acceleration_mps2)} m/s² / 減速 ${esc(selected.coast_deceleration_mps2)} m/s² / 開始 ${esc(selected.initial_speed_kmh)} km/h</p>` : ""}`;
 }
 function appendEvents(items) {
   if (!items.length) return;
@@ -145,10 +146,11 @@ async function openEditor(item, duplicate = false) {
   courseOptions = await api("/api/courses");
   editOriginal = duplicate ? null : item?.id || null;
   const form = $("#case-form"); form.reset();
-  const data = item || {id:"",name:"",description:"",course_id:"",speed_kmh:12,wheel_circumference_m:1.03,pulses_per_revolution:1,max_duration_s:900,actions:[]};
+  const data = {motion_mode:"constant",strategy_file:"",initial_speed_kmh:0,acceleration_mps2:0.3,coast_deceleration_mps2:0.03,
+    ...(item || {id:"",name:"",description:"",course_id:"",speed_kmh:30,wheel_circumference_m:1.03,pulses_per_revolution:1,max_duration_s:3600,actions:[]})};
   const courseSelect = form.elements.namedItem("course_id");
   courseSelect.innerHTML = `<option value="">コースを選択</option>${courseOptions.map(course => `<option value="${esc(course.id)}">${esc(course.name)} (${esc(course.id)})</option>`).join("")}`;
-  for (const key of ["id","name","description","speed_kmh","wheel_circumference_m","pulses_per_revolution","max_duration_s"]) form.elements.namedItem(key).value = data[key];
+  for (const key of ["id","name","description","speed_kmh","wheel_circumference_m","pulses_per_revolution","max_duration_s","motion_mode","initial_speed_kmh","acceleration_mps2","coast_deceleration_mps2"]) form.elements.namedItem(key).value = data[key];
   courseSelect.value = data.course_id;
   if (duplicate) form.elements.namedItem("id").value = `${data.id}-copy`;
   form.elements.namedItem("id").readOnly = !!editOriginal;
@@ -156,13 +158,49 @@ async function openEditor(item, duplicate = false) {
   $("#delete-case").hidden = !editOriginal;
   $("#form-error").textContent = "";
   $("#action-list").innerHTML = ""; data.actions.forEach(addAction);
+  updateMotionFields();
+  await loadStrategyOptions(data.strategy_file);
   $("#case-dialog").showModal();
 }
 function editorData() {
   const elements = $("#case-form").elements;
   const value = key => elements.namedItem(key).value;
-  return {schema_version:1,id:value("id").trim(),name:value("name").trim(),description:value("description").trim(),course_id:value("course_id").trim(),speed_kmh:Number(value("speed_kmh")),wheel_circumference_m:Number(value("wheel_circumference_m")),pulses_per_revolution:Number(value("pulses_per_revolution")),max_duration_s:Number(value("max_duration_s")),actions:Array.from($("#action-list").children).map(row => ({at_s:Number(row.children[0].value),command:row.children[1].value.trim()}))};
+  return {schema_version:1,id:value("id").trim(),name:value("name").trim(),description:value("description").trim(),course_id:value("course_id").trim(),speed_kmh:Number(value("speed_kmh")),wheel_circumference_m:Number(value("wheel_circumference_m")),pulses_per_revolution:Number(value("pulses_per_revolution")),max_duration_s:Number(value("max_duration_s")),motion_mode:value("motion_mode"),strategy_file:value("strategy_file"),initial_speed_kmh:Number(value("initial_speed_kmh")),acceleration_mps2:Number(value("acceleration_mps2")),coast_deceleration_mps2:Number(value("coast_deceleration_mps2")),actions:Array.from($("#action-list").children).map(row => ({at_s:Number(row.children[0].value),command:row.children[1].value.trim()}))};
 }
+
+function updateMotionFields() {
+  const form = $("#case-form");
+  const strategy = form.elements.namedItem("motion_mode").value === "strategy";
+  document.querySelectorAll(".strategy-setting").forEach(node => { node.hidden = !strategy; });
+  form.elements.namedItem("strategy_file").required = strategy;
+  $("#speed-label").textContent = strategy ? "最高速度 km/h" : "走行速度 km/h";
+}
+async function loadStrategyOptions(preferred = "") {
+  const sequence = ++strategyListSequence;
+  const form = $("#case-form"), course = form.elements.namedItem("course_id").value;
+  const options = course ? await api(`/api/strategies?course_id=${encodeURIComponent(course)}`) : [];
+  if (sequence !== strategyListSequence) return;
+  const selector = form.elements.namedItem("strategy_file");
+  selector.innerHTML = `<option value="">${options.length ? "戦略を選択" : "適合する戦略がありません"}</option>` + options.map(item =>
+    `<option value="${esc(item.filename)}">${esc(item.plan_id)} · ${esc(item.filename)}</option>`).join("");
+  if (options.some(item => item.filename === preferred)) selector.value = preferred;
+}
+$("#case-form").elements.namedItem("motion_mode").onchange = updateMotionFields;
+$("#case-form").elements.namedItem("course_id").onchange = () => loadStrategyOptions().catch(handleError);
+$("#strategy-import").onchange = async event => {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    const course = $("#case-form").elements.namedItem("course_id").value;
+    if (!course) throw new Error("先にコースを選択してください");
+    if (file.size > 4096) throw new Error("戦略JSONは4096バイト以内にしてください");
+    await api(`/api/strategies/${encodeURIComponent(file.name)}`, "PUT", {course_id:course,text:await file.text()});
+    await loadStrategyOptions(file.name);
+    $("#form-error").textContent = "";
+    toast("戦略を読み込みました。Tab5でも同じJSONを選択してください");
+  } catch (error) { $("#form-error").textContent = error.message; }
+  event.target.value = "";
+};
 
 $("#new-case").onclick = () => openEditor(null).catch(handleError);
 $("#edit-case").onclick = () => selected && openEditor(selected).catch(handleError);
