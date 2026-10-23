@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 testcases/*
 !testcases/.gitkeep
+strategies/*
+!strategies/.gitkeep

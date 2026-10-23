@@ -491,6 +491,8 @@ dialog::backdrop {
 .form-grid .wide {
   grid-column:span 2
 }
+.strategy-setting[hidden] { display:none }
+.motion-help { color:#60788c;font-size:12px;line-height:1.6;margin:0 }
 .form-grid input,.form-grid select,.form-grid textarea {
   width:100%;
   font-size:13px

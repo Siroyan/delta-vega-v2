@@ -10,9 +10,10 @@ import time
 
 from .cases import CaseStore
 from .serial_link import SerialLink, available_ports
+from .strategies import StrategyStore
 
 
-FIELDS = re.compile(r"\b([a-z_]+)=([^ ]+)")
+FIELDS = re.compile(r"\b([a-z_][a-z0-9_]*)=([^ ]+)")
 BOOT = re.compile(r"ESP-ROM|\brst:|\[BOOT\]", re.IGNORECASE)
 
 
@@ -24,6 +25,8 @@ class Controller:
     def __init__(self, root):
         self.root = Path(root)
         self.cases = CaseStore(self.root / "testcases")
+        self.strategies = StrategyStore(self.root / "strategies")
+        self.plan_response = (0, "")
         self.runs_dir = self.root / "runs"
         self.runs_dir.mkdir(exist_ok=True)
         self.lock = threading.RLock()
@@ -64,6 +67,12 @@ class Controller:
         if kind != "line":
             return
         now = time.monotonic()
+        if source == "atom" and message.startswith("[SIM PLAN]"):
+            with self.lock:
+                self.plan_response = (self.plan_response[0] + 1, message)
+        if source == "atom" and message.startswith("[SIM] STALLED"):
+            with self.lock:
+                self._finish("stalled", "coasting stopped before the next ON point or GOAL")
         if BOOT.search(message):
             with self.lock:
                 if now - self.last_boot[source] > 5:
@@ -122,7 +131,7 @@ class Controller:
         if not self.run:
             return None
         fields = ("id", "case_id", "case_name", "tab5_mode", "state", "outcome", "reason",
-                  "started_at", "ended_at", "run_dir")
+                  "started_at", "ended_at", "run_dir", "strategy_sha256")
         result = {key: self.run.get(key) for key in fields}
         if self.run.get("start_monotonic"):
             end = self.run.get("end_monotonic") or time.monotonic()
@@ -137,6 +146,8 @@ class Controller:
 
     def start(self, case_id, tab5_mode="usb"):
         case = self.cases.get(case_id)
+        strategy = (self.strategies.load(case["strategy_file"], case["course_id"])
+                    if case["motion_mode"] == "strategy" else None)
         if tab5_mode not in ("usb", "standalone"):
             raise ValueError("tab5_mode must be usb or standalone")
         with self.lock:
@@ -163,6 +174,8 @@ class Controller:
             directory.mkdir(exist_ok=False)
             (directory / "case.json").write_text(
                 json.dumps(case, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            if strategy:
+                (directory / "strategy.json").write_bytes(strategy.raw)
             self.event_file = (directory / "events.jsonl").open("a", encoding="utf-8", buffering=1)
             self.run = {"id": run_id, "case_id": case_id, "case_name": case["name"],
                         "tab5_mode": tab5_mode,
@@ -171,6 +184,7 @@ class Controller:
                         "run_dir": str(directory), "next_action": 0,
                         "start_monotonic": None, "end_monotonic": None,
                         "atom_goal_at": None,
+                        "strategy_sha256": strategy.sha256 if strategy else "none",
                         "initial_tab_boots": self.boots["tab5"]}
             self._record("host", "run", "Preparing " + case["name"])
         threading.Thread(target=self._prepare, args=(run_id,), daemon=True).start()
@@ -205,6 +219,21 @@ class Controller:
                 time.sleep(0.1)
             else:
                 raise RuntimeError("AtomS3 did not confirm the selected course")
+            if status.get("protocol") != "2":
+                raise RuntimeError("update AtomS3 firmware before running this version of race-emulator")
+            if case["motion_mode"] == "strategy":
+                self._plan_command(run_id, "dynamics {:.8g} {:.8g} {:.8g}".format(
+                    case["acceleration_mps2"], case["coast_deceleration_mps2"],
+                    case["initial_speed_kmh"]), "dynamics=ready")
+                payload = (Path(self.run["run_dir"]) / "strategy.json").read_bytes()
+                checksum = self.run["strategy_sha256"]
+                self._plan_command(run_id, "plan-begin {} {}".format(len(payload), checksum), "offset=0")
+                for offset in range(0, len(payload), 48):
+                    block = payload[offset:offset + 48]
+                    self._plan_command(run_id, "plan-chunk " + block.hex(), "offset=" + str(offset + len(block)))
+                self._plan_command(run_id, "plan-end", "sha256=" + checksum)
+            else:
+                self._plan_command(run_id, "strategy none", "plan=none")
             if self.run["tab5_mode"] == "usb":
                 tab = self.links["tab5"]
                 tab.send("start")
@@ -234,6 +263,26 @@ class Controller:
             with self.lock:
                 if self.run and self.run["id"] == run_id and self.run["state"] == "preparing":
                     self._finish("setup_failed", str(exc))
+
+    def _plan_command(self, run_id, command, expected):
+        with self.lock:
+            if not self.run or self.run["id"] != run_id or self.run["state"] != "preparing":
+                raise RuntimeError("run preparation cancelled")
+            before = self.plan_response[0]
+        self.links["atom"].send(command)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            with self.lock:
+                if self.run["id"] != run_id or self.run["state"] != "preparing":
+                    raise RuntimeError("run preparation cancelled")
+                sequence, response = self.plan_response
+                if sequence > before:
+                    if "error=" in response:
+                        raise RuntimeError(response)
+                    if expected in response:
+                        return
+            time.sleep(0.02)
+        raise RuntimeError("AtomS3 did not acknowledge " + command.split()[0])
 
     def stop(self):
         with self.lock:

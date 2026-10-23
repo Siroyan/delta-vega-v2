@@ -27,14 +27,32 @@ class FakeLink:
         self.port = name
         self.available = True
         self.commands = []
+        self.course = "misato_loop"
+        self.upload = bytearray()
+        self.upload_hash = ""
 
     def connected(self):
         return self.available
 
     def send(self, command):
         self.commands.append(command)
+        if self.name == "atom" and command.startswith("course "):
+            self.course = command.split()[1]
         if self.name == "atom" and command == "status":
-            self.callback("atom", "line", "[SIM] mode=idle course=misato_loop lap=1/5 pulses=0 missed=0")
+            self.callback("atom", "line", "[SIM] mode=idle course={} lap=1/5 pulses=0 missed=0 protocol=2".format(self.course))
+        if self.name == "atom" and command == "strategy none":
+            self.callback("atom", "line", "[SIM PLAN] ready=1 plan=none sha256=none")
+        if self.name == "atom" and command.startswith("dynamics "):
+            self.callback("atom", "line", "[SIM PLAN] dynamics=ready")
+        if self.name == "atom" and command.startswith("plan-begin "):
+            self.upload.clear()
+            self.upload_hash = command.split()[2]
+            self.callback("atom", "line", "[SIM PLAN] offset=0")
+        if self.name == "atom" and command.startswith("plan-chunk "):
+            self.upload.extend(bytes.fromhex(command.split()[1]))
+            self.callback("atom", "line", "[SIM PLAN] offset=" + str(len(self.upload)))
+        if self.name == "atom" and command == "plan-end":
+            self.callback("atom", "line", "[SIM PLAN] ready=1 plan=test sha256=" + self.upload_hash)
         if self.name == "tab5" and command == "status" and "start" in self.commands:
             self.callback("tab5", "line", "[STATUS] phase=1 lap=1 course=misato_loop gps_source=PORT_A sd_ready=1 pulses=0")
         self.callback(self.name, "command", command)
@@ -44,6 +62,61 @@ class FakeLink:
 
 
 class CaseTests(unittest.TestCase):
+    def test_legacy_case_and_motion_parameters(self):
+        self.assertEqual(validate_case(CASE)["motion_mode"], "constant")
+        for values in ({"motion_mode": "strategy"}, {"acceleration_mps2": 0},
+                       {"coast_deceleration_mps2": float("nan")}, {"initial_speed_kmh": 61}):
+            with self.subTest(values=values), self.assertRaises(ValueError):
+                validate_case(dict(CASE, **values))
+
+    def test_strategy_transfer_snapshot_and_stall(self):
+        with tempfile.TemporaryDirectory() as directory, patch(
+                "race_emulator.controller.SerialLink", FakeLink):
+            controller = Controller(directory)
+            try:
+                case = dict(CASE, course_id="motegi_oval_full", motion_mode="strategy",
+                            strategy_file="motegi_demo.json", speed_kmh=30)
+                controller.cases.save(case)
+                expected = controller.strategies.load("motegi_demo.json", "motegi_oval_full")
+                controller._on_serial("atom", "line", "[SIM] mode=idle course=motegi_oval_full sha256=" + expected.sha256)
+                self.assertEqual(controller.statuses["atom"]["sha256"], expected.sha256)
+                controller.start(case["id"], "standalone")
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and controller.run["state"] == "preparing":
+                    time.sleep(0.02)
+                self.assertEqual(controller.run["state"], "running", controller.run)
+                self.assertEqual(bytes(controller.links["atom"].upload), expected.raw)
+                self.assertEqual(controller.run["strategy_sha256"], expected.sha256)
+                self.assertEqual((Path(controller.run["run_dir"]) / "strategy.json").read_bytes(), expected.raw)
+                self.assertTrue(all(len(cmd) < 128 for cmd in controller.links["atom"].commands))
+                controller._on_serial("atom", "line", "[SIM] STALLED course=motegi_oval_full")
+                self.assertEqual(controller.run["outcome"], "stalled")
+            finally:
+                controller.close()
+
+    def test_strategy_rejection_never_starts_motion(self):
+        class RejectLink(FakeLink):
+            def send(self, command):
+                if command == "plan-end":
+                    self.commands.append(command)
+                    self.callback("atom", "line", "[SIM PLAN] error=SHA256 mismatch")
+                else:
+                    super().send(command)
+        with tempfile.TemporaryDirectory() as directory, patch(
+                "race_emulator.controller.SerialLink", RejectLink):
+            controller = Controller(directory)
+            try:
+                controller.cases.save(dict(CASE, course_id="motegi_oval_full", motion_mode="strategy",
+                                           strategy_file="motegi_demo.json"))
+                controller.start(CASE["id"], "standalone")
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and controller.run["state"] == "preparing":
+                    time.sleep(0.02)
+                self.assertEqual(controller.run["outcome"], "setup_failed")
+                self.assertNotIn("start", controller.links["atom"].commands)
+            finally:
+                controller.close()
+
     def test_case_store_and_fault_validation(self):
         with tempfile.TemporaryDirectory() as directory:
             store = CaseStore(directory)
