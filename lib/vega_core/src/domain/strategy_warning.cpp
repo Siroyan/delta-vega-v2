@@ -6,7 +6,7 @@ namespace vega {
 
 void StrategyWarning::reset() {
   session_ = 0;
-  announced_.fill(0);
+  for (auto &lap : announced_) lap.clear();
 }
 
 bool StrategyWarning::update(uint32_t session, uint8_t lap, bool position_valid,
@@ -18,18 +18,19 @@ bool StrategyWarning::update(uint32_t session, uint8_t lap, bool position_valid,
   }
   if (session != session_) {
     session_ = session;
-    announced_.fill(0);
+    for (auto &flags : announced_) flags.clear();
   }
   if (!position_valid || !std::isfinite(progress_m) || progress_m < 0) return false;
 
   auto &announced = announced_[lap - 1];
-  for (uint8_t i = 0; i < plan.run_count; ++i) {
+  announced.resize(plan.runs.size(), 0);
+  for (size_t i = 0; i < plan.runs.size(); ++i) {
     const double targets[] = {plan.runs[i].on_s_m, plan.runs[i].off_s_m};
     for (uint8_t kind = 0; kind < 2; ++kind) {
-      const uint8_t bit = 1U << (2 * i + kind);
+      const uint8_t bit = 1U << kind;
       const double remaining = targets[kind] - progress_m;
-      if (!(announced & bit) && remaining > 0 && remaining <= kLeadDistanceM) {
-        announced |= bit;
+      if (!(announced[i] & bit) && remaining > 0 && remaining <= kLeadDistanceM) {
+        announced[i] |= bit;
         cue = kind == 0 ? StrategyCue::On : StrategyCue::Off;
         return true;
       }

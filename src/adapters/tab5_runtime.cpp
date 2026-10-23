@@ -11,6 +11,7 @@
 #include <esp_timer.h>
 #include <esp_system.h>
 #include <esp_vfs_fat.h>
+#include <freertos/semphr.h>
 #include <mbedtls/platform.h>
 #include <mqtt_client.h>
 #include <sd_pwr_ctrl_by_on_chip_ldo.h>
@@ -24,6 +25,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <utility>
 
 #include "application/application.h"
 #include "application/telemetry_json.h"
@@ -62,8 +64,18 @@ void *tlsPsramCalloc(size_t count, size_t bytes) {
   return heap_caps_calloc(count, bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 void tlsPsramFree(void *ptr) { heap_caps_free(ptr); }
-QueueHandle_t commands, snapshots, records, transmissions, diagnostics, strategies,
+QueueHandle_t commands, snapshots, records, transmissions, diagnostics,
     plan_imports, course_imports, plan_requests, plan_choices;
+// FreeRTOS queues copy raw bytes and cannot own vectors. Readers retain an
+// immutable snapshot. Use a priority-inheriting mutex across task priorities;
+// allocate/delete the vectors outside the lock.
+SemaphoreHandle_t strategy_lock = nullptr;
+std::shared_ptr<const vega::Strategy> current_strategy;
+void publishStrategy(std::shared_ptr<const vega::Strategy> next) {
+  xSemaphoreTake(strategy_lock, portMAX_DELAY);
+  current_strategy.swap(next);
+  xSemaphoreGive(strategy_lock);
+}
 std::atomic<uint8_t> active_course{0};
 struct PlanRequest {
   uint8_t course_index;
@@ -560,7 +572,7 @@ void scanPlans(const PlanRequest &request) {
       vega::Strategy parsed{};
       char reason[48]{};
       if (readPlan(desired, request.course_index, parsed, reason, sizeof(reason))) {
-        xQueueOverwrite(strategies, &parsed);
+        publishStrategy(std::make_shared<const vega::Strategy>(std::move(parsed)));
         found.selected = i;
         next = vega::PlanState::Ready;
         found.message[0] = 0;
@@ -1077,7 +1089,7 @@ void applicationTask(void *) {
   attachInterrupt(digitalPinToInterrupt(kReed), reedInterrupt, CHANGE);
   vega::NmeaParser parser;
   auto requestPlan = [&](uint8_t index, const char *name) {
-    xQueueReset(strategies);
+    publishStrategy(nullptr);
     plan_state = vega::PlanState::Loading;
     PlanRequest request{};
     request.course_index = index;
@@ -1097,11 +1109,11 @@ void applicationTask(void *) {
   };
   diagnostic("[APP] ready; electrical OFF; commands: status/start/cancel/lap/on/off/ignite/log");
   auto applyPlanTargets = [&]() {
-    vega::Strategy ready_strategy{};
     const auto state = plan_state.load();
     if (state == vega::PlanState::Ready) {
-      if (xQueuePeek(strategies, &ready_strategy, 0) != pdTRUE) return false;
-      app.setStrategyTargets(&ready_strategy);
+      const auto ready_strategy = strategy();
+      if (!ready_strategy) return false;
+      app.setStrategyTargets(ready_strategy.get());
     } else {
       app.setStrategyTargets(nullptr);
     }
@@ -1368,12 +1380,12 @@ bool begin() {
   records = xQueueCreate(48, sizeof(Record));
   transmissions = xQueueCreate(1, sizeof(vega::Snapshot));
   diagnostics = xQueueCreate(16, sizeof(Diagnostic));
-  strategies = xQueueCreate(1, sizeof(vega::Strategy));
+  strategy_lock = xSemaphoreCreateMutex();
   plan_imports = xQueueCreate(1, sizeof(PlanImport));
   course_imports = xQueueCreate(1, sizeof(CourseImport));
   plan_requests = xQueueCreate(1, sizeof(PlanRequest));
   plan_choices = xQueueCreate(1, sizeof(PlanChoices));
-  if (!commands || !snapshots || !records || !transmissions || !diagnostics || !strategies ||
+  if (!commands || !snapshots || !records || !transmissions || !diagnostics || !strategy_lock ||
       !plan_imports || !course_imports || !plan_requests || !plan_choices)
     return false;
   if (xTaskCreate(diagnosticTask, "vega_log", 3072, nullptr, 1, nullptr) != pdPASS ||
@@ -1405,8 +1417,12 @@ bool submit(const Command &c) {
   return xQueueSend(commands, &queued, 0) == pdTRUE;
 }
 bool snapshot(vega::Snapshot &s) { return snapshots && xQueuePeek(snapshots, &s, 0) == pdTRUE; }
-bool strategy(vega::Strategy &s) {
-  return strategies && xQueuePeek(strategies, &s, 0) == pdTRUE;
+std::shared_ptr<const vega::Strategy> strategy() {
+  if (!strategy_lock) return {};
+  xSemaphoreTake(strategy_lock, portMAX_DELAY);
+  auto current = current_strategy;
+  xSemaphoreGive(strategy_lock);
+  return current;
 }
 bool planChoices(PlanChoices &out) {
   return plan_choices && xQueuePeek(plan_choices, &out, 0) == pdTRUE;
@@ -1563,13 +1579,13 @@ void handleSerialLine(const char *buffer, SerialTransferState &transfer) {
                   static_cast<unsigned long>(wheel_interval_us.load(std::memory_order_relaxed)),
                   static_cast<unsigned long>(debounce_us.load(std::memory_order_relaxed)));
   } else if (!strcmp(buffer, "plan-status")) {
-    vega::Strategy current;
+    const auto current = strategy();
     static PlanChoices choices{};
-    const bool loaded = plan_state.load() == vega::PlanState::Ready && strategy(current);
+    const bool loaded = plan_state.load() == vega::PlanState::Ready && current != nullptr;
     const bool have_choices = planChoices(choices);
     Serial.printf("[PLAN] state=%u loaded=%u id=%s selected=%u choices=%u reason=%s\n",
                   static_cast<unsigned>(plan_state.load()), loaded,
-                  loaded ? current.plan_id : "-", have_choices ? choices.selected : 255,
+                  loaded ? current->plan_id : "-", have_choices ? choices.selected : 255,
                   have_choices ? choices.count : 0,
                   have_choices ? choices.message : "not scanned");
   } else if (!strcmp(buffer, "plan-refresh")) {

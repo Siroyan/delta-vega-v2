@@ -5,6 +5,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <limits>
+#include <utility>
 
 namespace vega {
 namespace {
@@ -118,8 +119,9 @@ bool parseLap(Reader &r, unsigned &lap_number, StrategyLap &lap) {
       if (!r.take('[')) return false;
       for (bool first_run = true; !r.is(']'); first_run = false) {
         if (!first_run && !r.take(',')) return false;
-        if (lap.run_count == kMaxStrategyRunsPerLap) return r.fail("too many runs");
-        if (!parseRun(r, lap.runs[lap.run_count++])) return false;
+        StrategyRun run{};
+        if (!parseRun(r, run)) return false;
+        lap.runs.push_back(run);
       }
       if (!r.take(']')) return false;
     } else if (!std::strcmp(key, "lap_target_s")) {
@@ -196,7 +198,7 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
           return report("invalid or duplicate lap number");
         seen[lap_number - 1] = true;
         lap_targets[lap_number - 1] = lap.lap_target_s != 0;
-        candidate.laps[lap_number - 1] = lap;
+        candidate.laps[lap_number - 1] = std::move(lap);
       }
       if (!r.take(']')) return report(r.error());
     } else return report("unknown strategy field");
@@ -223,30 +225,29 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
     if (lap.route != expected_route || !course.hasRoute(lap.route))
       return report("route_id mismatch");
     const double length_m = course.routeLength(lap.route);
-    if (!std::isfinite(length_m) || length_m <= 0 || !lap.run_count)
+    if (!std::isfinite(length_m) || length_m <= 0 || lap.runs.empty())
       return report("empty or invalid route");
     lap.route_length_m = length_m;
     double previous_off = -1;
-    for (size_t j = 0; j < lap.run_count; ++j) {
-      const auto &run = lap.runs[j];
+    for (const auto &run : lap.runs) {
       if (run.on_s_m < 0 || run.on_s_m <= previous_off ||
           run.off_s_m <= run.on_s_m || run.off_s_m > length_m)
         return report("run positions out of range or order");
       previous_off = run.off_s_m;
     }
   }
-  out = candidate;
+  out = std::move(candidate);
   if (error && error_capacity) error[0] = 0;
   return true;
 }
 
 NextStrategyCue nextStrategyCue(const StrategyLap &lap, double s_m, double route_length_m) {
   const double current = std::isfinite(s_m) ? std::fmax(0.0, s_m) : 0.0;
-  for (size_t i = 0; i < lap.run_count; ++i) {
-    if (current <= lap.runs[i].on_s_m)
-      return {StrategyCue::On, lap.runs[i].on_s_m - current};
-    if (current <= lap.runs[i].off_s_m)
-      return {StrategyCue::Off, lap.runs[i].off_s_m - current};
+  for (const auto &run : lap.runs) {
+    if (current <= run.on_s_m)
+      return {StrategyCue::On, run.on_s_m - current};
+    if (current <= run.off_s_m)
+      return {StrategyCue::Off, run.off_s_m - current};
   }
   return {StrategyCue::LapEnd, std::fmax(0.0, route_length_m - current)};
 }

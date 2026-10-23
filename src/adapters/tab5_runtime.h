@@ -1,4 +1,6 @@
 #pragma once
+#include <memory>
+
 #include "domain/types.h"
 #include "ports/ports.h"
 #include "presentation/presenter.h"
@@ -27,7 +29,8 @@ bool prepareOutputs();
 void outputsOff();
 bool begin();
 bool snapshot(vega::Snapshot &out);
-bool strategy(vega::Strategy &out);
+// Immutable snapshots keep variable-length runs alive across SD/app/UI tasks.
+std::shared_ptr<const vega::Strategy> strategy();
 bool planChoices(PlanChoices &out);
 vega::UiStatus status();
 void serialPoll();
