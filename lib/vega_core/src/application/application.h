@@ -55,6 +55,7 @@ class Application {
   Millis finish_branch_previous_ms_ = 0;
   uint8_t finish_branch_matches_ = 0;
   Millis last_sample_ = 0;
+  Millis last_waiting_telemetry_ = 0;
   uint32_t settings_attempt_ = 0;
   bool settings_accepted_ = false;
 };

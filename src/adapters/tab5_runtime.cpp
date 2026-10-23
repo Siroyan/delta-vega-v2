@@ -26,8 +26,10 @@
 #include <cstring>
 #include <ctime>
 #include <utility>
+#include <type_traits>
 
 #include "application/application.h"
+#include "application/latest_telemetry.h"
 #include "application/telemetry_json.h"
 #include "course_catalog.h"
 #include "domain/nmea.h"
@@ -82,6 +84,9 @@ struct PlanRequest {
   char filename[48];
 };
 std::atomic<bool> urgent_off{false}, sd_ready{false}, sd_error{false}, mqtt_connected{false};
+std::atomic<uint32_t> mqtt_connection_generation{0};
+static_assert(std::is_trivially_copyable<vega::Snapshot>::value,
+              "FreeRTOS snapshot queues require byte-copyable values");
 std::atomic<uint32_t> power_epoch{0};
 std::atomic<bool> ignition_press_queued{false};
 std::atomic<vega::Millis> ignition_release_ms{0};
@@ -352,8 +357,8 @@ struct Recorder final : vega::ISessionRecorder {
 } recorder;
 struct Telemetry final : vega::ITelemetry {
   void publish(const vega::Snapshot &s) override {
-    // Only latest live data, no disconnected backfill.
-    if (mqtt_connected) xQueueOverwrite(transmissions, &s);
+    // Keep the latest full state even offline; never wait for the network.
+    xQueueOverwrite(transmissions, &s);
   }
 } telemetry;
 
@@ -533,7 +538,7 @@ bool readPlan(const char *name, uint8_t course_index, vega::Strategy &out,
 
 void scanPlans(const PlanRequest &request) {
   if (request.course_index != active_course.load()) return;
-  // SD task is the sole caller; keep the bounded catalog off its 8 KB stack.
+  // SD task is the sole caller; keep the bounded catalog off its task stack.
   static PlanChoices found;
   found = {};
   found.course_index = request.course_index;
@@ -831,7 +836,8 @@ void sdTask(void *) {
           Serial.printf("[SD] session opened %s\n", last_path);
         }
       } else if (active && log && !failed_session) {
-        char line[1100]{};
+        // Only this SD worker uses the buffer. Keep the 100-lap JSON off its stack.
+        static char line[vega::kSessionSampleJsonCapacity];
         size_t n = 0;
         if (r.kind == RecordKind::Sample)
           n = vega::sessionSampleJson(r.data, line, sizeof(line), network_config::machine_id,
@@ -946,6 +952,7 @@ void sdTask(void *) {
 void netMemory(const char *stage);
 void mqttEvent(void *, esp_event_base_t, int32_t id, void *) {
   if (id == MQTT_EVENT_CONNECTED) {
+    mqtt_connection_generation.fetch_add(1);
     mqtt_connected = true;
     Serial.println("[MQTT] connected");
     netMemory("MQTT connected");
@@ -974,6 +981,7 @@ void networkTask(void *) {
   bool mqtt_started = false;
   bool previous_wifi_ready = false;
   vega::Millis last_wifi_attempt = clock_source.now();
+  vega::LatestTelemetry latest;
   netMemory("before Wi-Fi");
   if (wifi_configured) {
     WiFi.mode(WIFI_STA);
@@ -1019,6 +1027,7 @@ void networkTask(void *) {
         cfg.network.disable_auto_reconnect = false;
         cfg.session.disable_clean_session = false;
         cfg.outbox.limit = 4096;
+        cfg.buffer.out_size = vega::kTelemetryJsonCapacity + 256;
         client = esp_mqtt_client_init(&cfg);
         netMemory("after MQTT init");
         if (client) esp_mqtt_client_register_event(client, MQTT_EVENT_ANY, mqttEvent, nullptr);
@@ -1030,14 +1039,19 @@ void networkTask(void *) {
       }
     }
     vega::Snapshot s{};
-    if (xQueueReceive(transmissions, &s, pdMS_TO_TICKS(500)) == pdTRUE && client &&
-        mqtt_connected) {
-      char payload[1100];
-      auto n = vega::telemetryJson(s, payload, sizeof(payload), network_config::machine_id,
+    if (xQueueReceive(transmissions, &s, pdMS_TO_TICKS(500)) == pdTRUE)
+      latest.update(s);
+    const uint32_t generation = mqtt_connection_generation.load();
+    if (const auto *pending = latest.pending(client && mqtt_connected, generation,
+                                            clock_source.now())) {
+      // Single transport owner; no large JSON buffer on the task stack.
+      static char payload[vega::kTelemetryJsonCapacity];
+      auto n = vega::telemetryJson(*pending, payload, sizeof(payload), network_config::machine_id,
                                    network_config::memo);
-      if (n && clock_source.now() - s.now_ms < 1500) {
+      if (n) {
         int message_id = esp_mqtt_client_publish(client, network_config::topic, payload, n, 0, 0);
         if (message_id < 0) diagnostic("[MQTT] publish failed code=%d", message_id);
+        else latest.sent(generation);
       }
     }
   }
@@ -1123,6 +1137,7 @@ void applicationTask(void *) {
     return true;
   };
   diagnostic("[APP] ready; electrical OFF; commands: status/start/cancel/lap/on/off/ignite/log");
+  telemetry.publish(app.snapshot());  // Publish an empty history after a fresh boot, too.
   auto applyPlanTargets = [&]() {
     const auto state = plan_state.load();
     if (state == vega::PlanState::Ready) {
@@ -1422,10 +1437,12 @@ bool begin() {
   if (!commands || !snapshots || !records || !transmissions || !diagnostics || !strategy_lock ||
       !plan_imports || !course_imports || !plan_requests || !plan_choices)
     return false;
+  // Snapshot includes up to 100 completed laps. Reserve headroom for nested
+  // recorder/settings/plan calls; JSON buffers themselves are worker-owned.
   if (xTaskCreate(diagnosticTask, "vega_log", 3072, nullptr, 1, nullptr) != pdPASS ||
-      xTaskCreate(sdTask, "vega_sd", 8192, nullptr, 1, nullptr) != pdPASS ||
+      xTaskCreate(sdTask, "vega_sd", 12288, nullptr, 1, nullptr) != pdPASS ||
       xTaskCreate(networkTask, "vega_net", 8192, nullptr, 1, nullptr) != pdPASS ||
-      xTaskCreate(applicationTask, "vega_app", 8192, nullptr, 4, nullptr) != pdPASS)
+      xTaskCreate(applicationTask, "vega_app", 12288, nullptr, 4, nullptr) != pdPASS)
     return false;
   return true;
 }

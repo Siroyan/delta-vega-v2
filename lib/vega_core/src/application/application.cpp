@@ -8,6 +8,7 @@ constexpr double kFinishBranchMinProgressM = 55;
 constexpr double kFinishBranchAdvantageM = 7;
 constexpr double kFinishBranchMaxLateralM = 18;
 constexpr double kFinishProgressFromExitM = 100;
+constexpr Millis kWaitingTelemetryIntervalMs = 5000;
 
 CourseRoute routeForLap(uint8_t lap, uint8_t lap_count) {
   return lap <= 1 ? CourseRoute::First
@@ -28,6 +29,7 @@ Application::Application(IClock &c, IEngineOutput &o, ISettingsStore &s, ISessio
   output_.stopIgnition();
   output_.configurePower(settings_.power_active_high);
   output_.setPower(false);
+  last_waiting_telemetry_ = clock_.now();
 }
 Snapshot Application::snapshot() const {
   Snapshot s;
@@ -93,13 +95,17 @@ bool Application::start() {
 }
 bool Application::cancel() {
   if (race_.phase() != RacePhase::Measuring) return false;
-  auto s = snapshot();
-  recorder_.event(Event::Cancelled, s);
-  recorder_.end(EndReason::Cancelled, s);
+  {
+    auto s = snapshot();
+    recorder_.event(Event::Cancelled, s);
+    recorder_.end(EndReason::Cancelled, s);
+  }
   race_.cancel();
   timing_.reset();
   manual_lap_requires_progress_ = false;
   resetFinishBranch();
+  last_waiting_telemetry_ = clock_.now();
+  telemetry_.publish(snapshot());
   return true;
 }
 bool Application::manualLap() {
@@ -324,6 +330,12 @@ void Application::tick() {
     auto s = snapshot();
     recorder_.sample(s);
     telemetry_.publish(s);
+  } else if (race_.phase() == RacePhase::Waiting &&
+             now - last_waiting_telemetry_ >= kWaitingTelemetryIntervalMs) {
+    // A fresh pre-start heartbeat uses the same nonblocking telemetry port,
+    // without creating a session or adding SD samples.
+    last_waiting_telemetry_ = now;
+    telemetry_.publish(snapshot());
   }
 }
 }  // namespace vega
