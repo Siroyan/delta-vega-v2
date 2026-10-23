@@ -264,6 +264,8 @@ bool readCourseFile(const char *folder, Course &course) {
   bool schema = false, coordinates = false, routes = false, laps = false, sequence_found = false;
   uint8_t sequence_count = 0;
   const bool parsed = json.object([&](const char *key) {
+    if (!strcmp(key, "course_id"))
+      return json.string(course.strategy_course_id, sizeof(course.strategy_course_id));
     if (!strcmp(key, "schema_version")) {
       int version = 0;
       return (schema = json.integer(version) && version == 2);
@@ -303,7 +305,7 @@ bool readCourseFile(const char *folder, Course &course) {
     return json.skip();
   });
   if (!laps && sequence_found) course.lap_count = sequence_count;
-  if (!parsed || !json.finished() || !schema || !coordinates || !routes ||
+  if (!parsed || !json.finished() || !schema || !course.strategy_course_id[0] || !coordinates || !routes ||
       !sequence_found || sequence_count < 2 || sequence_count > kMaxLaps ||
       sequence_count != course.lap_count) {
     Serial.printf("[SIM] invalid course %s offset=%u parsed=%u schema=%u coord=%u "

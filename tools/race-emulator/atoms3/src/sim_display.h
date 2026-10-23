@@ -4,7 +4,7 @@
 
 namespace sim_display {
 
-enum class Mode : uint8_t { Idle, Running, Paused, Finished, Stopped };
+enum class Mode : uint8_t { Idle, Running, Paused, Finished, Stopped, Stalled };
 
 struct Snapshot {
   const char *course_name;
@@ -17,6 +17,8 @@ struct Snapshot {
   uint64_t pulses;
   uint32_t missed_pulses;
   const char *gps_status;
+  bool strategy_active;
+  bool engine_on;
 };
 
 void begin();
