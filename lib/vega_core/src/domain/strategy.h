@@ -3,12 +3,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "course.h"
 
 namespace vega {
 
-constexpr size_t kMaxStrategyRunsPerLap = 3;
 constexpr size_t kMaxStrategyFileBytes = 4096;
 
 struct StrategyRun {
@@ -18,13 +18,16 @@ struct StrategyRun {
 struct StrategyLap {
   CourseRoute route = CourseRoute::Regular;
   double route_length_m = 0;
-  uint8_t run_count = 0;
-  std::array<StrategyRun, kMaxStrategyRunsPerLap> runs{};
+  uint32_t lap_target_s = 0;
+  // The JSON byte limit bounds storage; there is no separate per-lap count limit.
+  std::vector<StrategyRun> runs;
 };
 struct Strategy {
   char course_id[48]{};
   char plan_id[40]{};
   bool demo = false;
+  bool targets_explicit = false;
+  uint32_t total_target_s = 0;
   std::array<StrategyLap, kLapCount> laps{};
 };
 
@@ -34,7 +37,7 @@ struct NextStrategyCue {
   double distance_m = 0;
 };
 
-// Strict, bounded reader for assets/strategy/README.md schema 1.
+// Strict, bounded reader for assets/strategy/README.md schemas 1 and 2.
 // The expected course ID and route lengths come from the active firmware course.
 bool parseStrategy(const char *json, size_t length, const Course &course,
                    const char *expected_course_id, Strategy &out,

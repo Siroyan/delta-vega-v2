@@ -8,6 +8,7 @@ constexpr double kFinishBranchMinProgressM = 55;
 constexpr double kFinishBranchAdvantageM = 7;
 constexpr double kFinishBranchMaxLateralM = 18;
 constexpr double kFinishProgressFromExitM = 100;
+constexpr Millis kWaitingTelemetryIntervalMs = 5000;
 
 CourseRoute routeForLap(uint8_t lap, uint8_t lap_count) {
   return lap <= 1 ? CourseRoute::First
@@ -25,9 +26,10 @@ Application::Application(IClock &c, IEngineOutput &o, ISettingsStore &s, ISessio
       course_(&course),
       settings_(validSettings(cfg) ? cfg : Settings{}),
       race_(course.lapCount()) {
-  output_.stopPulse();
+  output_.stopIgnition();
   output_.configurePower(settings_.power_active_high);
   output_.setPower(false);
+  last_waiting_telemetry_ = clock_.now();
 }
 Snapshot Application::snapshot() const {
   Snapshot s;
@@ -35,6 +37,10 @@ Snapshot Application::snapshot() const {
   s.course_index = course_index_;
   s.lap_count = race_.lapCount();
   s.settings = settings_;
+  if (strategy_targets_active_) {
+    s.settings.total_target_s = strategy_total_target_s_;
+    s.settings.lap_target_s = strategy_lap_target_s_;
+  }
   s.race = race_.reading(s.now_ms, wheel_.pulses, settings_);
   s.engine = engine_.phase();
   s.ecu_prepare_permille = engine_.preparationPermille(s.now_ms, settings_.ecu_ready_ms);
@@ -81,7 +87,7 @@ bool Application::start() {
   resetFinishBranch();
   last_sample_ = now;
   auto s = snapshot();
-  recorder_.begin(s.race.session, settings_, now);
+  recorder_.begin(s.race.session, s.settings, now);
   recorder_.event(Event::Started, s);
   recorder_.sample(s);
   telemetry_.publish(s);
@@ -89,13 +95,17 @@ bool Application::start() {
 }
 bool Application::cancel() {
   if (race_.phase() != RacePhase::Measuring) return false;
-  auto s = snapshot();
-  recorder_.event(Event::Cancelled, s);
-  recorder_.end(EndReason::Cancelled, s);
+  {
+    auto s = snapshot();
+    recorder_.event(Event::Cancelled, s);
+    recorder_.end(EndReason::Cancelled, s);
+  }
   race_.cancel();
   timing_.reset();
   manual_lap_requires_progress_ = false;
   resetFinishBranch();
+  last_waiting_telemetry_ = clock_.now();
+  telemetry_.publish(snapshot());
   return true;
 }
 bool Application::manualLap() {
@@ -126,16 +136,33 @@ void Application::power(bool on) {
   bool was_on = engine_.phase() != EnginePhase::Off;
   engine_.power(on, clock_.now(), settings_);
   if (!on) {
-    output_.stopPulse();
+    output_.stopIgnition();
     output_error_ = false;
   }
   output_.setPower(on);
   if (on != was_on) event(on ? Event::PowerOn : Event::PowerOff);
 }
 bool Application::ignite() {
-  if (!engine_.ignite(clock_.now(), settings_)) return false;
-  if (!output_.pulse(settings_.ignition_pulse_ms)) output_error_ = true;
+  if (!engine_.ignite(clock_.now())) return false;
+  if (!output_.holdIgnition()) {
+    output_.stopIgnition();
+    output_error_ = true;
+  }
   event(Event::Ignition);
+  return !output_error_;
+}
+bool Application::releaseIgnition(Millis released_ms) {
+  const auto now = clock_.now();
+  if (released_ms > now) released_ms = now;
+  if (!engine_.releaseIgnition(released_ms, settings_)) return false;
+  const auto elapsed = now - released_ms;
+  if (elapsed >= settings_.ignition_release_delay_ms) {
+    output_.stopIgnition();
+    engine_.tick(now);
+  } else if (!output_.releaseIgnitionAfter(settings_.ignition_release_delay_ms - elapsed)) {
+    output_.stopIgnition();
+    output_error_ = true;
+  }
   return !output_error_;
 }
 bool Application::configure(const Settings &requested, SettingsScope scope) {
@@ -144,14 +171,19 @@ bool Application::configure(const Settings &requested, SettingsScope scope) {
   Settings s = settings_;
   if (scope == SettingsScope::General)
     applyGeneral(s, generalSettings(requested));
-  else if (scope == SettingsScope::Course)
+  else if (scope == SettingsScope::Course) {
     applyCourse(s, courseSettings(requested));
-  else
+    // Targets are owned by the strategy. Keep legacy course values only as
+    // read-only fallback for old plans and NO STRATEGY.
+    s.total_target_s = settings_.total_target_s;
+    s.lap_target_s = settings_.lap_target_s;
+  } else
     return false;
   if (race_.phase() == RacePhase::Measuring || !validSettings(s)) return false;
   if (engine_.phase() != EnginePhase::Off && (s.power_active_high != settings_.power_active_high ||
                                               s.ecu_ready_ms != settings_.ecu_ready_ms ||
-                                              s.ignition_pulse_ms != settings_.ignition_pulse_ms))
+                                              s.ignition_release_delay_ms !=
+                                                  settings_.ignition_release_delay_ms))
     return false;
   const bool saved = scope == SettingsScope::General
                          ? store_.saveGeneral(generalSettings(s))
@@ -176,14 +208,24 @@ bool Application::selectCourse(const Course &course, uint8_t index, const Settin
   applyGeneral(combined, generalSettings(settings_));
   if (race_.phase() != RacePhase::Waiting || engine_.phase() != EnginePhase::Off ||
       !validSettings(combined) || !race_.setLapCount(course.lapCount())) return false;
-  output_.stopPulse();
+  output_.stopIgnition();
   output_.configurePower(combined.power_active_high);
   output_.setPower(false);
   course_ = &course;
   course_index_ = index;
   settings_ = combined;
+  strategy_targets_active_ = false;
   resetGps();
   return true;
+}
+void Application::setStrategyTargets(const Strategy *strategy) {
+  if (race_.phase() != RacePhase::Waiting) return;
+  strategy_targets_active_ = strategy && strategy->targets_explicit;
+  if (!strategy_targets_active_) return;
+  strategy_total_target_s_ = strategy->total_target_s;
+  for (size_t i = 0; i < kLapCount; ++i)
+    strategy_lap_target_s_[i] = strategy->laps[i].lap_target_s
+                                   ? strategy->laps[i].lap_target_s : settings_.lap_target_s[i];
 }
 void Application::gps(const GpsFix &fix) {
   auto now = clock_.now();
@@ -281,12 +323,19 @@ void Application::tick() {
   auto now = clock_.now();
   auto before = engine_.phase();
   engine_.tick(now);
-  if (before == EnginePhase::Pulsing && engine_.phase() == EnginePhase::Issued) output_.stopPulse();
+  if (before == EnginePhase::ReleaseDelay && engine_.phase() == EnginePhase::Issued)
+    output_.stopIgnition();
   if (race_.phase() == RacePhase::Measuring && now - last_sample_ >= 500) {
     last_sample_ = now;
     auto s = snapshot();
     recorder_.sample(s);
     telemetry_.publish(s);
+  } else if (race_.phase() == RacePhase::Waiting &&
+             now - last_waiting_telemetry_ >= kWaitingTelemetryIntervalMs) {
+    // A fresh pre-start heartbeat uses the same nonblocking telemetry port,
+    // without creating a session or adding SD samples.
+    last_waiting_telemetry_ = now;
+    telemetry_.publish(snapshot());
   }
 }
 }  // namespace vega

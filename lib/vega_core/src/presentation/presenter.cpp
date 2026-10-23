@@ -145,7 +145,7 @@ void Presenter::render(const Snapshot &s, const UiStatus &status, const Strategy
     std::snprintf(m.notice, sizeof(m.notice), "LAP CORRECTED\nMANUAL / APPROX.");
   else if (s.engine == EnginePhase::Preparing)
     std::snprintf(m.notice, sizeof(m.notice), "ECU PREPARING");
-  else if (s.engine == EnginePhase::Pulsing)
+  else if (s.engine == EnginePhase::Holding || s.engine == EnginePhase::ReleaseDelay)
     std::snprintf(m.notice, sizeof(m.notice), "START COMMAND ACTIVE");
   view_.show(m);
 }

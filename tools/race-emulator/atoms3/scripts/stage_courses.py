@@ -33,6 +33,10 @@ def stage_courses():
             raise ValueError(f"unsupported course schema: {source}")
         expected[Path(folder) / "course.json"] = source
 
+    # Copy the original Tab5 strategy bytes as well; no generated run tables.
+    for source in sorted((ROOT / "assets" / "strategy").glob("*.json")):
+        expected[Path("strategies") / source.name] = source
+
     DATA.mkdir(exist_ok=True)
     for target in DATA.rglob("*"):
         if target.is_file() and target.relative_to(DATA) not in expected:

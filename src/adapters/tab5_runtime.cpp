@@ -11,9 +11,9 @@
 #include <esp_timer.h>
 #include <esp_system.h>
 #include <esp_vfs_fat.h>
+#include <freertos/semphr.h>
 #include <mbedtls/platform.h>
 #include <mqtt_client.h>
-#include <nvs.h>
 #include <sd_pwr_ctrl_by_on_chip_ldo.h>
 #include <sdmmc_cmd.h>
 #include <sys/stat.h>
@@ -25,15 +25,18 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <utility>
+#include <type_traits>
 
 #include "application/application.h"
+#include "application/latest_telemetry.h"
 #include "application/telemetry_json.h"
 #include "course_catalog.h"
 #include "domain/nmea.h"
-#include "domain/settings_codec.h"
 #include "lvgl_view.h"
 #include "reed_pulse_filter.h"
-#include "settings_migration.h"
+#include "serial_config.h"
+#include "tab5_settings_store.h"
 #include "../tab5_lvgl.h"
 #include "presentation/settings_form.h"
 
@@ -63,15 +66,30 @@ void *tlsPsramCalloc(size_t count, size_t bytes) {
   return heap_caps_calloc(count, bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 void tlsPsramFree(void *ptr) { heap_caps_free(ptr); }
-QueueHandle_t commands, snapshots, records, transmissions, diagnostics, strategies,
+QueueHandle_t commands, snapshots, records, transmissions, diagnostics,
     plan_imports, course_imports, plan_requests, plan_choices;
+// FreeRTOS queues copy raw bytes and cannot own vectors. Readers retain an
+// immutable snapshot. Use a priority-inheriting mutex across task priorities;
+// allocate/delete the vectors outside the lock.
+SemaphoreHandle_t strategy_lock = nullptr;
+std::shared_ptr<const vega::Strategy> current_strategy;
+void publishStrategy(std::shared_ptr<const vega::Strategy> next) {
+  xSemaphoreTake(strategy_lock, portMAX_DELAY);
+  current_strategy.swap(next);
+  xSemaphoreGive(strategy_lock);
+}
 std::atomic<uint8_t> active_course{0};
 struct PlanRequest {
   uint8_t course_index;
   char filename[48];
 };
 std::atomic<bool> urgent_off{false}, sd_ready{false}, sd_error{false}, mqtt_connected{false};
+std::atomic<uint32_t> mqtt_connection_generation{0};
+static_assert(std::is_trivially_copyable<vega::Snapshot>::value,
+              "FreeRTOS snapshot queues require byte-copyable values");
 std::atomic<uint32_t> power_epoch{0};
+std::atomic<bool> ignition_press_queued{false};
+std::atomic<vega::Millis> ignition_release_ms{0};
 std::atomic<uint32_t> record_loss_count{0};
 enum class SdFailure : uint8_t { None, QueueFull, Open, Metadata, Write, Flush, EndFlush, ReadbackFlush };
 std::atomic<SdFailure> sd_last_failure{SdFailure::None};
@@ -222,7 +240,7 @@ class EngineOutput final : public vega::IEngineOutput {
     esp_timer_create_args_t args{};
     args.callback = &EngineOutput::expire;
     args.arg = this;
-    args.name = "ecu_pulse";
+    args.name = "ecu_release";
     return esp_timer_create(&args, &timer_) == ESP_OK;
   }
   void configurePower(bool active_high) override {
@@ -230,25 +248,38 @@ class EngineOutput final : public vega::IEngineOutput {
     setPower(false);
   }
   void setPower(bool on) override { gpio_set_level(kPower, on == active_high_); }
-  bool pulse(uint32_t duration_ms) override {
+  bool holdIgnition() override {
     if (!timer_) return false;
-    // All start/stop and callbacks use the same lock, including the generation check.
     esp_timer_stop(timer_);
     portENTER_CRITICAL(&lock_);
-    armed_ = true;
-    deadline_us_ = esp_timer_get_time() + static_cast<int64_t>(duration_ms) * 1000;
+    armed_ = false;
+    held_ = true;
     gpio_set_level(kIgnition, 1);
     portEXIT_CRITICAL(&lock_);
-    if (esp_timer_start_once(timer_, static_cast<uint64_t>(duration_ms) * 1000) != ESP_OK) {
-      stopPulse();
+    return true;
+  }
+  bool releaseIgnitionAfter(uint32_t delay_ms) override {
+    if (!timer_) return false;
+    portENTER_CRITICAL(&lock_);
+    const bool held = held_;
+    if (held) {
+      held_ = false;
+      armed_ = true;
+      deadline_us_ = esp_timer_get_time() + static_cast<int64_t>(delay_ms) * 1000;
+    }
+    portEXIT_CRITICAL(&lock_);
+    if (!held) return false;
+    if (esp_timer_start_once(timer_, static_cast<uint64_t>(delay_ms) * 1000) != ESP_OK) {
+      stopIgnition();
       return false;
     }
     return true;
   }
-  void stopPulse() override {
+  void stopIgnition() override {
     if (timer_) esp_timer_stop(timer_);
     portENTER_CRITICAL(&lock_);
     armed_ = false;
+    held_ = false;
     gpio_set_level(kIgnition, 0);
     portEXIT_CRITICAL(&lock_);
   }
@@ -257,7 +288,7 @@ class EngineOutput final : public vega::IEngineOutput {
   static void expire(void *arg) {
     auto &self = *static_cast<EngineOutput *>(arg);
     portENTER_CRITICAL(&self.lock_);
-    // A delayed callback from an earlier pulse must not shorten a new pulse.
+    // A delayed callback from an earlier release cannot end a newer hold.
     if (self.armed_ && esp_timer_get_time() >= self.deadline_us_) {
       self.armed_ = false;
       gpio_set_level(kIgnition, 0);
@@ -267,170 +298,12 @@ class EngineOutput final : public vega::IEngineOutput {
   esp_timer_handle_t timer_ = nullptr;
   portMUX_TYPE lock_ = portMUX_INITIALIZER_UNLOCKED;
   int64_t deadline_us_ = 0;
-  bool armed_ = false, active_high_ = true;
+  bool armed_ = false, held_ = false, active_high_ = true;
 } engine_output;
 bool outputs_prepared = false;
 
-struct SavedSelection {
-  uint32_t version = 1;
-  char course_id[48]{};
-  char plan[48]{};
-};
-SavedSelection loadSelection() {
-  SavedSelection value{};
-  Preferences p;
-  if (p.begin("vega-select", true)) {
-    if (p.getBytesLength("choice") == sizeof(value)) {
-      SavedSelection stored{};
-      if (p.getBytes("choice", &stored, sizeof(stored)) == sizeof(stored) &&
-          stored.version == 1 && memchr(stored.course_id, 0, sizeof(stored.course_id)) &&
-          memchr(stored.plan, 0, sizeof(stored.plan))) value = stored;
-    }
-    p.end();
-  }
-  return value;
-}
-uint8_t savedCourseIndex() {
-  const auto selection = loadSelection();
-  return static_cast<uint8_t>(courseIndex(selection.course_id));
-}
-void savedPlanName(char *out, size_t size) {
-  const auto selection = loadSelection();
-  snprintf(out, size, "%s", selection.plan);
-}
-bool saveSelection(const char *course_id, const char *plan) {
-  SavedSelection value{};
-  if (strlen(course_id) >= sizeof(value.course_id) || strlen(plan) >= sizeof(value.plan))
-    return false;
-  snprintf(value.course_id, sizeof(value.course_id), "%s", course_id);
-  snprintf(value.plan, sizeof(value.plan), "%s", plan);
-  Preferences p;
-  if (!p.begin("vega-select", false)) return false;
-  const bool ok = p.putBytes("choice", &value, sizeof(value)) == sizeof(value);
-  p.end();
-  return ok;
-}
-class SettingsStore final : public vega::ISettingsStore {
- public:
-  void select(uint8_t index) { active_ = index; }
-  vega::Settings load(uint8_t index) {
-    const auto &asset = courseAsset(index);
-    const vega::Settings base = defaults(index);
-    const auto read_selected = [index](vega::Settings &s) {
-      if (courseCount()) return readLegacy(index, s);
-      // Output polarity must be migrated before M5.begin() and SD mounting.
-      // An empty selection means pre-catalog firmware; the legacy lookup
-      // resolves it to that firmware's default course namespace.
-      const SavedSelection selected = loadSelection();
-      const char *current = legacyNamespaceForId(selected.course_id, false);
-      const char *older = legacyNamespaceForId(selected.course_id, true);
-      return (current && loadFrom(current, s)) || (older && loadFrom(older, s));
-    };
-    if (!general_loaded_) {
-      vega::GeneralSettings stored;
-      bool needs_upgrade = false;
-      if (!readGeneral(stored, needs_upgrade)) {
-        // Older firmware stored vehicle settings with the selected course.
-        // A newly selected course has no blob yet; the old "vega" namespace
-        // still carries the vehicle calibration and output polarity.
-        stored = migratedGeneralSettings(base, read_selected,
-                                         [](vega::Settings &s) { return loadFrom("vega", s); });
-        if (saveGeneral(stored)) diagnostic("[SETTINGS] migrated general settings");
-      } else if (needs_upgrade && saveGeneral(stored)) {
-        diagnostic("[SETTINGS] upgraded general settings to v2");
-      }
-      general_ = stored;
-      general_loaded_ = true;
-    }
-    vega::CourseSettings course;
-    if (!readCourse(index, course)) {
-      course = migratedCourseSettings(base, read_selected);
-      if (writeCourse(index, course)) diagnostic("[SETTINGS] migrated course=%s", asset.data->id);
-    }
-    vega::Settings s = base;
-    vega::applyGeneral(s, general_);
-    vega::applyCourse(s, course);
-    return s;
-  }
-  bool saveGeneral(const vega::GeneralSettings &s) override {
-    if (!vega::validGeneralSettings(s)) return false;
-    Preferences p;
-    if (!p.begin("vega-device", false)) return false;
-    const bool ok = p.putBytes("settings", &s, sizeof(s)) == sizeof(s);
-    p.end();
-    if (ok) general_ = s;
-    return ok;
-  }
-  bool saveCourse(const vega::CourseSettings &s) override { return writeCourse(active_, s); }
- private:
-  uint8_t active_ = 0;
-  bool general_loaded_ = false;
-  vega::GeneralSettings general_{};
-  static vega::Settings defaults(uint8_t index) {
-    vega::Settings s;
-    vega::applyCourse(s, courseAsset(index).defaults());
-    return s;
-  }
-  static bool readGeneral(vega::GeneralSettings &s, bool &needs_upgrade) {
-    Preferences p;
-    if (!p.begin("vega-device", true)) return false;
-    const size_t size = p.getBytesLength("settings");
-    alignas(vega::GeneralSettings) uint8_t blob[sizeof(vega::GeneralSettings)]{};
-    vega::GeneralSettings candidate;
-    const bool ok = size > 0 && size <= sizeof(blob) &&
-                    p.getBytes("settings", blob, size) == size &&
-                    vega::decodeGeneralSettingsBlob(blob, size, candidate);
-    p.end();
-    if (ok) {
-      s = candidate;
-      needs_upgrade = size != sizeof(vega::GeneralSettings);
-    }
-    return ok;
-  }
-  static bool readCourse(uint8_t index, vega::CourseSettings &s) {
-    Preferences p;
-    if (!p.begin(courseAsset(index).settings_namespace, true)) return false;
-    vega::CourseSettings candidate;
-    const bool ok = p.getBytesLength("course") == sizeof(candidate) &&
-                    p.getBytes("course", &candidate, sizeof(candidate)) == sizeof(candidate) &&
-                    vega::validCourseSettings(candidate);
-    p.end();
-    if (ok) s = candidate;
-    return ok;
-  }
-  static bool writeCourse(uint8_t index, const vega::CourseSettings &s) {
-    if (!vega::validCourseSettings(s)) return false;
-    Preferences p;
-    if (!p.begin(courseAsset(index).settings_namespace, false)) return false;
-    const bool ok = p.putBytes("course", &s, sizeof(s)) == sizeof(s);
-    p.end();
-    return ok;
-  }
-  static bool readLegacy(uint8_t index, vega::Settings &s) {
-    const auto &asset = courseAsset(index);
-    if (loadFrom(asset.settings_namespace, s)) return true;
-    if (!asset.legacy_settings_namespace || !loadFrom(asset.legacy_settings_namespace, s))
-      return false;
-    if (asset.legacy_total_target_s && s.total_target_s == asset.legacy_total_target_s)
-      s.total_target_s = asset.defaults().total_target_s;
-    return true;
-  }
-  static bool loadFrom(const char *name, vega::Settings &s) {
-    nvs_handle_t handle;
-    bool loaded = false;
-    if (nvs_open(name, NVS_READONLY, &handle) == ESP_OK) {
-      size_t size = 0;
-      if (nvs_get_blob(handle, "settings", nullptr, &size) == ESP_OK &&
-          size <= sizeof(vega::Settings)) {
-        alignas(vega::Settings) uint8_t blob[sizeof(vega::Settings)]{};
-        if (nvs_get_blob(handle, "settings", blob, &size) == ESP_OK)
-          loaded = vega::decodeSettingsBlob(blob, size, s);
-      }
-      nvs_close(handle);
-    }
-    return loaded;
-  }
-} settings_store;
+void settingsDiagnostic(const char *message) { diagnostic("%s", message); }
+SettingsStore settings_store{settingsDiagnostic};
 
 // SD I/O happens exclusively in the writer task. Queue overflow is surfaced as a warning.
 enum class RecordKind : uint8_t { Begin, Sample, Event, End };
@@ -484,8 +357,8 @@ struct Recorder final : vega::ISessionRecorder {
 } recorder;
 struct Telemetry final : vega::ITelemetry {
   void publish(const vega::Snapshot &s) override {
-    // Only latest live data, no disconnected backfill.
-    if (mqtt_connected) xQueueOverwrite(transmissions, &s);
+    // Keep the latest full state even offline; never wait for the network.
+    xQueueOverwrite(transmissions, &s);
   }
 } telemetry;
 
@@ -665,7 +538,7 @@ bool readPlan(const char *name, uint8_t course_index, vega::Strategy &out,
 
 void scanPlans(const PlanRequest &request) {
   if (request.course_index != active_course.load()) return;
-  // SD task is the sole caller; keep the bounded catalog off its 8 KB stack.
+  // SD task is the sole caller; keep the bounded catalog off its task stack.
   static PlanChoices found;
   found = {};
   found.course_index = request.course_index;
@@ -719,7 +592,7 @@ void scanPlans(const PlanRequest &request) {
       vega::Strategy parsed{};
       char reason[48]{};
       if (readPlan(desired, request.course_index, parsed, reason, sizeof(reason))) {
-        xQueueOverwrite(strategies, &parsed);
+        publishStrategy(std::make_shared<const vega::Strategy>(std::move(parsed)));
         found.selected = i;
         next = vega::PlanState::Ready;
         found.message[0] = 0;
@@ -844,6 +717,8 @@ void installCourseFile(CourseImport request) {
                 request.filename, static_cast<unsigned>(request.length));
 }
 
+// SD の所有者。カードの再マウント、コース・戦略の取込、計測ログの追記を
+// このタスクに集約し、計測中のファイルを閉じるまでカードを切り替えない。
 void sdTask(void *) {
   auto mount = []() {
     bool ready = media.mount();
@@ -961,7 +836,8 @@ void sdTask(void *) {
           Serial.printf("[SD] session opened %s\n", last_path);
         }
       } else if (active && log && !failed_session) {
-        char line[1100]{};
+        // Only this SD worker uses the buffer. Keep the 100-lap JSON off its stack.
+        static char line[vega::kSessionSampleJsonCapacity];
         size_t n = 0;
         if (r.kind == RecordKind::Sample)
           n = vega::sessionSampleJson(r.data, line, sizeof(line), network_config::machine_id,
@@ -1076,6 +952,7 @@ void sdTask(void *) {
 void netMemory(const char *stage);
 void mqttEvent(void *, esp_event_base_t, int32_t id, void *) {
   if (id == MQTT_EVENT_CONNECTED) {
+    mqtt_connection_generation.fetch_add(1);
     mqtt_connected = true;
     Serial.println("[MQTT] connected");
     netMemory("MQTT connected");
@@ -1093,6 +970,8 @@ void netMemory(const char *stage) {
                 static_cast<unsigned>(heap_caps_get_largest_free_block(dma)),
                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
 }
+// Wi-Fi の再接続と MQTT の開始・停止を管理し、最新の計測値だけを送る。
+// 接続待ちや送信処理は計測・UI タスクから分離する。
 void networkTask(void *) {
   constexpr vega::Millis kWifiRetryMs = 10000;
   const bool wifi_configured = network_config::ssid[0];
@@ -1102,6 +981,7 @@ void networkTask(void *) {
   bool mqtt_started = false;
   bool previous_wifi_ready = false;
   vega::Millis last_wifi_attempt = clock_source.now();
+  vega::LatestTelemetry latest;
   netMemory("before Wi-Fi");
   if (wifi_configured) {
     WiFi.mode(WIFI_STA);
@@ -1147,6 +1027,7 @@ void networkTask(void *) {
         cfg.network.disable_auto_reconnect = false;
         cfg.session.disable_clean_session = false;
         cfg.outbox.limit = 4096;
+        cfg.buffer.out_size = vega::kTelemetryJsonCapacity + 256;
         client = esp_mqtt_client_init(&cfg);
         netMemory("after MQTT init");
         if (client) esp_mqtt_client_register_event(client, MQTT_EVENT_ANY, mqttEvent, nullptr);
@@ -1158,19 +1039,26 @@ void networkTask(void *) {
       }
     }
     vega::Snapshot s{};
-    if (xQueueReceive(transmissions, &s, pdMS_TO_TICKS(500)) == pdTRUE && client &&
-        mqtt_connected) {
-      char payload[1100];
-      auto n = vega::telemetryJson(s, payload, sizeof(payload), network_config::machine_id,
+    if (xQueueReceive(transmissions, &s, pdMS_TO_TICKS(500)) == pdTRUE)
+      latest.update(s);
+    const uint32_t generation = mqtt_connection_generation.load();
+    if (const auto *pending = latest.pending(client && mqtt_connected, generation,
+                                            clock_source.now())) {
+      // Single transport owner; no large JSON buffer on the task stack.
+      static char payload[vega::kTelemetryJsonCapacity];
+      auto n = vega::telemetryJson(*pending, payload, sizeof(payload), network_config::machine_id,
                                    network_config::memo);
-      if (n && clock_source.now() - s.now_ms < 1500) {
+      if (n) {
         int message_id = esp_mqtt_client_publish(client, network_config::topic, payload, n, 0, 0);
         if (message_id < 0) diagnostic("[MQTT] publish failed code=%d", message_id);
+        else latest.sent(generation);
       }
     }
   }
 }
 
+// ドメイン状態の唯一の所有者。車輪と GPS を取り込み、電装 OFF を先に処理してから
+// コマンドを実行し、画面・記録・通信へ公開するスナップショットを更新する。
 void applicationTask(void *) {
   const uint8_t initial_index = savedCourseIndex();
   active_course = initial_index;
@@ -1229,10 +1117,46 @@ void applicationTask(void *) {
   portEXIT_CRITICAL(&wheel_lock);
   attachInterrupt(digitalPinToInterrupt(kReed), reedInterrupt, CHANGE);
   vega::NmeaParser parser;
+  auto requestPlan = [&](uint8_t index, const char *name) {
+    publishStrategy(nullptr);
+    plan_state = vega::PlanState::Loading;
+    PlanRequest request{};
+    request.course_index = index;
+    snprintf(request.filename, sizeof(request.filename), "%s", name);
+    xQueueOverwrite(plan_requests, &request);
+  };
+  auto activateCourse = [&](uint8_t index, const vega::Settings &replacement) {
+    course = vega::Course(*courseAsset(index).data);
+    if (!app.selectCourse(course, index, replacement)) return false;
+    settings_store.select(index);
+    active_course = index;
+    debounce_us = replacement.pulse_debounce_us;
+    wheel_interval_us = wheelIntervalUs(replacement);
+    parser = vega::NmeaParser{};
+    openGps(replacement.gps_source);
+    return true;
+  };
   diagnostic("[APP] ready; electrical OFF; commands: status/start/cancel/lap/on/off/ignite/log");
+  telemetry.publish(app.snapshot());  // Publish an empty history after a fresh boot, too.
+  auto applyPlanTargets = [&]() {
+    const auto state = plan_state.load();
+    if (state == vega::PlanState::Ready) {
+      const auto ready_strategy = strategy();
+      if (!ready_strategy) return false;
+      app.setStrategyTargets(ready_strategy.get());
+    } else {
+      app.setStrategyTargets(nullptr);
+    }
+    return true;
+  };
   for (;;) {
+    // Apply a fully validated plan before accepting START. The override is
+    // copied into snapshots but never persisted with course settings.
+    applyPlanTargets();
     if (urgent_off.exchange(false)) {
       app.power(false);
+      ignition_release_ms = 0;
+      ignition_press_queued = false;
       diagnostic("[APP] electrical OFF; old ON/IGNITE commands invalidated");
     }
     vega::WheelInput input;
@@ -1351,15 +1275,20 @@ void applicationTask(void *) {
     for (unsigned budget = 0; budget < 8 && xQueueReceive(commands, &queued, 0) == pdTRUE;
          ++budget) {
       const auto &command = queued.command;
-      if ((command.kind == CommandKind::PowerOn || command.kind == CommandKind::Ignite) &&
+      if ((command.kind == CommandKind::PowerOn || command.kind == CommandKind::Ignite ||
+           command.kind == CommandKind::IgniteTap) &&
           queued.power_epoch != power_epoch.load(std::memory_order_acquire)) {
+        if (command.kind == CommandKind::Ignite) ignition_press_queued = false;
         diagnostic("[APP] old power command=%u skipped", static_cast<unsigned>(command.kind));
         continue;
       }
       bool ok = true;
       switch (command.kind) {
         case CommandKind::Start:
-          ok = sd_ready && courseCount() && app.start();
+          // SD may have published a ready plan since the loop began. Capture
+          // its targets before app.start() freezes the session settings.
+          ok = sd_ready && courseCount() && plan_state.load() != vega::PlanState::Loading &&
+               applyPlanTargets() && app.start();
           break;
         case CommandKind::Cancel:
           ok = app.cancel();
@@ -1378,6 +1307,11 @@ void applicationTask(void *) {
           break;
         case CommandKind::Ignite:
           ok = app.ignite();
+          ignition_press_queued = false;
+          break;
+        case CommandKind::IgniteTap:
+          ok = app.ignite();
+          if (ok) ok = app.releaseIgnition(clock_source.now());
           break;
         case CommandKind::Configure: {
           const auto old_gps_source = app.snapshot().settings.gps_source;
@@ -1402,24 +1336,8 @@ void applicationTask(void *) {
             const auto replacement = settings_store.load(index);
             ok = vega::validSettings(replacement) &&
                  saveSelection(courseAsset(index).data->id, "none");
-            if (ok) {
-              course = vega::Course(*courseAsset(index).data);
-              ok = app.selectCourse(course, index, replacement);
-            }
-            if (ok) {
-              settings_store.select(index);
-              active_course = index;
-              debounce_us = replacement.pulse_debounce_us;
-              wheel_interval_us = wheelIntervalUs(replacement);
-              parser = vega::NmeaParser{};
-              openGps(replacement.gps_source);
-              xQueueReset(strategies);
-              plan_state = vega::PlanState::Loading;
-              PlanRequest request{};
-              request.course_index = index;
-              snprintf(request.filename, sizeof(request.filename), "none");
-              xQueueOverwrite(plan_requests, &request);
-            }
+            if (ok) ok = activateCourse(index, replacement);
+            if (ok) requestPlan(index, "none");
           }
           break;
         }
@@ -1435,14 +1353,7 @@ void applicationTask(void *) {
             const char *name = command.choice == 0 ? "none" :
                                choices.items[command.choice].filename;
             ok = saveSelection(courseAsset(current.course_index).data->id, name);
-            if (ok) {
-              xQueueReset(strategies);
-              plan_state = vega::PlanState::Loading;
-              PlanRequest request{};
-              request.course_index = current.course_index;
-              snprintf(request.filename, sizeof(request.filename), "%s", name);
-              xQueueOverwrite(plan_requests, &request);
-            }
+            if (ok) requestPlan(current.course_index, name);
           }
           break;
         }
@@ -1451,12 +1362,9 @@ void applicationTask(void *) {
           ok = current.race.phase == vega::RacePhase::Waiting &&
                current.engine == vega::EnginePhase::Off;
           if (ok) {
-            PlanRequest request{};
-            request.course_index = current.course_index;
-            savedPlanName(request.filename, sizeof(request.filename));
-            xQueueReset(strategies);
-            plan_state = vega::PlanState::Loading;
-            xQueueOverwrite(plan_requests, &request);
+            char name[48];
+            savedPlanName(name, sizeof(name));
+            requestPlan(current.course_index, name);
           }
           break;
         }
@@ -1466,14 +1374,7 @@ void applicationTask(void *) {
                current.engine == vega::EnginePhase::Off &&
                command.choice == current.course_index &&
                saveSelection(courseAsset(current.course_index).data->id, "strategy.json");
-          if (ok) {
-            xQueueReset(strategies);
-            plan_state = vega::PlanState::Loading;
-            PlanRequest request{};
-            request.course_index = current.course_index;
-            snprintf(request.filename, sizeof(request.filename), "strategy.json");
-            xQueueOverwrite(plan_requests, &request);
-          }
+          if (ok) requestPlan(current.course_index, "strategy.json");
           break;
         }
         case CommandKind::LoadSdCourses: {
@@ -1483,25 +1384,27 @@ void applicationTask(void *) {
           if (ok) {
             const uint8_t index = savedCourseIndex();
             const auto replacement = settings_store.load(index);
-            course = vega::Course(*courseAsset(index).data);
-            ok = app.selectCourse(course, index, replacement);
+            ok = activateCourse(index, replacement);
             if (ok) {
-              settings_store.select(index);
-              active_course = index;
-              debounce_us = replacement.pulse_debounce_us;
-              wheel_interval_us = wheelIntervalUs(replacement);
-              parser = vega::NmeaParser{};
-              openGps(replacement.gps_source);
-              PlanRequest request{};
-              request.course_index = index;
-              savedPlanName(request.filename, sizeof(request.filename));
-              xQueueOverwrite(plan_requests, &request);
+              char name[48];
+              savedPlanName(name, sizeof(name));
+              requestPlan(index, name);
             }
           }
           break;
         }
       }
       diagnostic("[APP] command=%u accepted=%u", static_cast<unsigned>(command.kind), ok);
+    }
+    const auto released_ms = ignition_release_ms.load(std::memory_order_acquire);
+    if (released_ms) {
+      if (app.snapshot().engine == vega::EnginePhase::Holding) {
+        const auto first_release = ignition_release_ms.exchange(0);
+        if (first_release && !app.releaseIgnition(first_release))
+          diagnostic("[APP] ignition release failed");
+      } else if (!ignition_press_queued.load(std::memory_order_acquire)) {
+        ignition_release_ms = 0;
+      }
     }
     app.tick();
     auto s = app.snapshot();
@@ -1526,18 +1429,20 @@ bool begin() {
   records = xQueueCreate(48, sizeof(Record));
   transmissions = xQueueCreate(1, sizeof(vega::Snapshot));
   diagnostics = xQueueCreate(16, sizeof(Diagnostic));
-  strategies = xQueueCreate(1, sizeof(vega::Strategy));
+  strategy_lock = xSemaphoreCreateMutex();
   plan_imports = xQueueCreate(1, sizeof(PlanImport));
   course_imports = xQueueCreate(1, sizeof(CourseImport));
   plan_requests = xQueueCreate(1, sizeof(PlanRequest));
   plan_choices = xQueueCreate(1, sizeof(PlanChoices));
-  if (!commands || !snapshots || !records || !transmissions || !diagnostics || !strategies ||
+  if (!commands || !snapshots || !records || !transmissions || !diagnostics || !strategy_lock ||
       !plan_imports || !course_imports || !plan_requests || !plan_choices)
     return false;
+  // Snapshot includes up to 100 completed laps. Reserve headroom for nested
+  // recorder/settings/plan calls; JSON buffers themselves are worker-owned.
   if (xTaskCreate(diagnosticTask, "vega_log", 3072, nullptr, 1, nullptr) != pdPASS ||
-      xTaskCreate(sdTask, "vega_sd", 8192, nullptr, 1, nullptr) != pdPASS ||
+      xTaskCreate(sdTask, "vega_sd", 12288, nullptr, 1, nullptr) != pdPASS ||
       xTaskCreate(networkTask, "vega_net", 8192, nullptr, 1, nullptr) != pdPASS ||
-      xTaskCreate(applicationTask, "vega_app", 8192, nullptr, 4, nullptr) != pdPASS)
+      xTaskCreate(applicationTask, "vega_app", 12288, nullptr, 4, nullptr) != pdPASS)
     return false;
   return true;
 }
@@ -1549,7 +1454,7 @@ bool prepareOutputs() {
   return outputs_prepared;
 }
 void outputsOff() {
-  engine_output.stopPulse();
+  engine_output.stopIgnition();
   engine_output.setPower(false);
 }
 bool submit(const Command &c) {
@@ -1560,11 +1465,23 @@ bool submit(const Command &c) {
     return true;
   }
   QueuedCommand queued{c, power_epoch.load(std::memory_order_acquire)};
-  return xQueueSend(commands, &queued, 0) == pdTRUE;
+  if (c.kind == CommandKind::Ignite) ignition_press_queued = true;
+  const bool accepted = xQueueSend(commands, &queued, 0) == pdTRUE;
+  if (!accepted && c.kind == CommandKind::Ignite) ignition_press_queued = false;
+  return accepted;
+}
+void requestIgnitionRelease(uint64_t released_us) {
+  vega::Millis empty = 0;
+  ignition_release_ms.compare_exchange_strong(
+      empty, released_us ? released_us / 1000 : clock_source.now());
 }
 bool snapshot(vega::Snapshot &s) { return snapshots && xQueuePeek(snapshots, &s, 0) == pdTRUE; }
-bool strategy(vega::Strategy &s) {
-  return strategies && xQueuePeek(strategies, &s, 0) == pdTRUE;
+std::shared_ptr<const vega::Strategy> strategy() {
+  if (!strategy_lock) return {};
+  xSemaphoreTake(strategy_lock, portMAX_DELAY);
+  auto current = current_strategy;
+  xSemaphoreGive(strategy_lock);
+  return current;
 }
 bool planChoices(PlanChoices &out) {
   return plan_choices && xQueuePeek(plan_choices, &out, 0) == pdTRUE;
@@ -1604,61 +1521,291 @@ void requestLogReadback(uint32_t session) {
   readback_session = session;
   readback = true;
 }
+namespace {
+struct SerialTransferState {
+  char *plan = nullptr;
+  size_t plan_expected = 0;
+  size_t plan_received = 0;
+  uint32_t plan_last_ms = 0;
+  CourseImport course{};
+  size_t course_received = 0;
+  uint32_t course_last_ms = 0;
+};
+
+// 計測状態と入出力の診断値を一行にまとめる。読み取り専用。
+void printRuntimeStatus() {
+  vega::Snapshot s;
+  auto st = status();
+  if (snapshot(s))
+    Serial.printf(
+        "[STATUS] phase=%u lap=%u course=%s lap_count=%u total_ms=%llu "
+        "power_phase=%u power_pin=%d ignition_pin=%d "
+        "gps=%u gps_source=%s gps_bytes=%lu gps_rmc=%lu gps_rmc_hz=%lu.%lu pulses=%llu "
+        "sd_ready=%u sd_error=%u sd_last_failure=%s sd_record_lost=%lu "
+        "wifi=%u mqtt=%u ntp=%u total_target_s=%lu "
+        "lap1_target_s=%lu brightness=%lu speed_avg_n=%lu\n",
+        static_cast<unsigned>(s.race.phase), s.race.lap,
+        courseAsset(s.course_index).data->id, s.lap_count, s.race.total_ms,
+        static_cast<unsigned>(s.engine), gpio_get_level(kPower), gpio_get_level(kIgnition),
+        s.gps_fresh, s.settings.gps_source == vega::GpsSource::PortA ? "PORT_A" : "M5BUS",
+        static_cast<unsigned long>(gps_bytes.load(std::memory_order_relaxed)),
+        static_cast<unsigned long>(gps_rmc.load(std::memory_order_relaxed)),
+        static_cast<unsigned long>(gps_rmc_hz_x10.load(std::memory_order_relaxed) / 10),
+        static_cast<unsigned long>(gps_rmc_hz_x10.load(std::memory_order_relaxed) % 10),
+        s.wheel.pulses, st.sd_ready, st.sd_error,
+        sdFailureText(sd_last_failure.load(std::memory_order_relaxed)),
+        static_cast<unsigned long>(record_loss_count.load(std::memory_order_relaxed)),
+        WiFi.status() == WL_CONNECTED, st.mqtt_connected,
+        st.time_valid, static_cast<unsigned long>(s.settings.total_target_s),
+        static_cast<unsigned long>(s.settings.lap_target_s[0]),
+        static_cast<unsigned long>(s.settings.display_brightness),
+        static_cast<unsigned long>(s.settings.speed_average_intervals));
+}
+
+// 計測停止中に戦略ファイルの受信を開始する。後続のバイトは改行を解釈しない。
+void beginPlanUpload(const char *argument, SerialTransferState &transfer) {
+  char *end = nullptr;
+  unsigned long length = strtoul(argument, &end, 10);
+  vega::Snapshot current;
+  if (!end || *end || length == 0 || length > vega::kMaxStrategyFileBytes ||
+      !sd_ready || !snapshot(current) ||
+      current.race.phase != vega::RacePhase::Waiting) {
+    Serial.println("[PLAN UPLOAD] rejected: invalid size, SD unavailable, timing active, "
+                   "or file exists");
+  } else {
+    transfer.plan = static_cast<char *>(malloc(length));
+    if (transfer.plan) {
+      transfer.plan_expected = length;
+      transfer.plan_received = 0;
+      transfer.plan_last_ms = millis();
+      Serial.printf("[PLAN UPLOAD] ready bytes=%lu\n", length);
+    } else Serial.println("[PLAN UPLOAD] allocation failed");
+  }
+}
+
+// コースファイルの保存先、サイズ、状態を検査してから受信領域を確保する。
+void beginCourseUpload(const char *argument, SerialTransferState &transfer) {
+  char folder[41]{}, filename[16]{};
+  unsigned long length = 0, crc = 0;
+  int consumed = 0;
+  vega::Snapshot current;
+  const bool parsed = sscanf(argument, "%40s %15s %lu %lu %n", folder,
+                             filename, &length, &crc, &consumed) == 4 &&
+                      argument[consumed] == 0;
+  if (!parsed || !length || !safeCourseFile(folder, filename, length) ||
+      !sd_ready || !snapshot(current) ||
+      current.race.phase != vega::RacePhase::Waiting ||
+      current.engine != vega::EnginePhase::Off) {
+    Serial.println("[COURSE UPLOAD] rejected: state, path, or size");
+  } else {
+    transfer.course.contents = static_cast<uint8_t *>(
+        heap_caps_malloc(length, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!transfer.course.contents)
+      Serial.println("[COURSE UPLOAD] allocation failed");
+    else {
+      transfer.course.length = length;
+      transfer.course.crc32 = static_cast<uint32_t>(crc);
+      snprintf(transfer.course.folder, sizeof(transfer.course.folder), "%s", folder);
+      snprintf(transfer.course.filename, sizeof(transfer.course.filename), "%s", filename);
+      transfer.course_received = 0;
+      transfer.course_last_ms = millis();
+      Serial.printf("[COURSE UPLOAD] ready bytes=%lu\n", length);
+    }
+  }
+}
+
+// 改行まで受け取った操作命令を処理する。バイナリ転送の開始は受信状態に記録し、
+// 実際のデータ受信は serialPoll() のバイト処理に任せる。
+void handleSerialLine(const char *buffer, SerialTransferState &transfer) {
+  if (viewDiagnostic(buffer)) return;
+  if (!strcmp(buffer, "status")) {
+    printRuntimeStatus();
+  } else if (!strcmp(buffer, "net-mem")) {
+    netMemory("serial request");
+  } else if (!strcmp(buffer, "wheel-debug")) {
+    uint64_t raw, rejected_release, rejected_interval, accepted;
+    portENTER_CRITICAL(&wheel_lock);
+    raw = reed_filter.rawFalls();
+    rejected_release = reed_filter.rejectedRelease();
+    rejected_interval = reed_filter.rejectedInterval();
+    accepted = wheel_input.pulses;
+    portEXIT_CRITICAL(&wheel_lock);
+    Serial.printf("[WHEEL] raw_falls=%llu accepted=%llu rejected_release=%llu "
+                  "rejected_interval=%llu level=%d release_us=%lu interval_us=%lu "
+                  "debounce_us=%lu\n",
+                  raw, accepted, rejected_release, rejected_interval, digitalRead(kReed),
+                  static_cast<unsigned long>(kReedReleaseUs),
+                  static_cast<unsigned long>(wheel_interval_us.load(std::memory_order_relaxed)),
+                  static_cast<unsigned long>(debounce_us.load(std::memory_order_relaxed)));
+  } else if (!strcmp(buffer, "plan-status")) {
+    const auto current = strategy();
+    static PlanChoices choices{};
+    const bool loaded = plan_state.load() == vega::PlanState::Ready && current != nullptr;
+    const bool have_choices = planChoices(choices);
+    Serial.printf("[PLAN] state=%u loaded=%u id=%s selected=%u choices=%u reason=%s\n",
+                  static_cast<unsigned>(plan_state.load()), loaded,
+                  loaded ? current->plan_id : "-", have_choices ? choices.selected : 255,
+                  have_choices ? choices.count : 0,
+                  have_choices ? choices.message : "not scanned");
+  } else if (!strcmp(buffer, "plan-refresh")) {
+    Command refresh{};
+    refresh.kind = CommandKind::RefreshStrategies;
+    Serial.printf("[PLAN] refresh queued=%u\n", submit(refresh));
+  } else if (!strncmp(buffer, "plan-upload ", 12)) {
+    beginPlanUpload(buffer + 12, transfer);
+  } else if (!strncmp(buffer, "course-upload ", 14)) {
+    beginCourseUpload(buffer + 14, transfer);
+  } else if (!strcmp(buffer, "course-list")) {
+    Serial.printf("[COURSE LIST] count=%u\n", static_cast<unsigned>(courseCount()));
+    for (size_t i = 0; i < courseCount(); ++i)
+      Serial.printf("[COURSE LIST] %u %s\n", static_cast<unsigned>(i),
+                    courseAsset(i).data->id);
+  } else if (!strncmp(buffer, "course-select ", 14)) {
+    bool queued = false;
+    for (size_t i = 0; i < courseCount(); ++i)
+      if (!strcmp(buffer + 14, courseAsset(i).data->id)) {
+        Command select{};
+        select.kind = CommandKind::SelectCourse;
+        select.choice = i;
+        queued = submit(select);
+        break;
+      }
+    Serial.printf("[COURSE SELECT] queued=%u\n", queued);
+  } else if (!strcmp(buffer, "course-reboot")) {
+    vega::Snapshot current;
+    if (snapshot(current) && current.race.phase == vega::RacePhase::Waiting &&
+        current.engine == vega::EnginePhase::Off) {
+      Serial.println("[COURSE] rebooting to load microSD catalog");
+      Serial.flush();
+      esp_restart();
+    } else Serial.println("[COURSE] reboot rejected: timing or electrical active");
+  } else if (!strcmp(buffer, "settings")) {
+    vega::Snapshot s;
+    if (snapshot(s))
+      for (size_t i = 0; i < vega::kSettingsFieldCount; ++i) {
+        char value[32];
+        vega::settingText(s.settings, i, value, sizeof(value));
+        Serial.printf("[SETTINGS] %u %s = %s\n", static_cast<unsigned>(i),
+                      vega::settingTitle(i), value);
+        vTaskDelay(1);
+      }
+  } else if (!strcmp(buffer, "gps-nav")) {
+    vega::Snapshot s;
+    if (snapshot(s) && s.settings.gps_source == vega::GpsSource::PortA &&
+        s.race.phase == vega::RacePhase::Waiting) {
+      gps_nav_query_requested = true;
+      Serial.println("[GPS NAV] query queued");
+    } else {
+      Serial.println("[GPS NAV] available only with Port.A GPS before timing");
+    }
+  } else if (!strcmp(buffer, "gps-walk")) {
+    vega::Snapshot s;
+    if (snapshot(s) && s.settings.gps_source == vega::GpsSource::PortA &&
+        s.race.phase == vega::RacePhase::Waiting) {
+      gps_walk_requested = true;
+      Serial.println("[GPS NAV] walking mode queued (RAM only)");
+    } else {
+      Serial.println("[GPS NAV] available only with Port.A GPS before timing");
+    }
+  } else if (!strncmp(buffer, "config ", 7)) {
+    char key[32], value[24];
+    vega::Snapshot s;
+    if (sscanf(buffer + 7, "%31s %23s", key, value) == 2 && snapshot(s)) {
+      Command command{};
+      Serial.printf("[CONFIG] queued=%u\n",
+                    serialConfigCommand(key, value, s.settings, command) && submit(command));
+    } else
+      Serial.println("[CONFIG] use config KEY VALUE");
+  } else if (!strcmp(buffer, "perf"))
+    tab5_lvgl_report_perf();
+  else if (!strcmp(buffer, "log"))
+    requestLogReadback();
+  else if (!strncmp(buffer, "log-read ", 9)) {
+    char *end = nullptr;
+    const unsigned long long session = strtoull(buffer + 9, &end, 10);
+    if (end != buffer + 9 && *end == '\0' && session > 0 && session <= UINT32_MAX)
+      requestLogReadback(static_cast<uint32_t>(session));
+    else
+      Serial.println("[SD READBACK] use log-read SESSION_NUMBER");
+  }
+  else {
+    Command command{};
+    bool known = true;
+    if (!strcmp(buffer, "start"))
+      command.kind = CommandKind::Start;
+    else if (!strcmp(buffer, "cancel"))
+      command.kind = CommandKind::Cancel;
+    else if (!strcmp(buffer, "lap"))
+      command.kind = CommandKind::Lap;
+    else if (!strcmp(buffer, "on"))
+      command.kind = CommandKind::PowerOn;
+    else if (!strcmp(buffer, "off"))
+      command.kind = CommandKind::PowerOff;
+    else if (!strcmp(buffer, "ignite"))
+      command.kind = CommandKind::IgniteTap;
+    else
+      known = false;
+    if (known) {
+      const bool queued = submit(command);
+      Serial.printf("[CMD] queued=%u\n", queued);
+    } else if (buffer[0])
+      Serial.println("[CMD] unknown command");
+  }
+}
+}  // namespace
+
+// UI の周期処理を妨げないよう、1回の呼び出しで読むバイト数を制限する。
+// アップロード中は改行もデータとして扱い、タイムアウト時に未完の領域を解放する。
 void serialPoll() {
   static char buffer[96];
   static size_t count = 0;
-  static char *incoming_plan = nullptr;
-  static size_t incoming_expected = 0, incoming_received = 0;
-  static uint32_t incoming_last_ms = 0;
-  static CourseImport incoming_course{};
-  static size_t course_received = 0;
-  static uint32_t course_last_ms = 0;
-  if (incoming_plan && millis() - incoming_last_ms > 15000) {
+  static SerialTransferState transfer;
+  if (transfer.plan && millis() - transfer.plan_last_ms > 15000) {
     Serial.printf("[PLAN UPLOAD] timeout received=%u expected=%u\n",
-                  static_cast<unsigned>(incoming_received),
-                  static_cast<unsigned>(incoming_expected));
-    free(incoming_plan);
-    incoming_plan = nullptr;
-    incoming_expected = incoming_received = 0;
+                  static_cast<unsigned>(transfer.plan_received),
+                  static_cast<unsigned>(transfer.plan_expected));
+    free(transfer.plan);
+    transfer.plan = nullptr;
+    transfer.plan_expected = transfer.plan_received = 0;
   }
-  if (incoming_course.contents && millis() - course_last_ms > 15000) {
+  if (transfer.course.contents && millis() - transfer.course_last_ms > 15000) {
     Serial.printf("[COURSE UPLOAD] timeout received=%u expected=%u\n",
-                  static_cast<unsigned>(course_received),
-                  static_cast<unsigned>(incoming_course.length));
-    free(incoming_course.contents);
-    incoming_course = {};
-    course_received = 0;
+                  static_cast<unsigned>(transfer.course_received),
+                  static_cast<unsigned>(transfer.course.length));
+    free(transfer.course.contents);
+    transfer.course = {};
+    transfer.course_received = 0;
   }
   for (unsigned budget = 0; budget < 128 && Serial.available(); ++budget) {
     char c = Serial.read();
-    if (incoming_course.contents) {
-      incoming_course.contents[course_received++] = static_cast<uint8_t>(c);
-      course_last_ms = millis();
-      if (course_received == incoming_course.length) {
-        if (xQueueSend(course_imports, &incoming_course, 0) == pdTRUE)
+    if (transfer.course.contents) {
+      transfer.course.contents[transfer.course_received++] = static_cast<uint8_t>(c);
+      transfer.course_last_ms = millis();
+      if (transfer.course_received == transfer.course.length) {
+        if (xQueueSend(course_imports, &transfer.course, 0) == pdTRUE)
           Serial.println("[COURSE UPLOAD] queued");
         else {
-          free(incoming_course.contents);
+          free(transfer.course.contents);
           Serial.println("[COURSE UPLOAD] queue full");
         }
-        incoming_course = {};
-        course_received = 0;
+        transfer.course = {};
+        transfer.course_received = 0;
       }
       continue;
     }
-    if (incoming_plan) {
-      incoming_plan[incoming_received++] = c;
-      incoming_last_ms = millis();
-      if (incoming_received == incoming_expected) {
-        PlanImport request{incoming_plan, incoming_expected};
+    if (transfer.plan) {
+      transfer.plan[transfer.plan_received++] = c;
+      transfer.plan_last_ms = millis();
+      if (transfer.plan_received == transfer.plan_expected) {
+        PlanImport request{transfer.plan, transfer.plan_expected};
         if (xQueueSend(plan_imports, &request, 0) == pdTRUE)
           Serial.println("[PLAN UPLOAD] queued");
         else {
-          free(incoming_plan);
+          free(transfer.plan);
           Serial.println("[PLAN UPLOAD] queue full");
         }
-        incoming_plan = nullptr;
-        incoming_expected = incoming_received = 0;
+        transfer.plan = nullptr;
+        transfer.plan_expected = transfer.plan_received = 0;
       }
       continue;
     }
@@ -1666,255 +1813,7 @@ void serialPoll() {
     if (c == '\n') {
       buffer[count] = 0;
       count = 0;
-      if (viewDiagnostic(buffer)) continue;
-      if (!strcmp(buffer, "status")) {
-        vega::Snapshot s;
-        auto st = status();
-        if (snapshot(s))
-          Serial.printf(
-              "[STATUS] phase=%u lap=%u course=%s lap_count=%u total_ms=%llu "
-              "power_phase=%u power_pin=%d ignition_pin=%d "
-              "gps=%u gps_source=%s gps_bytes=%lu gps_rmc=%lu gps_rmc_hz=%lu.%lu pulses=%llu "
-              "sd_ready=%u sd_error=%u sd_last_failure=%s sd_record_lost=%lu "
-              "wifi=%u mqtt=%u ntp=%u total_target_s=%lu "
-              "lap1_target_s=%lu brightness=%lu speed_avg_n=%lu\n",
-              static_cast<unsigned>(s.race.phase), s.race.lap,
-              courseAsset(s.course_index).data->id, s.lap_count, s.race.total_ms,
-              static_cast<unsigned>(s.engine), gpio_get_level(kPower), gpio_get_level(kIgnition),
-              s.gps_fresh, s.settings.gps_source == vega::GpsSource::PortA ? "PORT_A" : "M5BUS",
-              static_cast<unsigned long>(gps_bytes.load(std::memory_order_relaxed)),
-              static_cast<unsigned long>(gps_rmc.load(std::memory_order_relaxed)),
-              static_cast<unsigned long>(gps_rmc_hz_x10.load(std::memory_order_relaxed) / 10),
-              static_cast<unsigned long>(gps_rmc_hz_x10.load(std::memory_order_relaxed) % 10),
-              s.wheel.pulses, st.sd_ready, st.sd_error,
-              sdFailureText(sd_last_failure.load(std::memory_order_relaxed)),
-              static_cast<unsigned long>(record_loss_count.load(std::memory_order_relaxed)),
-              WiFi.status() == WL_CONNECTED, st.mqtt_connected,
-              st.time_valid, static_cast<unsigned long>(s.settings.total_target_s),
-              static_cast<unsigned long>(s.settings.lap_target_s[0]),
-              static_cast<unsigned long>(s.settings.display_brightness),
-              static_cast<unsigned long>(s.settings.speed_average_intervals));
-      } else if (!strcmp(buffer, "net-mem")) {
-        netMemory("serial request");
-      } else if (!strcmp(buffer, "wheel-debug")) {
-        uint64_t raw, rejected_release, rejected_interval, accepted;
-        portENTER_CRITICAL(&wheel_lock);
-        raw = reed_filter.rawFalls();
-        rejected_release = reed_filter.rejectedRelease();
-        rejected_interval = reed_filter.rejectedInterval();
-        accepted = wheel_input.pulses;
-        portEXIT_CRITICAL(&wheel_lock);
-        Serial.printf("[WHEEL] raw_falls=%llu accepted=%llu rejected_release=%llu "
-                      "rejected_interval=%llu level=%d release_us=%lu interval_us=%lu "
-                      "debounce_us=%lu\n",
-                      raw, accepted, rejected_release, rejected_interval, digitalRead(kReed),
-                      static_cast<unsigned long>(kReedReleaseUs),
-                      static_cast<unsigned long>(wheel_interval_us.load(std::memory_order_relaxed)),
-                      static_cast<unsigned long>(debounce_us.load(std::memory_order_relaxed)));
-      } else if (!strcmp(buffer, "plan-status")) {
-        vega::Strategy current;
-        static PlanChoices choices{};
-        const bool loaded = plan_state.load() == vega::PlanState::Ready && strategy(current);
-        const bool have_choices = planChoices(choices);
-        Serial.printf("[PLAN] state=%u loaded=%u id=%s selected=%u choices=%u reason=%s\n",
-                      static_cast<unsigned>(plan_state.load()), loaded,
-                      loaded ? current.plan_id : "-", have_choices ? choices.selected : 255,
-                      have_choices ? choices.count : 0,
-                      have_choices ? choices.message : "not scanned");
-      } else if (!strcmp(buffer, "plan-refresh")) {
-        Command refresh{};
-        refresh.kind = CommandKind::RefreshStrategies;
-        Serial.printf("[PLAN] refresh queued=%u\n", submit(refresh));
-      } else if (!strncmp(buffer, "plan-upload ", 12)) {
-        char *end = nullptr;
-        unsigned long length = strtoul(buffer + 12, &end, 10);
-        vega::Snapshot current;
-        if (!end || *end || length == 0 || length > vega::kMaxStrategyFileBytes ||
-            !sd_ready || !snapshot(current) ||
-            current.race.phase != vega::RacePhase::Waiting) {
-          Serial.println("[PLAN UPLOAD] rejected: invalid size, SD unavailable, timing active, or file exists");
-        } else {
-          incoming_plan = static_cast<char *>(malloc(length));
-          if (incoming_plan) {
-            incoming_expected = length;
-            incoming_received = 0;
-            incoming_last_ms = millis();
-            Serial.printf("[PLAN UPLOAD] ready bytes=%lu\n", length);
-          } else Serial.println("[PLAN UPLOAD] allocation failed");
-        }
-      } else if (!strncmp(buffer, "course-upload ", 14)) {
-        char folder[41]{}, filename[16]{};
-        unsigned long length = 0, crc = 0;
-        int consumed = 0;
-        vega::Snapshot current;
-        const bool parsed = sscanf(buffer + 14, "%40s %15s %lu %lu %n", folder,
-                                   filename, &length, &crc, &consumed) == 4 &&
-                            buffer[14 + consumed] == 0;
-        if (!parsed || !length || !safeCourseFile(folder, filename, length) ||
-            !sd_ready || !snapshot(current) ||
-            current.race.phase != vega::RacePhase::Waiting ||
-            current.engine != vega::EnginePhase::Off) {
-          Serial.println("[COURSE UPLOAD] rejected: state, path, or size");
-        } else {
-          incoming_course.contents = static_cast<uint8_t *>(
-              heap_caps_malloc(length, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-          if (!incoming_course.contents)
-            Serial.println("[COURSE UPLOAD] allocation failed");
-          else {
-            incoming_course.length = length;
-            incoming_course.crc32 = static_cast<uint32_t>(crc);
-            snprintf(incoming_course.folder, sizeof(incoming_course.folder), "%s", folder);
-            snprintf(incoming_course.filename, sizeof(incoming_course.filename), "%s", filename);
-            course_received = 0;
-            course_last_ms = millis();
-            Serial.printf("[COURSE UPLOAD] ready bytes=%lu\n", length);
-          }
-        }
-      } else if (!strcmp(buffer, "course-list")) {
-        Serial.printf("[COURSE LIST] count=%u\n", static_cast<unsigned>(courseCount()));
-        for (size_t i = 0; i < courseCount(); ++i)
-          Serial.printf("[COURSE LIST] %u %s\n", static_cast<unsigned>(i),
-                        courseAsset(i).data->id);
-      } else if (!strncmp(buffer, "course-select ", 14)) {
-        bool queued = false;
-        for (size_t i = 0; i < courseCount(); ++i)
-          if (!strcmp(buffer + 14, courseAsset(i).data->id)) {
-            Command select{};
-            select.kind = CommandKind::SelectCourse;
-            select.choice = i;
-            queued = submit(select);
-            break;
-          }
-        Serial.printf("[COURSE SELECT] queued=%u\n", queued);
-      } else if (!strcmp(buffer, "course-reboot")) {
-        vega::Snapshot current;
-        if (snapshot(current) && current.race.phase == vega::RacePhase::Waiting &&
-            current.engine == vega::EnginePhase::Off) {
-          Serial.println("[COURSE] rebooting to load microSD catalog");
-          Serial.flush();
-          esp_restart();
-        } else Serial.println("[COURSE] reboot rejected: timing or electrical active");
-      } else if (!strcmp(buffer, "settings")) {
-        vega::Snapshot s;
-        if (snapshot(s))
-          for (size_t i = 0; i < vega::kSettingsFieldCount; ++i) {
-            char value[32];
-            vega::settingText(s.settings, i, value, sizeof(value));
-            Serial.printf("[SETTINGS] %u %s = %s\n", static_cast<unsigned>(i),
-                          vega::settingTitle(i), value);
-            vTaskDelay(1);
-          }
-      } else if (!strcmp(buffer, "gps-nav")) {
-        vega::Snapshot s;
-        if (snapshot(s) && s.settings.gps_source == vega::GpsSource::PortA &&
-            s.race.phase == vega::RacePhase::Waiting) {
-          gps_nav_query_requested = true;
-          Serial.println("[GPS NAV] query queued");
-        } else {
-          Serial.println("[GPS NAV] available only with Port.A GPS before timing");
-        }
-      } else if (!strcmp(buffer, "gps-walk")) {
-        vega::Snapshot s;
-        if (snapshot(s) && s.settings.gps_source == vega::GpsSource::PortA &&
-            s.race.phase == vega::RacePhase::Waiting) {
-          gps_walk_requested = true;
-          Serial.println("[GPS NAV] walking mode queued (RAM only)");
-        } else {
-          Serial.println("[GPS NAV] available only with Port.A GPS before timing");
-        }
-      } else if (!strncmp(buffer, "config ", 7)) {
-        char key[32], value[24];
-        vega::Snapshot s;
-        if (sscanf(buffer + 7, "%31s %23s", key, value) == 2 && snapshot(s)) {
-          Command c{};
-          c.kind = CommandKind::Configure;
-          c.settings = s.settings;
-          c.scope = vega::SettingsScope::General;
-          char *end = nullptr;
-          double number = strtod(value, &end);
-          bool known = true;
-          if (!end || *end || !std::isfinite(number) || number < 0)
-            known = false;
-          else if (!strcmp(key, "power_active_high")) {
-            if (number == 0 || number == 1)
-              c.settings.power_active_high = number == 1;
-            else
-              known = false;
-          } else if (!strcmp(key, "wheel_circumference_m"))
-            c.settings.wheel_circumference_m = number;
-          else if (!strcmp(key, "course_corridor_m")) {
-            c.scope = vega::SettingsScope::Course;
-            c.settings.course_corridor_m = number;
-          }
-          else if (!strcmp(key, "max_gps_step_m"))
-            c.settings.max_gps_step_m = number;
-          else if (!strcmp(key, "min_lap_progress_m")) {
-            c.scope = vega::SettingsScope::Course;
-            c.settings.min_lap_progress_m = number;
-          }
-          else if (number > UINT32_MAX || number != std::floor(number))
-            known = false;
-          else if (!strcmp(key, "ecu_ready_ms"))
-            c.settings.ecu_ready_ms = number;
-          else if (!strcmp(key, "ignition_pulse_ms"))
-            c.settings.ignition_pulse_ms = number;
-          else if (!strcmp(key, "pulse_debounce_us"))
-            c.settings.pulse_debounce_us = number;
-          else if (!strcmp(key, "speed_average_intervals"))
-            c.settings.speed_average_intervals = number;
-          else if (!strcmp(key, "speed_zero_ms"))
-            c.settings.speed_zero_ms = number;
-          else if (!strcmp(key, "gps_stale_ms"))
-            c.settings.gps_stale_ms = number;
-          else if (!strcmp(key, "min_lap_ms")) {
-            c.scope = vega::SettingsScope::Course;
-            c.settings.min_lap_ms = number;
-          } else if (!strcmp(key, "lap_duplicate_ms")) {
-            c.scope = vega::SettingsScope::Course;
-            c.settings.lap_duplicate_ms = number;
-          }
-          else if (!strcmp(key, "pulses_per_revolution"))
-            c.settings.pulses_per_revolution = number;
-          else
-            known = false;
-          Serial.printf("[CONFIG] queued=%u\n",
-                        known && vega::validSettings(c.settings) && submit(c));
-        } else
-          Serial.println("[CONFIG] use config KEY VALUE");
-      } else if (!strcmp(buffer, "perf"))
-        tab5_lvgl_report_perf();
-      else if (!strcmp(buffer, "log"))
-        requestLogReadback();
-      else if (!strncmp(buffer, "log-read ", 9)) {
-        char *end = nullptr;
-        const unsigned long long session = strtoull(buffer + 9, &end, 10);
-        if (end != buffer + 9 && *end == '\0' && session > 0 && session <= UINT32_MAX)
-          requestLogReadback(static_cast<uint32_t>(session));
-        else
-          Serial.println("[SD READBACK] use log-read SESSION_NUMBER");
-      }
-      else {
-        Command command{};
-        bool known = true;
-        if (!strcmp(buffer, "start"))
-          command.kind = CommandKind::Start;
-        else if (!strcmp(buffer, "cancel"))
-          command.kind = CommandKind::Cancel;
-        else if (!strcmp(buffer, "lap"))
-          command.kind = CommandKind::Lap;
-        else if (!strcmp(buffer, "on"))
-          command.kind = CommandKind::PowerOn;
-        else if (!strcmp(buffer, "off"))
-          command.kind = CommandKind::PowerOff;
-        else if (!strcmp(buffer, "ignite"))
-          command.kind = CommandKind::Ignite;
-        else
-          known = false;
-        if (known)
-          Serial.printf("[CMD] queued=%u\n", submit(command));
-        else if (buffer[0])
-          Serial.println("[CMD] unknown command");
-      }
+      handleSerialLine(buffer, transfer);
     } else if (count + 1 < sizeof(buffer))
       buffer[count++] = c;
     else

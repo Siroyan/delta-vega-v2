@@ -29,7 +29,7 @@ struct Settings {
   double wheel_circumference_m = 1.03;
   uint32_t pulses_per_revolution = 1;
   uint32_t ecu_ready_ms = 1000;
-  uint32_t ignition_pulse_ms = 1000;
+  uint32_t ignition_release_delay_ms = 1000;
   bool power_active_high = true;
   uint32_t pulse_debounce_us = 3000;
   uint32_t speed_zero_ms = 3000;
@@ -45,7 +45,7 @@ struct Settings {
 };
 bool validSettings(const Settings &s);
 enum class RacePhase : uint8_t { Waiting, Measuring, Finished };
-enum class EnginePhase : uint8_t { Off, Preparing, Ready, Pulsing, Issued };
+enum class EnginePhase : uint8_t { Off, Preparing, Ready, Holding, ReleaseDelay, Issued };
 enum class EndReason : uint8_t { Finished, Cancelled };
 enum class Event : uint8_t {
   Started,
@@ -97,6 +97,9 @@ struct RaceReading {
   double average_kmh = 0;
   uint32_t session = 0;
   bool lap_approximate = false;
+  // Fixed storage remains safe to copy through the adapter's FreeRTOS queues.
+  std::array<Millis, kMaxRaceLaps> completed_lap_times_ms{};
+  uint8_t completed_lap_count = 0;
 };
 struct MapPosition {
   double x = 0;

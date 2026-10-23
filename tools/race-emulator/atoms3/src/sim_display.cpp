@@ -29,6 +29,7 @@ const char *modeLabel(Mode mode) {
     case Mode::Paused: return "PAUSE";
     case Mode::Finished: return "GOAL";
     case Mode::Stopped: return "STOP";
+    case Mode::Stalled: return "STALL";
   }
   return "?";
 }
@@ -40,6 +41,7 @@ uint16_t modeColor(Mode mode) {
     case Mode::Paused: return kCyan;
     case Mode::Finished: return kGreen;
     case Mode::Stopped: return kAmber;
+    case Mode::Stalled: return kRed;
   }
   return kMuted;
 }
@@ -98,7 +100,8 @@ void update(const Snapshot &snapshot, uint32_t now_ms) {
   view.drawString(line, 64, 84);
   view.setTextSize(1);
   view.setTextColor(kMuted);
-  view.drawString(snapshot.mode == Mode::Running ? "km/h" : "SET km/h", 64, 100);
+  view.drawString(snapshot.strategy_active ? (snapshot.engine_on ? "ENGINE ON / km/h" : "COAST / km/h") :
+                  (snapshot.mode == Mode::Running ? "km/h" : "SET km/h"), 64, 100);
 
   view.setTextDatum(textdatum_t::middle_left);
   view.setTextColor(kText);
@@ -106,7 +109,7 @@ void update(const Snapshot &snapshot, uint32_t now_ms) {
     view.drawString("TAP GO   HOLD NEXT", 5, 112);
   } else if (snapshot.mode == Mode::Paused) {
     view.drawString("TAP RUN  HOLD RESET", 5, 112);
-  } else if (snapshot.mode == Mode::Finished || snapshot.mode == Mode::Stopped) {
+  } else if (snapshot.mode == Mode::Finished || snapshot.mode == Mode::Stopped || snapshot.mode == Mode::Stalled) {
     view.drawString("TAP RESET", 5, 112);
   } else {
     snprintf(line, sizeof(line), "D %.0fm", snapshot.distance_m);

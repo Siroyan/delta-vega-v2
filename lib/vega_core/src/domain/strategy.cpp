@@ -5,6 +5,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <limits>
+#include <utility>
 
 namespace vega {
 namespace {
@@ -118,13 +119,21 @@ bool parseLap(Reader &r, unsigned &lap_number, StrategyLap &lap) {
       if (!r.take('[')) return false;
       for (bool first_run = true; !r.is(']'); first_run = false) {
         if (!first_run && !r.take(',')) return false;
-        if (lap.run_count == kMaxStrategyRunsPerLap) return r.fail("too many runs");
-        if (!parseRun(r, lap.runs[lap.run_count++])) return false;
+        StrategyRun run{};
+        if (!parseRun(r, run)) return false;
+        lap.runs.push_back(run);
       }
       if (!r.take(']')) return false;
+    } else if (!std::strcmp(key, "lap_target_s")) {
+      if (fields & 8) return r.fail("duplicate lap_target_s");
+      fields |= 8;
+      unsigned target = 0;
+      if (!r.integer(target) || target == 0 || target > 86400)
+        return r.fail("invalid lap_target_s");
+      lap.lap_target_s = target;
     } else return r.fail("unknown lap field");
   }
-  return r.take('}') && (fields == 7 || r.fail("missing lap field"));
+  return r.take('}') && ((fields & 7) == 7 || r.fail("missing lap field"));
 }
 }  // namespace
 
@@ -143,6 +152,7 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
   Strategy candidate{};
   unsigned schema = 0, fields = 0;
   bool seen[kLapCount]{};
+  bool lap_targets[kLapCount]{};
   if (!r.take('{')) return report(r.error());
   for (bool first = true; !r.is('}'); first = false) {
     if (!first && !r.take(',')) return report(r.error());
@@ -168,6 +178,13 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
       if (!std::strcmp(type, "demo")) candidate.demo = true;
       else if (!std::strcmp(type, "race")) candidate.demo = false;
       else return report("unknown plan_type");
+    } else if (!std::strcmp(key, "total_target_s")) {
+      if (fields & 32) return report("duplicate total_target_s");
+      fields |= 32;
+      unsigned target = 0;
+      if (!r.integer(target) || target == 0 || target > 86400)
+        return report("invalid total_target_s");
+      candidate.total_target_s = target;
     } else if (!std::strcmp(key, "laps")) {
       if (fields & 8) return report("duplicate laps");
       fields |= 8;
@@ -180,7 +197,8 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
         if (lap_number < 1 || lap_number > course.lapCount() || seen[lap_number - 1])
           return report("invalid or duplicate lap number");
         seen[lap_number - 1] = true;
-        candidate.laps[lap_number - 1] = lap;
+        lap_targets[lap_number - 1] = lap.lap_target_s != 0;
+        candidate.laps[lap_number - 1] = std::move(lap);
       }
       if (!r.take(']')) return report(r.error());
     } else return report("unknown strategy field");
@@ -188,14 +206,18 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
   if (!r.take('}') || !r.end()) return report("trailing or invalid JSON");
   // The first bundled dummy was installed on development cards before
   // plan_type existed. Accept only that named demo for compatibility.
-  if (fields == 15 && !std::strcmp(candidate.plan_id, "dummy-race-001"))
+  if (schema == 1 && fields == 15 && !std::strcmp(candidate.plan_id, "dummy-race-001"))
     candidate.demo = true;
-  else if (fields != 31)
+  else if (fields != (schema == 2 ? 63u : 31u))
     return report("missing strategy field");
-  if (schema != 1) return report("unsupported schema");
+  if (schema != 1 && schema != 2) return report("unsupported schema");
+  if (schema == 1 && (fields & 32)) return report("target fields require schema 2");
+  candidate.targets_explicit = schema == 2;
   if (std::strcmp(candidate.course_id, expected_course_id)) return report("course_id mismatch");
   for (size_t i = 0; i < course.lapCount(); ++i) {
     if (!seen[i]) return report("missing lap");
+    if (lap_targets[i] != candidate.targets_explicit)
+      return report("lap_target_s does not match schema");
     auto &lap = candidate.laps[i];
     const auto expected_route = i == 0 ? CourseRoute::First
                                 : i == course.lapCount() - 1 ? CourseRoute::Final
@@ -203,30 +225,29 @@ bool parseStrategy(const char *json, size_t length, const Course &course,
     if (lap.route != expected_route || !course.hasRoute(lap.route))
       return report("route_id mismatch");
     const double length_m = course.routeLength(lap.route);
-    if (!std::isfinite(length_m) || length_m <= 0 || !lap.run_count)
+    if (!std::isfinite(length_m) || length_m <= 0 || lap.runs.empty())
       return report("empty or invalid route");
     lap.route_length_m = length_m;
     double previous_off = -1;
-    for (size_t j = 0; j < lap.run_count; ++j) {
-      const auto &run = lap.runs[j];
+    for (const auto &run : lap.runs) {
       if (run.on_s_m < 0 || run.on_s_m <= previous_off ||
           run.off_s_m <= run.on_s_m || run.off_s_m > length_m)
         return report("run positions out of range or order");
       previous_off = run.off_s_m;
     }
   }
-  out = candidate;
+  out = std::move(candidate);
   if (error && error_capacity) error[0] = 0;
   return true;
 }
 
 NextStrategyCue nextStrategyCue(const StrategyLap &lap, double s_m, double route_length_m) {
   const double current = std::isfinite(s_m) ? std::fmax(0.0, s_m) : 0.0;
-  for (size_t i = 0; i < lap.run_count; ++i) {
-    if (current <= lap.runs[i].on_s_m)
-      return {StrategyCue::On, lap.runs[i].on_s_m - current};
-    if (current <= lap.runs[i].off_s_m)
-      return {StrategyCue::Off, lap.runs[i].off_s_m - current};
+  for (const auto &run : lap.runs) {
+    if (current <= run.on_s_m)
+      return {StrategyCue::On, run.on_s_m - current};
+    if (current <= run.off_s_m)
+      return {StrategyCue::Off, run.off_s_m - current};
   }
   return {StrategyCue::LapEnd, std::fmax(0.0, route_length_m - current)};
 }

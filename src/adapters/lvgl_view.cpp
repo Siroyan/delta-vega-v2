@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 #include "../ui/actions.h"
 #include "../ui/fonts.h"
@@ -29,7 +30,7 @@ namespace tab5 {
 void finishEdit();
 void pressKey(size_t index);
 lv_obj_t *controlHit(int16_t x, int16_t y);
-void controlAction(lv_obj_t *control);
+void controlAction(lv_obj_t *control, ControlEvent event, const ControlTouch &touch);
 void controlCleanup();
 void manualFinishConfirm();
 void manualFinishDismiss();
@@ -139,7 +140,7 @@ lv_obj_t *brightness_value = nullptr;
 bool refreshing_brightness = false;
 uint64_t save_started = 0;
 uint32_t pending_settings_attempt = 0;
-char message[180] = "TARGET / MM:SS - COORDINATES / DEGREES";
+char message[180] = "START / TIMING / GOAL - COORDINATES / DEGREES";
 constexpr int32_t kCourseMapSize = 480;
 constexpr size_t kCourseMapCount = 10;
 constexpr double kLapLineHalfLength = 22.0;
@@ -194,13 +195,12 @@ lv_obj_tree_walk_res_t installGeneratedButtonSound(lv_obj_t *obj, void *) {
 constexpr size_t kPlanLinePoints = 96;
 struct PlanLine {
   lv_obj_t *object = nullptr;
-  std::array<lv_point_precise_t, kPlanLinePoints> points{};
+  std::vector<lv_point_precise_t> points;
 };
 struct PlanMap {
-  std::array<PlanLine, vega::kMaxStrategyRunsPerLap> acceleration{};
-  std::array<PlanLine, vega::kMaxStrategyRunsPerLap + 1> coasting{};
-  std::array<lv_obj_t *, vega::kMaxStrategyRunsPerLap> on_backing{}, on_flame{},
-      off_square{};
+  lv_obj_t *parent = nullptr;
+  std::vector<PlanLine> acceleration, coasting;
+  std::vector<lv_obj_t *> on_backing, on_flame, off_square;
   uint8_t shown_lap = 0;
   bool shown = false;
 };
@@ -231,6 +231,7 @@ void drawPlanLine(PlanLine &line, const vega::CoursePath &path,
   }
   const size_t count = std::min(kPlanLinePoints,
                                 static_cast<size_t>(std::ceil((to_m - from_m) / 15)) + 2);
+  line.points.resize(count);
   for (size_t i = 0; i < count; ++i) {
     const double s_m = from_m + (to_m - from_m) * i / (count - 1);
     line.points[i] = planPixel(path, s_m);
@@ -242,7 +243,7 @@ void drawPlanLine(PlanLine &line, const vega::CoursePath &path,
 void hidePlanMap(PlanMap &map) {
   for (auto &line : map.acceleration) visible(line.object, false);
   for (auto &line : map.coasting) visible(line.object, false);
-  for (size_t i = 0; i < vega::kMaxStrategyRunsPerLap; ++i) {
+  for (size_t i = 0; i < map.on_flame.size(); ++i) {
     visible(map.on_backing[i], false);
     visible(map.on_flame[i], false);
     visible(map.off_square[i], false);
@@ -251,6 +252,8 @@ void hidePlanMap(PlanMap &map) {
   map.shown_lap = 0;
 }
 
+void resizePlanMap(PlanMap &map, size_t run_count);
+
 void renderPlanMap(PlanMap &map, const vega::DisplayModel &model) {
   if (!model.plan_loaded) {
     if (map.shown) hidePlanMap(map);
@@ -258,17 +261,10 @@ void renderPlanMap(PlanMap &map, const vega::DisplayModel &model) {
   }
   if (map.shown && map.shown_lap == model.plan_lap_number) return;
   const auto &lap = model.plan_lap;
+  resizePlanMap(map, lap.runs.size());
   const auto &path = courseData().routes[static_cast<size_t>(lap.route)];
   double previous_off = 0;
-  for (size_t i = 0; i < vega::kMaxStrategyRunsPerLap; ++i) {
-    if (i >= lap.run_count) {
-      visible(map.acceleration[i].object, false);
-      visible(map.coasting[i].object, false);
-      visible(map.on_backing[i], false);
-      visible(map.on_flame[i], false);
-      visible(map.off_square[i], false);
-      continue;
-    }
+  for (size_t i = 0; i < lap.runs.size(); ++i) {
     const auto &run = lap.runs[i];
     drawPlanLine(map.coasting[i], path, previous_off, run.on_s_m);
     drawPlanLine(map.acceleration[i], path, run.on_s_m, run.off_s_m);
@@ -286,14 +282,39 @@ void renderPlanMap(PlanMap &map, const vega::DisplayModel &model) {
     visible(map.off_square[i], true);
     previous_off = run.off_s_m;
   }
-  drawPlanLine(map.coasting[lap.run_count], path, previous_off, lap.route_length_m);
-  for (size_t i = lap.run_count + 1; i < map.coasting.size(); ++i)
-    visible(map.coasting[i].object, false);
+  drawPlanLine(map.coasting[lap.runs.size()], path, previous_off, lap.route_length_m);
   map.shown = true;
   map.shown_lap = model.plan_lap_number;
 }
 
 void createPlanMap(PlanMap &map, lv_obj_t *parent) {
+  // Keep dynamically recreated plan objects below the position/start/goal
+  // markers and legend, which are created after this transparent layer.
+  map.parent = lv_obj_create(parent);
+  lv_obj_remove_style_all(map.parent);
+  lv_obj_set_pos(map.parent, 0, 0);
+  lv_obj_set_size(map.parent, kCourseMapSize, kCourseMapSize);
+  lv_obj_remove_flag(map.parent, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(map.parent, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+void resizePlanMap(PlanMap &map, size_t run_count) {
+  if (map.acceleration.size() == run_count && map.coasting.size() == run_count + 1) return;
+  // LVGL retains pointers into PlanLine::points. Delete the old lines before
+  // resizing so vector relocation never leaves a dangling point buffer.
+  for (auto &line : map.acceleration) lv_obj_delete(line.object);
+  for (auto &line : map.coasting) lv_obj_delete(line.object);
+  for (auto *object : map.on_backing) lv_obj_delete(object);
+  for (auto *object : map.on_flame) lv_obj_delete(object);
+  for (auto *object : map.off_square) lv_obj_delete(object);
+  map.acceleration.clear();
+  map.coasting.clear();
+  map.acceleration.resize(run_count);
+  map.coasting.resize(run_count + 1);
+  map.on_backing.resize(run_count);
+  map.on_flame.resize(run_count);
+  map.off_square.resize(run_count);
+  auto *parent = map.parent;
   auto make_line = [parent](PlanLine &line, uint32_t color) {
     line.object = lv_line_create(parent);
     lv_obj_set_pos(line.object, 0, 0);
@@ -306,7 +327,7 @@ void createPlanMap(PlanMap &map, lv_obj_t *parent) {
   };
   for (auto &line : map.acceleration) make_line(line, 0xDB741D);
   for (auto &line : map.coasting) make_line(line, 0x1769B2);
-  for (size_t i = 0; i < vega::kMaxStrategyRunsPerLap; ++i) {
+  for (size_t i = 0; i < run_count; ++i) {
     auto *backing = lv_obj_create(parent);
     lv_obj_set_size(backing, 44, 44);
     lv_obj_set_style_pad_all(backing, 0, 0);
@@ -465,17 +486,15 @@ void updateCourseMarkers(const vega::Settings &settings) {
 }
 
 lv_obj_t *fieldButton(size_t i) {
-  lv_obj_t *fields[] = {objects.settings_total_button,      objects.settings_lap1_button,
-                        objects.settings_lap2_button,       objects.settings_lap3_button,
-                        objects.settings_lap4_button,       objects.settings_lap5_button,
-                        objects.settings_lap6_button,       objects.settings_lap7_button,
+  lv_obj_t *fields[] = {nullptr, nullptr, nullptr, nullptr,
+                        nullptr, nullptr, nullptr, nullptr,
                         objects.settings_start_lat_button,  objects.settings_start_lon_button,
                         objects.settings_timing_lat_button, objects.settings_timing_lon_button,
                         objects.settings_goal_lat_button,   objects.settings_goal_lon_button,
                         objects.settings_advanced_wheel_circ_button,
                         objects.settings_advanced_pulses_per_rev_button,
                         objects.settings_advanced_ecu_ready_button,
-                        objects.settings_advanced_ignition_pulse_button,
+                        objects.settings_advanced_ignition_release_delay_button,
                         objects.settings_advanced_power_high_button,
                         objects.settings_advanced_debounce_button,
                         objects.settings_advanced_zero_speed_button,
@@ -489,7 +508,7 @@ lv_obj_t *fieldButton(size_t i) {
   return i < vega::kSettingsFieldCount ? fields[i] : nullptr;
 }
 void refreshFields() {
-  for (size_t i = 0; i < vega::kSettingsFieldCount; ++i) {
+  for (size_t i = 8; i < vega::kSettingsFieldCount; ++i) {
     char value[32];
     vega::settingText(draft, i, value, sizeof(value));
     text(lv_obj_get_child(fieldButton(i), 0), value);
@@ -518,7 +537,8 @@ bool sameSettings(const vega::Settings &a, const vega::Settings &b) {
          a.goal.longitude == b.goal.longitude &&
          a.wheel_circumference_m == b.wheel_circumference_m &&
          a.pulses_per_revolution == b.pulses_per_revolution &&
-         a.ecu_ready_ms == b.ecu_ready_ms && a.ignition_pulse_ms == b.ignition_pulse_ms &&
+         a.ecu_ready_ms == b.ecu_ready_ms &&
+         a.ignition_release_delay_ms == b.ignition_release_delay_ms &&
          a.power_active_high == b.power_active_high && a.pulse_debounce_us == b.pulse_debounce_us &&
          a.speed_average_intervals == b.speed_average_intervals &&
          a.speed_zero_ms == b.speed_zero_ms && a.gps_stale_ms == b.gps_stale_ms &&
@@ -538,6 +558,8 @@ void refreshBrightnessControl() {
 }
 class View final : public vega::IView {
  public:
+  // 同じ計測情報を各ライブ画面に反映する。画面外の操作部品も更新し、
+  // 戻ってきたときに古い電装・点火状態が見えないようにする。
   void show(const vega::DisplayModel &m) override {
     for (auto &page : gps_coordinate_labels) {
       text(page[0], m.gps_latitude);
@@ -696,7 +718,7 @@ class View final : public vega::IView {
     }
     bool editable = m.phase != vega::RacePhase::Measuring && !save_pending;
     enabled(brightness_slider, editable);
-    for (size_t i = 0; i < vega::kSettingsFieldCount; ++i) enabled(fieldButton(i), editable);
+    for (size_t i = 8; i < vega::kSettingsFieldCount; ++i) enabled(fieldButton(i), editable);
     enabled(objects.settings_advanced_gps_m5bus_button, editable);
     enabled(objects.settings_advanced_gps_port_a_button, editable);
     for (size_t i = 16; i <= 18; ++i) enabled(fieldButton(i), editable && !m.power_on);
@@ -956,6 +978,8 @@ void setupSelectionUi() {
 
 void viewOpenSelection() { openSelection(); }
 
+// EEZ 生成画面へ実行時の地図・設定・選択オーバーレイを追加し、
+// ボタン入力と画面遷移を結び付ける。生成ファイル自体は変更しない。
 void viewBegin() {
   // Both live pages have the same free space between race status and clock.
   auto createGpsCoordinateLabel = [](lv_obj_t *screen, int y, const char *initial) {
@@ -1041,7 +1065,8 @@ void viewBegin() {
     visible(arc, false);
     if (flame) lv_obj_move_foreground(flame);
   }
-  tab5_lvgl_set_control_handlers(controlHit, controlAction, controlCleanup);
+  tab5_lvgl_set_control_handlers(controlHit, controlAction, controlCleanup,
+                                 requestIgnitionRelease);
   brightness_slider = lv_slider_create(objects.settings_brightness_control);
   lv_obj_set_pos(brightness_slider, 4, 0);
   lv_obj_set_size(brightness_slider, 204, 46);
@@ -1220,6 +1245,8 @@ void viewBegin() {
   course_markers_positioned = false;
   loadScreen(SCREEN_ID_WAITING);
 }
+// アプリの最新状態を描画し、コース変更時には地図とマーカーを入れ替える。
+// SD の抜き差し確認は選択画面を開いている間だけ行う。
 void viewUpdate() {
   vega::Snapshot s;
   if (!snapshot(s)) return;
@@ -1248,16 +1275,6 @@ void viewUpdate() {
     choices_initialized = false;
     text(selection_message, "LOADING STRATEGIES...");
   }
-  lv_obj_t *extra_lap_fields[] = {
-      objects.settings_lap5_title, objects.settings_lap5_button,
-      objects.settings_lap6_title, objects.settings_lap6_button,
-      objects.settings_lap7_title, objects.settings_lap7_button};
-  for (size_t i = 0; i < 3; ++i) {
-    visible(extra_lap_fields[i * 2], s.lap_count > i + 4);
-    visible(extra_lap_fields[i * 2 + 1], s.lap_count > i + 4);
-  }
-  text(objects.settings_lap7_title, s.lap_count > vega::kLapCount
-                                       ? "LAP 7+ TARGET" : "LAP 7 TARGET");
   if (painted_course_index != s.course_index) {
     for (size_t i = 0; i < courseCount() && i < 8; ++i)
       if (course_buttons[i]) styleSelectionButton(course_buttons[i], i == s.course_index);
@@ -1289,8 +1306,15 @@ void viewUpdate() {
                                     : "SAVE NOT ACCEPTED - TRY AGAIN");
     }
   }
-  vega::Strategy strategy_data;
-  const bool plan_loaded = strategy(strategy_data);
+  const auto strategy_data = strategy();
+  static std::shared_ptr<const vega::Strategy> displayed_strategy;
+  if (displayed_strategy != strategy_data) {
+    // A new selection can finish loading between two UI frames. Redraw even
+    // when the lap number stays the same and no Loading frame was displayed.
+    for (auto &map : plan_maps) hidePlanMap(map);
+    displayed_strategy = strategy_data;
+  }
+  const bool plan_loaded = strategy_data != nullptr;
   const auto ui_status = status();
   if (s.race.phase != vega::RacePhase::Measuring) {
     strategy_warning.reset();
@@ -1299,16 +1323,17 @@ void viewUpdate() {
     vega::StrategyCue cue;
     if (strategy_warning.update(
             s.race.session, s.race.lap, s.gps_fresh && s.route_map.on_course,
-            strategy_data.laps[s.race.lap - 1], s.route_map.s_m, cue)) {
+            strategy_data->laps[s.race.lap - 1], s.route_map.s_m, cue)) {
       audioStrategyWarning();
       Serial.printf("[AUDIO] strategy %s warning lap=%u position=%.1f m\n",
                     cue == vega::StrategyCue::On ? "ON" : "OFF", s.race.lap,
                     s.route_map.s_m);
     }
   }
-  presenter.render(s, ui_status, plan_loaded ? &strategy_data : nullptr);
+  presenter.render(s, ui_status, strategy_data.get());
   enabled(objects.start_button, s.race.phase == vega::RacePhase::Waiting &&
-                                ui_status.sd_ready && courseCount() != 0);
+                                ui_status.sd_ready && courseCount() != 0 &&
+                                ui_status.plan_state != vega::PlanState::Loading);
   static PlanChoices choices{};
   if (planChoices(choices) && choices.course_index == s.course_index) {
     refreshSelectionList(choices);
@@ -1353,7 +1378,7 @@ void viewOpenSettings() {
   refreshBrightnessControl();
   setMessage(presenter.phase() == vega::RacePhase::Measuring
                  ? "TIMING ACTIVE - SETTINGS LOCKED"
-                 : "TARGET / MM:SS - COORDINATES / DEGREES");
+                 : "START / TIMING / GOAL - COORDINATES / DEGREES");
   visible(objects.settings_advanced_overlay, false);
   visible(objects.settings_general_overlay, false);
   visible(objects.settings_editor_overlay, false);
@@ -1394,21 +1419,17 @@ void selectGpsSource(vega::GpsSource source) {
 }
 
 void editField(size_t index) {
-  if (index >= vega::kSettingsFieldCount || presenter.phase() == vega::RacePhase::Measuring ||
+  if (index < 8 || index >= vega::kSettingsFieldCount ||
+      presenter.phase() == vega::RacePhase::Measuring ||
       save_pending)
     return;
   editing_field = index;
   char value[32];
   vega::settingText(draft, index, value, sizeof(value));
-  vega::Snapshot current;
-  const bool extended_laps = snapshot(current) && current.lap_count > vega::kLapCount;
-  text(objects.settings_editor_title,
-       index == 7 && extended_laps
-           ? "LAP 7+ TARGET" : vega::settingTitle(index));
+  text(objects.settings_editor_title, vega::settingTitle(index));
   // set_text filters each character using the current accepted_chars.
   lv_textarea_set_accepted_chars(objects.settings_editor_input,
-                                 index < 8                          ? "0123456789:"
-                                 : index < 14                       ? "0123456789.-"
+                                 index < 14                         ? "0123456789.-"
                                  : index == 14 || (index >= 22 && index <= 24)
                                                                      ? "0123456789."
                                                                      : "0123456789");
@@ -1436,8 +1457,7 @@ void finishEdit() {
   if (!vega::editSetting(draft, editing_field,
                          lv_textarea_get_text(objects.settings_editor_input))) {
     text(objects.settings_editor_title,
-         editing_field < 8 ? "INVALID - USE MM:SS"
-         : editing_field < 14 ? "INVALID COORDINATE" : "INVALID VALUE OR RANGE");
+         editing_field < 14 ? "INVALID COORDINATE" : "INVALID VALUE OR RANGE");
     return;
   }
   refreshFields();
@@ -1504,14 +1524,6 @@ void manualFinishConfirm() {
   }
 }
 void manualFinishDismiss() { visible(finish_overlay, false); }
-void ignite() {
-  if (request(CommandKind::Ignite)) {
-    ignition_pending = true;
-    enabled(objects.ignition_switch, false);
-    enabled(objects.waiting_ignition_switch, false);
-    enabled(objects.finished_ignition_switch, false);
-  }
-}
 lv_obj_t *controlHit(int16_t x, int16_t y) {
   auto *screen = lv_screen_active();
   const ControlPage *page = nullptr;
@@ -1535,10 +1547,18 @@ lv_obj_t *controlHit(int16_t x, int16_t y) {
   if (hit == page->ignition && !lv_obj_has_state(hit, LV_STATE_DISABLED)) return hit;
   return nullptr;
 }
-void controlAction(lv_obj_t *control) {
+void controlAction(lv_obj_t *control, ControlEvent event, const ControlTouch &touch) {
+  if (event == ControlEvent::Release) {
+    for (const auto &page : control_pages)
+      if (control == page.ignition) {
+        tab5_lvgl_finish_control_release(touch);
+        return;
+      }
+    return;
+  }
   for (const auto &page : control_pages) {
     if (lv_screen_active() != page.screen) continue;
-    if (control == page.power) {
+    if (event == ControlEvent::Tap && control == page.power) {
       const auto next = power_intent.nextTap();
       if (next == PowerRequest::None) return;
       if (request(next == PowerRequest::On ? CommandKind::PowerOn : CommandKind::PowerOff)) {
@@ -1548,10 +1568,17 @@ void controlAction(lv_obj_t *control) {
       }
       return;
     }
-    if (control == page.ignition && !lv_obj_has_state(control, LV_STATE_DISABLED)) {
+    if (event == ControlEvent::Press && control == page.ignition &&
+        !lv_obj_has_state(control, LV_STATE_DISABLED)) {
+      if (!tab5_lvgl_prepare_control_release(touch.gesture_us)) return;
       ++ignition_taps;
-      ignite();
-      audioButton();
+      if (request(CommandKind::Ignite)) {
+        tab5_lvgl_activate_control_release();
+        ignition_pending = true;
+        for (const auto &control_page : control_pages)
+          enabled(control_page.ignition, false);
+        audioButton();
+      } else tab5_lvgl_cancel_control_release();
       return;
     }
   }
@@ -1620,17 +1647,18 @@ bool viewDiagnostic(const char *command) {
   } else if (!strcmp(command, "ui-plan")) {
     const auto &plan_map =
         lv_screen_active() == objects.waiting ? plan_maps[1] : plan_maps[0];
+    const bool have_run = !plan_map.on_flame.empty();
     Serial.printf("[UI PLAN] shown=%u lap=%u orange=%u blue=%u on=%d,%d off=%d,%d "
                   "action=%s plan_status=%s\n",
                   plan_map.shown, plan_map.shown_lap,
-                  plan_map.shown &&
+                  plan_map.shown && have_run &&
                       !lv_obj_has_flag(plan_map.acceleration[0].object, LV_OBJ_FLAG_HIDDEN),
-                  plan_map.shown &&
+                  plan_map.shown && have_run &&
                       !lv_obj_has_flag(plan_map.coasting[0].object, LV_OBJ_FLAG_HIDDEN),
-                  lv_obj_get_x(plan_map.on_flame[0]) + 20,
-                  lv_obj_get_y(plan_map.on_flame[0]) + 20,
-                  lv_obj_get_x(plan_map.off_square[0]) + 12,
-                  lv_obj_get_y(plan_map.off_square[0]) + 12,
+                  have_run ? lv_obj_get_x(plan_map.on_flame[0]) + 20 : 0,
+                  have_run ? lv_obj_get_y(plan_map.on_flame[0]) + 20 : 0,
+                  have_run ? lv_obj_get_x(plan_map.off_square[0]) + 12 : 0,
+                  have_run ? lv_obj_get_y(plan_map.off_square[0]) + 12 : 0,
                   lv_label_get_text(objects.next_action_label),
                   lv_label_get_text(objects.plan_status_label));
   } else if (!strcmp(command, "ui-settings"))
@@ -1661,7 +1689,7 @@ bool viewDiagnostic(const char *command) {
     unsigned index;
     char extra;
     if (sscanf(command + 17, "%u%c", &index, &extra) == 1 &&
-        index < vega::kSettingsFieldCount) {
+        index >= 8 && index < vega::kSettingsFieldCount) {
       if ((index >= 14 && index <= 21) || index == 23 || index == 27) viewOpenGeneral();
       else if (index >= 22) viewOpenAdvanced();
       lv_obj_send_event(fieldButton(index), LV_EVENT_CLICKED, nullptr);
@@ -1676,7 +1704,8 @@ bool viewDiagnostic(const char *command) {
   else if (!strncmp(command, "ui-edit ", 8)) {
     unsigned index;
     char value[25];
-    if (sscanf(command + 8, "%u %24s", &index, value) == 2 && index < vega::kSettingsFieldCount) {
+    if (sscanf(command + 8, "%u %24s", &index, value) == 2 &&
+        index >= 8 && index < vega::kSettingsFieldCount) {
       if ((index >= 14 && index <= 21) || index == 23 || index == 27) viewOpenGeneral();
       else if (index >= 22) viewOpenAdvanced();
       lv_obj_send_event(fieldButton(index), LV_EVENT_CLICKED, nullptr);

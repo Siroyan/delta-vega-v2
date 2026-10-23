@@ -15,7 +15,7 @@ ARITY = {"noise": 1, "bias": 2, "spike": 2, "dropout": 1,
 def _number(value, name, low, high, integer=False):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("{} must be a number".format(name))
-    if not math.isfinite(value) or value < low or value > high:
+    if value < low or value > high or not math.isfinite(value):
         raise ValueError("{} must be between {} and {}".format(name, low, high))
     if integer and int(value) != value:
         raise ValueError("{} must be an integer".format(name))
@@ -59,6 +59,16 @@ def validate_case(raw):
     if not isinstance(course_id, str) or not re.fullmatch(r"[a-z][a-z0-9_]{1,63}", course_id):
         raise ValueError("invalid course_id")
     speed = _number(raw.get("speed_kmh"), "speed_kmh", 1, 60)
+    mode = raw.get("motion_mode", "constant")
+    if mode not in ("constant", "strategy"):
+        raise ValueError("motion_mode must be constant or strategy")
+    strategy_file = raw.get("strategy_file", "") if mode == "strategy" else ""
+    if mode == "strategy" and (not isinstance(strategy_file, str) or not re.fullmatch(
+            r"[A-Za-z0-9_-]{1,30}\.json", strategy_file)):
+        raise ValueError("select a strategy JSON")
+    initial = _number(raw.get("initial_speed_kmh", 0), "initial_speed_kmh", 0, speed)
+    accel = _number(raw.get("acceleration_mps2", 0.3), "acceleration_mps2", 0.01, 5)
+    coast = _number(raw.get("coast_deceleration_mps2", 0.03), "coast_deceleration_mps2", 0.001, 2)
     wheel = _number(raw.get("wheel_circumference_m"), "wheel_circumference_m", 0.1, 10)
     ppr = _number(raw.get("pulses_per_revolution"), "pulses_per_revolution", 1, 100, True)
     maximum = _number(raw.get("max_duration_s"), "max_duration_s", 1, 86400, True)
@@ -75,6 +85,9 @@ def validate_case(raw):
     return {"schema_version": 1, "id": case_id, "name": name.strip(),
             "description": description.strip(), "course_id": course_id,
             "speed_kmh": speed, "wheel_circumference_m": wheel,
+            "motion_mode": mode, "strategy_file": strategy_file,
+            "initial_speed_kmh": initial, "acceleration_mps2": accel,
+            "coast_deceleration_mps2": coast,
             "pulses_per_revolution": ppr, "max_duration_s": maximum,
             "actions": clean_actions}
 

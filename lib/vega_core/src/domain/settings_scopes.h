@@ -12,7 +12,8 @@ struct GeneralSettings {
   double wheel_circumference_m = 1.03;
   uint32_t pulses_per_revolution = 1;
   uint32_t ecu_ready_ms = 1000;
-  uint32_t ignition_pulse_ms = 1000;
+  // Same NVS slot as the former pulse width. Existing values become release delays.
+  uint32_t ignition_release_delay_ms = 1000;
   bool power_active_high = true;
   uint32_t pulse_debounce_us = 3000;
   uint32_t speed_zero_ms = 3000;

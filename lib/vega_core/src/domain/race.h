@@ -29,6 +29,7 @@ class RaceSession {
   uint32_t session_ = 0;
   uint8_t lap_ = 0;
   bool approximate_ = false;
+  // Holds completed laps during measurement and the frozen reading at finish.
   RaceReading result_{};
 };
 WheelReading wheelReading(WheelInput input, uint64_t now_us, const Settings &settings);

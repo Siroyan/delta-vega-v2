@@ -2,7 +2,8 @@
 #include "domain/types.h"
 #include "domain/settings_scopes.h"
 namespace vega {
-enum class CommandKind : uint8_t { Start, Cancel, Lap, PowerOn, PowerOff, Ignite, Configure, Finish,
+enum class CommandKind : uint8_t { Start, Cancel, Lap, PowerOn, PowerOff, Ignite, IgniteTap,
+                                   Configure, Finish,
                                    SelectCourse, SelectStrategy, RefreshStrategies,
                                    UseUploadedStrategy, LoadSdCourses };
 struct Command {
@@ -23,8 +24,9 @@ struct IClock {
 struct IEngineOutput {
   virtual ~IEngineOutput() = default;
   virtual void setPower(bool on) = 0;
-  virtual bool pulse(uint32_t duration_ms) = 0;
-  virtual void stopPulse() = 0;
+  virtual bool holdIgnition() = 0;
+  virtual bool releaseIgnitionAfter(uint32_t delay_ms) = 0;
+  virtual void stopIgnition() = 0;
   virtual void configurePower(bool active_high) = 0;
 };
 struct ISettingsStore {

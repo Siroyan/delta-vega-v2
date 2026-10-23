@@ -7,13 +7,13 @@
 | 機能 | 現在の実装 |
 |---|---|
 | 走行の計測 | ドライバーの操作で開始し、経過時間・ラップ・目標時間を表示。GPSによる周回更新・ゴール判定、手動ラップ・確認付き手動ゴール・計測取消に対応 |
-| コース表示 | コース線、スタート・周回更新・ゴール地点、GPSによる現在位置を表示。茂木の7周コースと、玉川学園前・飛田給の4周テストコースを収録 |
+| コース表示 | コース線、スタート・周回更新・ゴール地点、GPSによる現在位置を表示。玉川学園前・飛田給・MISATO・茂木7周・茂木100周のコースを収録 |
 | 車速とGPS | 車輪のリードスイッチから速度・距離を算出。GPS入力はM5BusとPort.AをSettingsで切替可能 |
-| エンジン系の操作 | 画面の電装スイッチと点火ボタンからGPIOへ指令。点火は電装ONごとに1回に制限。走行戦略からの自動点火は行わない |
-| 走行戦略の表示 | 茂木ビルドではmicroSDから戦略JSONを読み、エンジン使用区間と操作地点を地図に重ねて案内 |
-| 保存と通信 | 設定をNVS、計測中のサンプルとイベントをmicroSDに保存。設定済みの場合はWi-Fi経由でAWS IoT CoreへMQTT送信し、NTPで時計を同期 |
+| エンジン系の操作 | 画面の電装スイッチと点火ボタンからGPIOへ指令。点火ボタンを押している間は始動出力をHIGHに保ち、離してから設定時間後にLOWへ戻す。点火は電装ONごとに1回に制限。走行戦略からの自動点火は行わない |
+| 走行戦略の表示 | 選択中のコースに適合する戦略JSONをmicroSDから読み、エンジン使用区間と操作地点を地図に重ねて案内 |
+| 保存と通信 | 設定をNVS、計測中のサンプルとイベントをmicroSDに保存。設定済みの場合はWi-Fi経由でAWS IoT Coreへ現在値と確定済みラップタイムをMQTT送信し、NTPで時計を同期 |
 
-画面上の電装・点火操作は、特殊な競技車両のECUへ送る**指令**です。Tab5はエンジンの実際の稼働状態を検出しません。GPIOの配線・極性・パルス幅は実車の回路に合わせた確認が必要です。
+画面上の電装・点火操作は、特殊な競技車両のECUへ送る**指令**です。Tab5はエンジンの実際の稼働状態を検出しません。GPIOの配線・極性・点火を離してからLOWに戻すまでの時間は実車の回路に合わせた確認が必要です。
 
 ## リポジトリの構成
 
@@ -25,6 +25,7 @@
 | `assets/` | `maps/`のコースJSON・画像、`strategy/`の戦略例、UIアイコン |
 | `scripts/`、`test/` | コース定数とUIの生成、ローカルテスト、実機支援ツール |
 | `tools/race-emulator/` | [走行試験ツール](tools/race-emulator/README.md)。`host/`にブラウザUI、`atoms3/`にGPS・車速シミュレーターのPlatformIOプロジェクトを配置 |
+| `tools/strategy-editor/` | [走行戦略エディタ](tools/strategy-editor/README.md)。コース地図上でエンジンON/OFFの案内地点を編集し、Tab5向けJSONを出力 |
 | `docs/` | [画面仕様](docs/ui-spec.md)、[設計](docs/architecture.md)、[運用・設定](docs/firmware-guide.md)、[正式版向け試験計画](docs/release-test-plan.md) |
 
 ## ビルドと実機への書き込み
@@ -37,7 +38,7 @@ pio run -e esp32p4_pioarduino -t upload
 pio device monitor -b 115200
 ~~~
 
-玉川学園前、飛田給、MISATO、茂木の7周版と100周版、計5コースの編集元を収録しています。コース形状と地図画像はmicroSD上のファイルを起動時に読み込みます。`scripts/package_courses.py`でSD用ファイルを作成してください。Waiting画面のメニューからコースと走行戦略を選べます。選択は再起動後も復元されます。ハンバーガーメニューの`GENERAL MENU`から画面輝度・GPS入力先・車両設定を、`COURSE MENU`からTARGET・地点・周回判定を編集します。前者は端末共通、後者はコース別に保存されます。操作と配置手順は[コースアセット](assets/maps/README.md)を参照してください。
+玉川学園前、飛田給、MISATO、茂木の7周版と100周版、計5コースの編集元を収録しています。コース形状と地図画像はmicroSD上のファイルを起動時に読み込みます。`scripts/package_courses.py`でSD用ファイルを作成してください。Waiting画面のメニューからコースと走行戦略を選べます。選択は再起動後も復元されます。目標ゴールタイムと周回目標時間は[戦略JSON](assets/strategy/README.md)で定義し、選択中の戦略の値を使います。ハンバーガーメニューの`GENERAL MENU`から画面輝度・GPS入力先・車両設定を、`COURSE MENU`から地点・周回判定を編集します。前者は端末共通、後者はコース別に保存されます。操作と配置手順は[コースアセット](assets/maps/README.md)を参照してください。
 
 Wi-Fi・AWS IoT Coreを使う場合は`include/config/network_secrets.example.h`を同じ場所の`network_secrets.h`へコピーして接続先と証明書を設定します。`network_secrets.h`はGitの追跡対象外です。未設定でも画面、計測、microSD保存は動作します。通信設定とログ形式は[運用・設定ガイド](docs/firmware-guide.md)を参照してください。
 
@@ -49,7 +50,7 @@ Wi-Fi・AWS IoT Coreを使う場合は`include/config/network_secrets.example.h`
 
 ## 検証状況
 
-Tab5への書き込み、画面表示、Port.AのUnit GPS受信、玉川学園前テストコースでのGPS自動周回、microSDへの短時間記録、Wi-Fi・MQTT接続を確認しています。実車のECU・リードスイッチを使った試験、茂木の本番コースでの走行、長時間の安定性評価は今後の対象です。長時間のフィールド試験ではSD書き込み異常が一度発生しており、原因を調査中です。詳細は[運用・設定ガイド](docs/firmware-guide.md)と[試験計画](docs/release-test-plan.md)に残しています。
+Tab5への書き込み、画面表示、Port.AのUnit GPS受信、玉川学園前テストコースでのGPS自動周回、microSDへの短時間記録、Wi-Fi・MQTT接続を確認しています。実車のECU・リードスイッチを使った試験、茂木の本番コースでの走行、長時間の安定性評価は今後の対象です。長時間のフィールド試験ではSD書き込み異常が一度発生しており、原因を調査中です。送信項目は[MQTTデータ仕様](docs/mqtt-telemetry.md)、運用の詳細は[運用・設定ガイド](docs/firmware-guide.md)と[試験計画](docs/release-test-plan.md)に残しています。
 
 ## 同梱アセットのライセンス
 

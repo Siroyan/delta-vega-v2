@@ -2,6 +2,7 @@
 #include "domain/course.h"
 #include "domain/engine.h"
 #include "domain/race.h"
+#include "domain/strategy.h"
 #include "ports/ports.h"
 
 namespace vega {
@@ -16,8 +17,11 @@ class Application {
   bool manualFinish();
   void power(bool on);
   bool ignite();
+  bool releaseIgnition(Millis released_ms);
   bool configure(const Settings &settings, SettingsScope scope);
   bool selectCourse(const Course &course, uint8_t index, const Settings &settings);
+  // Strategy targets affect the live snapshot and session log, never NVS.
+  void setStrategyTargets(const Strategy *strategy);
   void wheel(WheelInput input) { wheel_ = input; }
   void gps(const GpsFix &fix);
   void tick();
@@ -36,6 +40,9 @@ class Application {
   const Course *course_;
   uint8_t course_index_ = 0;
   Settings settings_;
+  bool strategy_targets_active_ = false;
+  uint32_t strategy_total_target_s_ = 0;
+  std::array<uint32_t, kLapCount> strategy_lap_target_s_{};
   RaceSession race_;
   EngineCommands engine_;
   WheelInput wheel_{};
@@ -48,6 +55,7 @@ class Application {
   Millis finish_branch_previous_ms_ = 0;
   uint8_t finish_branch_matches_ = 0;
   Millis last_sample_ = 0;
+  Millis last_waiting_telemetry_ = 0;
   uint32_t settings_attempt_ = 0;
   bool settings_accepted_ = false;
 };

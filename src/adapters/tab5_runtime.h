@@ -1,8 +1,9 @@
 #pragma once
+#include <memory>
+
 #include "domain/types.h"
 #include "ports/ports.h"
 #include "presentation/presenter.h"
-#include "course_catalog.h"
 
 namespace tab5 {
 using vega::Command;
@@ -24,11 +25,14 @@ struct PlanChoices {
 };
 // UI sends value commands; the application task exclusively owns domain state.
 bool submit(const Command &command);
+// Thread-safe release path used by the touch sampler and UI fallback.
+void requestIgnitionRelease(uint64_t released_us);
 bool prepareOutputs();
 void outputsOff();
 bool begin();
 bool snapshot(vega::Snapshot &out);
-bool strategy(vega::Strategy &out);
+// Immutable snapshots keep variable-length runs alive across SD/app/UI tasks.
+std::shared_ptr<const vega::Strategy> strategy();
 bool planChoices(PlanChoices &out);
 vega::UiStatus status();
 void serialPoll();

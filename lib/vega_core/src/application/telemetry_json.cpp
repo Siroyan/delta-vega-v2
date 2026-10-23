@@ -32,7 +32,9 @@ void value(double number, bool valid, char *out, size_t cap, int digits) {
 size_t telemetryJson(const Snapshot &s, char *out, size_t cap, const char *machine,
                      const char *memo) {
   char id[128], note[256], speed[32], average[32], latitude[32], longitude[32];
-  if (!out || !cap || !machine || !memo || !escape(machine, id, sizeof(id)) ||
+  if (!out || !cap || !machine || !memo ||
+      s.race.completed_lap_count > s.race.completed_lap_times_ms.size() ||
+      !escape(machine, id, sizeof(id)) ||
       !escape(memo, note, sizeof(note)))
     return 0;
   value(s.wheel.speed_kmh, s.wheel.valid, speed, sizeof(speed), 3);
@@ -43,11 +45,22 @@ size_t telemetryJson(const Snapshot &s, char *out, size_t cap, const char *machi
   int length = std::snprintf(out, cap,
                              "{\"speed\":%s,\"average_speed\":%s,\"lap_number\":%u,\"total_time_"
                              "ms\":%llu,\"lap_time_ms\":%llu,\"latitude\":%s,\"longitude\":%s,"
-                             "\"timestamp_ms\":%llu,\"machine_id\":\"%s\",\"memo\":\"%s\"}",
+                             "\"timestamp_ms\":%llu,\"machine_id\":\"%s\",\"memo\":\"%s\","
+                             "\"completed_lap_times_ms\":[",
                              speed, average, s.race.lap, (unsigned long long)s.race.total_ms,
                              (unsigned long long)s.race.lap_ms, latitude, longitude,
                              (unsigned long long)s.now_ms, id, note);
-  return length > 0 && size_t(length) < cap ? size_t(length) : 0;
+  if (length <= 0 || size_t(length) >= cap) return 0;
+  size_t used = length;
+  for (uint8_t i = 0; i < s.race.completed_lap_count; ++i) {
+    length = std::snprintf(out + used, cap - used, "%s%llu", i ? "," : "",
+                          static_cast<unsigned long long>(s.race.completed_lap_times_ms[i]));
+    if (length <= 0 || size_t(length) >= cap - used) return 0;
+    used += length;
+  }
+  if (cap - used < 3) return 0;
+  std::memcpy(out + used, "]}", 3);
+  return used + 2;
 }
 size_t sessionSampleJson(const Snapshot &s, char *out, size_t cap, const char *machine,
                          const char *memo) {
