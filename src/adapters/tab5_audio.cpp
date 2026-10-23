@@ -14,7 +14,6 @@ void playTone(uint32_t duration_ms) {
 }
 
 void audioTask(void *) {
-  M5.Speaker.setVolume(96);
   Sound sound;
   for (;;) {
     if (xQueueReceive(sounds, &sound, portMAX_DELAY) != pdTRUE) continue;
@@ -36,7 +35,17 @@ void audioTask(void *) {
 bool audioBegin() {
   sounds = xQueueCreate(8, sizeof(Sound));
   if (!sounds) return false;
+  M5.Speaker.setVolume(96);
+  if (!M5.Speaker.begin()) {
+    vQueueDelete(sounds);
+    sounds = nullptr;
+    return false;
+  }
+  // begin() starts the I2S worker with silence. Let the Tab5 codec/amp settle
+  // before the UI can enqueue its first 55 ms beep, rather than on that tap.
+  vTaskDelay(pdMS_TO_TICKS(200));
   if (xTaskCreate(audioTask, "vega_audio", 4096, nullptr, 1, nullptr) != pdPASS) {
+    M5.Speaker.end();
     vQueueDelete(sounds);
     sounds = nullptr;
     return false;
