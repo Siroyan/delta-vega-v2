@@ -1418,6 +1418,97 @@ void controlGestureTest() {
   power_intent.observe(true);
   assert(power_intent.nextTap() == PowerRequest::Off);
 }
+void controlReleaseTest() {
+  const ControlTouch ignition{101000000, 101100000};
+  const ControlTouch unrelated{101200000, 101400000};
+
+  ControlReleaseLatch live;
+  live.observePress(ignition.gesture_us);
+  assert(live.prepare(ignition.gesture_us));
+  assert(!live.activate());
+  assert(!live.finish(unrelated.gesture_us, unrelated.sampled_us));
+  assert(live.observeRelease(ignition) == ignition.sampled_us);
+  assert(!live.finish(ignition.gesture_us, ignition.sampled_us));  // UI duplicate
+
+  // A release after reservation but before IGNITE is queued must wait for
+  // activation, otherwise the app can discard it before seeing IGNITE.
+  ControlReleaseLatch preparing;
+  preparing.observePress(ignition.gesture_us);
+  assert(preparing.prepare(ignition.gesture_us));
+  assert(!preparing.observeRelease(ignition));
+  for (unsigned i = 1; i <= ControlReleaseLatch::kHistorySize; ++i) {
+    preparing.observePress(unrelated.gesture_us + i);
+    assert(!preparing.observeRelease({unrelated.gesture_us + i, unrelated.sampled_us + i}));
+  }
+  assert(preparing.activate() == ignition.sampled_us);  // retained even after history wraps
+  assert(!preparing.activate());
+
+  // The raw release can happen just before the UI reserves its fallback.
+  ControlReleaseLatch already_released;
+  assert(!already_released.observeRelease(ignition));
+  assert(already_released.prepare(ignition.gesture_us));
+  assert(already_released.activate() == ignition.sampled_us);
+  assert(!already_released.finish(ignition.gesture_us, ignition.sampled_us));
+
+  // Both taps finish while LVGL is busy. Dispatch must use the first tap's
+  // own retained release, not the globally latest physical release.
+  ControlReleaseLatch delayed;
+  assert(!delayed.observeRelease(ignition));
+  assert(!delayed.observeRelease(unrelated));
+  assert(delayed.prepare(ignition.gesture_us));
+  assert(!delayed.finish(unrelated.gesture_us, unrelated.sampled_us));
+  const auto released_us = delayed.activate();
+  assert(released_us == ignition.sampled_us);
+  assert(!delayed.finish(ignition.gesture_us, ignition.sampled_us));
+  assert(!delayed.observeRelease(unrelated));
+
+  Fixture f;
+  f.app.power(true);
+  f.clock.time = 101500;  // UI dispatch occurs 400 ms after the ignition release.
+  f.app.tick();
+  assert(f.app.ignite());
+  assert(f.app.releaseIgnition(released_us / 1000));
+  assert(f.output.duration == 600);
+  f.clock.time = 102099;
+  f.app.tick();
+  assert(f.output.high);
+  ++f.clock.time;
+  f.app.tick();
+  assert(!f.output.high);  // LOW at original release + 1 s, not at 102400.
+
+  // A later unrelated raw release must not consume a pending older gesture.
+  ControlReleaseLatch overlapping;
+  overlapping.observePress(ignition.gesture_us);
+  assert(overlapping.prepare(ignition.gesture_us));
+  assert(!overlapping.activate());
+  assert(!overlapping.observeRelease(unrelated));
+  assert(overlapping.finish(ignition.gesture_us, ignition.sampled_us) == ignition.sampled_us);
+  overlapping.observePress(102000000);
+  assert(overlapping.prepare(102000000));
+  assert(!overlapping.activate());  // no old release applied to a new press
+  assert(overlapping.observeRelease({102000000, 102500000}) == 102500000);
+
+  // More releases than the bounded input queue can retain: decline an expired
+  // press instead of accepting IGNITE with no recoverable release timestamp.
+  ControlReleaseLatch overflow;
+  overflow.observePress(ignition.gesture_us);
+  assert(!overflow.observeRelease(ignition));
+  for (unsigned i = 1; i <= ControlReleaseLatch::kHistorySize; ++i) {
+    overflow.observePress(unrelated.gesture_us + i);
+    assert(!overflow.observeRelease({unrelated.gesture_us + i, unrelated.sampled_us + i}));
+  }
+  assert(!overflow.prepare(ignition.gesture_us));
+  assert(!overflow.activate());
+  overflow.observePress(103000000);
+  assert(overflow.prepare(103000000));
+  overflow.cancel();  // command queue rejected IGNITE
+  assert(!overflow.observeRelease({103000000, 103500000}));
+  overflow.observePress(104000000);
+  assert(overflow.prepare(104000000));
+  assert(!overflow.prepare(105000000));  // no competing ignition reservation
+  assert(!overflow.activate());
+  assert(overflow.observeRelease({104000000, 104500000}) == 104500000);
+}
 void strategyWarningTest() {
   StrategyLap lap{};
   lap.run_count = 2;
@@ -1512,6 +1603,7 @@ int main() {
   realCourseTest();
   combinedLapTest();
   controlGestureTest();
+  controlReleaseTest();
   std::cout << "PASS: engine, race, GPS/manual finish, passages, wheel, NMEA, settings, "
                "strategy, MVP/JSON, control gestures\n";
 }

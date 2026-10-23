@@ -29,7 +29,7 @@ namespace tab5 {
 void finishEdit();
 void pressKey(size_t index);
 lv_obj_t *controlHit(int16_t x, int16_t y);
-void controlAction(lv_obj_t *control, ControlEvent event);
+void controlAction(lv_obj_t *control, ControlEvent event, const ControlTouch &touch);
 void controlCleanup();
 void manualFinishConfirm();
 void manualFinishDismiss();
@@ -1519,11 +1519,11 @@ lv_obj_t *controlHit(int16_t x, int16_t y) {
   if (hit == page->ignition && !lv_obj_has_state(hit, LV_STATE_DISABLED)) return hit;
   return nullptr;
 }
-void controlAction(lv_obj_t *control, ControlEvent event) {
+void controlAction(lv_obj_t *control, ControlEvent event, const ControlTouch &touch) {
   if (event == ControlEvent::Release) {
     for (const auto &page : control_pages)
       if (control == page.ignition) {
-        tab5_lvgl_finish_control_release();
+        tab5_lvgl_finish_control_release(touch);
         return;
       }
     return;
@@ -1542,14 +1542,15 @@ void controlAction(lv_obj_t *control, ControlEvent event) {
     }
     if (event == ControlEvent::Press && control == page.ignition &&
         !lv_obj_has_state(control, LV_STATE_DISABLED)) {
+      if (!tab5_lvgl_prepare_control_release(touch.gesture_us)) return;
       ++ignition_taps;
       if (request(CommandKind::Ignite)) {
+        tab5_lvgl_activate_control_release();
         ignition_pending = true;
         for (const auto &control_page : control_pages)
           enabled(control_page.ignition, false);
-        tab5_lvgl_arm_control_release();
         audioButton();
-      }
+      } else tab5_lvgl_cancel_control_release();
       return;
     }
   }

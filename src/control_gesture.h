@@ -2,6 +2,66 @@
 
 #include <stdint.h>
 
+struct ControlTouch {
+  // The physical press timestamp identifies a gesture across both tasks.
+  uint64_t gesture_us = 0;
+  uint64_t sampled_us = 0;
+};
+
+// Access under the touch sampler's lock. Keep enough releases for a full input
+// queue even if the UI's separate action queue overflows. Expired presses are
+// rejected. Prepare before queuing IGNITE, then activate after it is accepted:
+// a physical release between those steps is retained, not delivered too early.
+class ControlReleaseLatch {
+ public:
+  static constexpr unsigned kHistorySize = 32;
+
+  void observePress(uint64_t gesture_us) { latest_gesture_us_ = gesture_us; }
+
+  bool prepare(uint64_t gesture_us) {
+    if (!gesture_us || prepared_gesture_us_) return false;
+    uint64_t released_us = 0;
+    for (const auto &release : releases_)
+      if (release.gesture_us == gesture_us) released_us = release.sampled_us;
+    if (!released_us && gesture_us != latest_gesture_us_) return false;
+    prepared_gesture_us_ = gesture_us;
+    prepared_release_us_ = released_us;
+    return true;
+  }
+
+  uint64_t activate() {
+    if (!prepared_gesture_us_) return 0;
+    active_ = true;
+    return finish(prepared_gesture_us_, prepared_release_us_);
+  }
+
+  void cancel() {
+    prepared_gesture_us_ = prepared_release_us_ = 0;
+    active_ = false;
+  }
+
+  uint64_t observeRelease(const ControlTouch &touch) {
+    releases_[next_release_] = touch;
+    next_release_ = (next_release_ + 1) % kHistorySize;
+    return finish(touch.gesture_us, touch.sampled_us);
+  }
+
+  uint64_t finish(uint64_t gesture_us, uint64_t released_us) {
+    if (!prepared_gesture_us_ || gesture_us != prepared_gesture_us_ || !released_us) return 0;
+    if (!prepared_release_us_) prepared_release_us_ = released_us;
+    if (!active_) return 0;
+    const auto completed_us = prepared_release_us_;
+    cancel();
+    return completed_us;
+  }
+
+ private:
+  uint64_t latest_gesture_us_ = 0, prepared_gesture_us_ = 0, prepared_release_us_ = 0;
+  ControlTouch releases_[kHistorySize]{};
+  unsigned next_release_ = 0;
+  bool active_ = false;
+};
+
 struct ControlGestureResult {
   uintptr_t pressed = 0;
   uintptr_t released = 0;
