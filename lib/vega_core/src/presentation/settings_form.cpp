@@ -39,7 +39,7 @@ const char *settingTitle(size_t field) {
                                  "LAP 4 TARGET", "LAP 5 TARGET", "LAP 6 TARGET", "LAP 7 TARGET",
                                  "START LAT",    "START LON",    "TIMING LAT",   "TIMING LON",
                                  "GOAL LAT",     "GOAL LON",     "WHEEL CIRC. (m)",
-                                 "PULSES / REV", "ECU READY (ms)", "IGNITION PULSE (ms)",
+                                 "PULSES / REV", "ECU READY (ms)", "RELEASE DELAY (s)",
                                  "POWER HIGH (0/1)", "DEBOUNCE (us)", "ZERO SPEED (ms)",
                                  "GPS STALE (ms)", "COURSE CORRIDOR (m)", "MAX GPS STEP (m)",
                                  "MIN LAP PROGRESS (m)", "MIN LAP TIME (ms)",
@@ -73,6 +73,13 @@ bool editSetting(Settings &s, size_t field, const char *text) {
   } else if (field == 18) {
     if (std::strcmp(text, "0") && std::strcmp(text, "1")) return false;
     candidate.power_active_high = text[0] == '1';
+  } else if (field == 17) {
+    double seconds;
+    if (!parseDecimal(text, seconds) || seconds < 0.001 || seconds > 10) return false;
+    const double milliseconds = seconds * 1000;
+    const auto rounded = static_cast<uint32_t>(std::lround(milliseconds));
+    if (std::abs(milliseconds - rounded) > 1e-6) return false;
+    candidate.ignition_release_delay_ms = rounded;
   } else if (field == 14 || (field >= 22 && field <= 24)) {
     double number;
     if (!parseDecimal(text, number)) return false;
@@ -88,7 +95,6 @@ bool editSetting(Settings &s, size_t field, const char *text) {
     switch (field) {
       case 15: candidate.pulses_per_revolution = number; break;
       case 16: candidate.ecu_ready_ms = number; break;
-      case 17: candidate.ignition_pulse_ms = number; break;
       case 19: candidate.pulse_debounce_us = number; break;
       case 20: candidate.speed_zero_ms = number; break;
       case 21: candidate.gps_stale_ms = number; break;
@@ -119,6 +125,13 @@ void settingText(const Settings &s, size_t field, char *out, size_t cap) {
   } else if (field < 14) {
     auto point = field < 10 ? s.start : field < 12 ? s.timing : s.goal;
     std::snprintf(out, cap, "%.8f", field % 2 == 0 ? point.latitude : point.longitude);
+  } else if (field == 17) {
+    std::snprintf(out, cap, "%.3f", s.ignition_release_delay_ms / 1000.0);
+    if (cap) {
+      size_t length = std::strlen(out);
+      while (length && out[length - 1] == '0') out[--length] = 0;
+      if (length && out[length - 1] == '.') out[--length] = 0;
+    }
   } else if (field == 14 || (field >= 22 && field <= 24)) {
     double value = field == 14   ? s.wheel_circumference_m
                    : field == 22 ? s.course_corridor_m
@@ -128,7 +141,6 @@ void settingText(const Settings &s, size_t field, char *out, size_t cap) {
   } else {
     uint32_t value = field == 15   ? s.pulses_per_revolution
                      : field == 16 ? s.ecu_ready_ms
-                     : field == 17 ? s.ignition_pulse_ms
                      : field == 18 ? static_cast<uint32_t>(s.power_active_high)
                      : field == 19 ? s.pulse_debounce_us
                      : field == 20 ? s.speed_zero_ms

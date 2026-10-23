@@ -68,7 +68,7 @@ bool decodeSettingsBlob(const void *blob, size_t size, Settings &out) {
     candidate.wheel_circumference_m = old.wheel_circumference_m;
     candidate.pulses_per_revolution = old.pulses_per_revolution;
     candidate.ecu_ready_ms = old.ecu_ready_ms;
-    candidate.ignition_pulse_ms = old.ignition_pulse_ms;
+    candidate.ignition_release_delay_ms = old.ignition_pulse_ms;
     candidate.power_active_high = old.power_active_high;
     candidate.pulse_debounce_us = old.pulse_debounce_us;
     candidate.speed_zero_ms = old.speed_zero_ms;

@@ -36,8 +36,11 @@ bool serialConfigCommand(const char *key, const char *value,
     if (number > UINT32_MAX || number != std::floor(number)) return false;
     if (!std::strcmp(key, "ecu_ready_ms"))
       command.settings.ecu_ready_ms = number;
-    else if (!std::strcmp(key, "ignition_pulse_ms"))
-      command.settings.ignition_pulse_ms = number;
+    else if (!std::strcmp(key, "ignition_release_delay_ms") ||
+             !std::strcmp(key, "ignition_pulse_ms")) {
+      // Keep the old calibration key for existing field scripts.
+      command.settings.ignition_release_delay_ms = number;
+    }
     else if (!std::strcmp(key, "pulse_debounce_us"))
       command.settings.pulse_debounce_us = number;
     else if (!std::strcmp(key, "speed_average_intervals"))

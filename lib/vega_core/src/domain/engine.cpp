@@ -9,18 +9,24 @@ void EngineCommands::power(bool on, Millis now, const Settings &s) {
     deadline_ = now + s.ecu_ready_ms;
   }
 }
-bool EngineCommands::ignite(Millis now, const Settings &s) {
+bool EngineCommands::ignite(Millis now) {
   tick(now);
   if (phase_ != EnginePhase::Ready) return false;
-  phase_ = EnginePhase::Pulsing;
-  deadline_ = now + s.ignition_pulse_ms;
+  phase_ = EnginePhase::Holding;
+  deadline_ = 0;
+  return true;
+}
+bool EngineCommands::releaseIgnition(Millis now, const Settings &s) {
+  if (phase_ != EnginePhase::Holding) return false;
+  phase_ = EnginePhase::ReleaseDelay;
+  deadline_ = now + s.ignition_release_delay_ms;
   return true;
 }
 void EngineCommands::tick(Millis now) {
   if (now < deadline_) return;
   if (phase_ == EnginePhase::Preparing)
     phase_ = EnginePhase::Ready;
-  else if (phase_ == EnginePhase::Pulsing)
+  else if (phase_ == EnginePhase::ReleaseDelay)
     phase_ = EnginePhase::Issued;
 }
 uint16_t EngineCommands::preparationPermille(Millis now, uint32_t duration_ms) const {

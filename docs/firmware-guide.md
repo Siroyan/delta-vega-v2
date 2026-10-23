@@ -8,13 +8,13 @@
 - 有効なGPS通過またはMANUAL LAP +1で周回を進める。最終周（茂木7/7、テストコース4/4）で別地点のゴール通過を検出するとFinishedになる。最終周では手動ラップボタンが赤い`GOAL / FINISH`に変わり、GPSがゴールを取り逃した場合は確認画面の`FINISH TIMING`で現在時刻の結果を確定できる。`KEEP TIMING`では計測を続ける。手動完走はSD記録に`manual_finish`イベントとして残る。
 - GPSの短い途切れでは周回進捗を保持するが、途切れ中に計測線を越えたと推定して周回を進めることはしない。GPS自動周回の直後は、次周の進捗が十分になるまで手動ラップを無効にする。GPSを失った場合は手動ラップ補正を利用できる。手動ゴールは確認画面を通せば、直前の周回更新からの待ち時間なしに確定する。
 - 取消はメニュー/SettingsのCANCEL TIMING → 確認画面のCANCEL TIMING。KEEP TIMINGで継続。取消後は新規開始可能。完走後の再計測は提供しない。
-- 左下の青緑の電源トグルはエンジン系電装への指令。ON後、設定されたECU準備時間（初期1000 ms）は右下の点火ボタンが無効時と同じ薄い赤から時計回りに通常の赤へ変わり、操作できない。準備完了時に全面が通常の赤となり、炎ボタンを操作できる。炎ボタンはECUへの1000 ms HIGHパルス。電装ONごとに1回まで。
-- 電装OFFは準備待ち/パルスを中止する。計測とTab5は動作継続。Tab5はエンジンの実運転状態を確認できない。
+- 左下の青緑の電源トグルはエンジン系電装への指令。ON後、設定されたECU準備時間（初期1000 ms）は右下の点火ボタンが無効時と同じ薄い赤から時計回りに通常の赤へ変わり、操作できない。準備完了時に全面が通常の赤となり、炎ボタンを操作できる。炎ボタンを押した時点でGPIO48をHIGHにし、押している間は維持する。指を離した時刻から`RELEASE DELAY (s)`（初期1秒）が経過するとLOWへ戻す。電装ONごとに1回まで。
+- 電装OFFは準備待ち・長押し・解放後の待ちを中止し、点火をすぐLOWにする。計測とTab5は動作継続。Tab5はエンジンの実運転状態を確認できない。
 - ハンバーガーメニューの`COURSE MENU`から、スタート/周回更新/ゴールの各緯度経度を編集できる。`COURSE DETAILS`には回廊幅・最小周回距離・最小周回時間・重複抑制を置く。全体と各周のTARGETは走行戦略JSONで編集し、Tab5のSettingsでは変更できない。`GENERAL MENU`からは車輪・電装・ECU・GPS関連値とGPS接続先、`DISPLAY BRIGHTNESS`を編集できる。輝度は25～100%相当（内部値64～255）で、操作中は画面へ反映する。初期値は127。数値画面のSETは一時編集の確定、各ページのSAVE SETTINGSはその範囲だけの保存。戻る矢印で未保存の編集と輝度プレビューを破棄する。
-- 電装極性（POWER HIGH）は`1`でHIGH=ON、`0`でLOW=ON。電装ON中は極性・ECU準備時間・点火パルス幅の編集を無効にし、アプリケーション側も変更を拒否する。これらの値は実車接続前に回路とECUの仕様に合わせて確認する。
+- 電装極性（POWER HIGH）は`1`でHIGH=ON、`0`でLOW=ON。電装ON中は極性・ECU準備時間・点火解放後の遅延時間の編集を無効にし、アプリケーション側も変更を拒否する。遅延時間は0.001～10秒、0.001秒刻みで入力できる。既存の点火パルス幅のNVS値は、同じミリ秒数の解放後遅延として引き継ぐ。これらの値は実車接続前に回路とECUの仕様に合わせて確認する。
 - 計測中はUIとApplicationの双方で設定変更を拒否する。全体TARGETと各周合計の一致は強制しない。大会制限39:16とは独立した値。旧schema 1の戦略または`NO STRATEGY`では、コース別NVSの旧目標時間へフォールバックする。
 - NVSは端末共通の`vega-device/settings`と、選択コースの名前空間にある`course`を別々に保存する。従来のv1～v3 `settings` blobからの初回移行では、端末共通値は選択コースの旧設定を優先し、なければ旧`vega/settings`から電装極性・GPS入力先・車輪校正・ECU時間・輝度などを引き継ぐ。コース固有値は選択コースの旧設定だけから引き継ぎ、存在しなければそのコースのカタログ初期値を使う。既存の`vega-device/settings`があればそれを優先する。旧v1ではGPS入力先をM5Bus、旧v1/v2では輝度を127として扱う。保存した共通輝度はコースを切り替えても変わらず、再起動後も保持する。電装状態・始動権・進行中レースは復元しない。
-- 修正前の開発版で一度起動し、`vega-device/settings`へ既に誤った初期値が保存された個体は、自動的には旧値へ戻らない。どの値が意図的に変更されたか判別できないため、実車の回路を接続する前にGENERAL SETTINGSの`POWER HIGH`、`ECU READY`、`IGNITION PULSE`などを回路仕様と照合し、必要なら再保存する。
+- 修正前の開発版で一度起動し、`vega-device/settings`へ既に誤った初期値が保存された個体は、自動的には旧値へ戻らない。どの値が意図的に変更されたか判別できないため、実車の回路を接続する前にGENERAL SETTINGSの`POWER HIGH`、`ECU READY`、`RELEASE DELAY`などを回路仕様と照合し、必要なら再保存する。
 - GPS接続先はGeneral Settingsの`GPS INPUT`で`M5BUS`または`PORT.A`を選び、`SAVE SETTINGS`で確定する。切替は計測前または計測取消後のみ可能。保存成功時にUART、NMEAパーサ、直前のGPS位置・受信状態を初期化して選択先から受信し直す。Port.AのAT6558 Unit GPSは最初のRMC受信後、[CASICプロトコル](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/950/Multimode_satellite_navigation_receiver_cn.pdf)のコマンドで測位を5 Hz（200 ms）、RMCを毎回、GGAを5回に1回へ変更する。設定はGPS内のFLASHに保存せず、UARTを開き直すたびに送信する。M5BusのGT-502MGG-Nにはこのコマンドを送らない。GPSの測位確認には屋外の開けた場所で待つ。シリアルの`status`で`gps_source`・`gps_bytes`（受信バイト数）・`gps_rmc`（チェックサムが正しいRMC文の件数）・`gps_rmc_hz`（直近5秒間のRMC受信頻度）・`gps`（新鮮な測位の有無）を確認できる。
 - GENERAL SETTINGSの`SPEED AVG (N)`はCURRENT SPEEDに使う直近の車輪パルス間隔数。1〜8、初期値3。変更後に`SAVE SETTINGS`で端末共通NVSへ保存する。距離とAVERAGE SPEEDの積算は変更しない。
 - 2026-10-01、Port.AのUnit GPSを接続してTab5を再起動したところ、起動ログに5 Hzの設定要求が出て、`gps_rmc_hz`は4.9～5.0を示した。この確認時は屋内で未FIXだったため、5 Hzの位置更新や実走での周回判定は未検証。
@@ -28,7 +28,7 @@
 | GPS UART1 / M5Bus | RX 7、TX 6 / 9600 bps | 初期選択。M5Bus 15/16。GT-502MGG-NのNMEA / 1 Hz初期設定 |
 | GPS UART1 / Port.A | RX 54、TX 53 / 9600 bps | AT6558 Unit GPSの白線TXをG54、黄線RXをG53へ接続。Port.Aの5 V給電を使用。受信開始後にRMC 5 Hz / GGA 1 Hzを要求 |
 | 電装 | 45 / 初期HIGH=ON | M5Bus 8。極性はGeneral Settingsまたは校正コマンドで変更可能 |
-| 始動パルス | 48 / HIGH 1000 ms | M5Bus 22。ユーザー指定の暫定値 |
+| 始動出力 | 48 / 押下中HIGH、解放1秒後LOW | M5Bus 22。解放後遅延の初期値は旧1000 ms設定を引き継ぐ |
 | ECU準備 | 1000 ms | ユーザー指定の暫定値 |
 | 車輪 | 1.03 m、1 pulse/revolution | 旧版の定数を引き継ぐ。累積パルス差から距離を求める |
 | チャタリング | 設定値3000 µs、開放確認10 ms | 受理した立ち下がりから設定値および最高速度75 km/h相当の間隔（標準車輪で約49 ms）以上離れ、かつ接点が10 ms以上連続してHIGHだった場合だけ次を採用する。75 km/hは想定最高速度60 km/hに25%の余裕を持たせた暫定ガード。実車の入力波形と最高速度で検証する |
@@ -110,7 +110,7 @@ Walking modeで玉川学園コースを歩いたセッション50は約10分45�
 | `plan-status` | 走行戦略の読込状態と採用したID |
 | `plan-upload BYTES` | 4096バイト以内のJSONを後続の生バイトで受け取り、SDに`/vega/strategy.json`がない場合だけ検証・保存。通常は`scripts/upload_strategy.py`から実行 |
 | `start` / `cancel` / `lap` | UIと同じ中核へ計測コマンドを送る |
-| `on` / `off` / `ignite` | 実GPIOへの指令を伴う。実車接続時は車両状態を把握して使用 |
+| `on` / `off` / `ignite` | 実GPIOへの指令を伴う。`ignite`は短押し相当で、コマンド処理時から解放後遅延だけHIGHにする。長押しは画面の炎ボタンから行う。実車接続時は車両状態を把握して使用 |
 | `log` | 最後の計測ファイルをSDから読み戻す。記録中は拒否 |
 | `log-read NUMBER` | 指定したセッション番号の計測ファイルをSDから読み戻す。記録中は拒否。SD上のファイルは変更しない |
 | `gps-nav` | Port.AのUnit GPSからCASICの動作モード・静止判定しきい値を読み出す。Waiting時のみ |
@@ -125,7 +125,7 @@ Walking modeで玉川学園コースを歩いたセッション50は約10分45�
 | `ui-start` / `ui-cancel` / `ui-confirm-cancel` | 生成UIの開始/取消操作経路のテスト |
 | `config KEY VALUE` | 校正用設定の永続保存。中核の設定検証・計測中ロックを通す |
 
-校正キー: `power_active_high`（0/1）、`ecu_ready_ms`、`ignition_pulse_ms`、`wheel_circumference_m`、`pulses_per_revolution`、`pulse_debounce_us`、`speed_average_intervals`、`speed_zero_ms`、`gps_stale_ms`、`max_gps_step_m`は端末共通。`course_corridor_m`、`min_lap_progress_m`、`min_lap_ms`、`lap_duplicate_ms`はコース別。電装極性・ECU待ち・パルス幅の変更は電装OFF時だけ受理する。NVSの設定形式バージョンとSDログ連番は内部管理値で、Settingsの編集項目ではない。
+校正キー: `power_active_high`（0/1）、`ecu_ready_ms`、`ignition_release_delay_ms`（1～10000 ms。旧`ignition_pulse_ms`も互換キーとして受理）、`wheel_circumference_m`、`pulses_per_revolution`、`pulse_debounce_us`、`speed_average_intervals`、`speed_zero_ms`、`gps_stale_ms`、`max_gps_step_m`は端末共通。`course_corridor_m`、`min_lap_progress_m`、`min_lap_ms`、`lap_duplicate_ms`はコース別。電装極性・ECU待ち・解放後遅延の変更は電装OFF時だけ受理する。NVSの設定形式バージョンとSDログ連番は内部管理値で、Settingsの編集項目ではない。
 
 ## 検証記録
 
@@ -138,7 +138,7 @@ Walking modeで玉川学園コースを歩いたセッション50は約10分45�
 | EEZ生成 | EEZ Studio 0.29で生成成功、0 errors / 0 warnings。11ページとフォント元ファイル・生成物、コースJSONのソースハッシュを確認 |
 | PlatformIO | ビルド・USB書込SUCCESS、転送データのハッシュ照合成功。RAM 39,892 / 512,000 bytes、Flash 2,848,889 / 6,553,600 bytes |
 | 実UI操作経路 | 生成ボタン/編集イベントからTARGET編集・保存、計測開始、計測中の設定禁止、取消確認、Waitingへの復帰を確認。画面の目視は未実施 |
-| 実GPIO指令 | GPIO45のON/OFF、GPIO48のパルス中HIGH/期限後LOW、2回目拒否、OFFで中断、OFF→ONで再許可を診断読取りで確認。ECUや計測器による波形検証ではない |
+| 当時の実GPIO指令 | 旧版のGPIO45 ON/OFFとGPIO48固定パルスを診断読取りで確認。今回の長押し仕様やECU/計測器による波形検証には該当しない |
 | 実microSD | 計測ファイルを閉じてカードから読み戻し、全行をJSONとして解析。31サンプル、設定メタデータ、開始/電装/始動/取消イベントを確認。未接続の入力はnull、取消ファイルは保持 |
 | NVS・再起動 | TARGET 39:16・変更した座標・active LOWを保存して再起動し保持を確認。両極性で電装OFF起動を確認後、初期TARGET/座標/active HIGHへ戻した |
 | 起動後の監視 | 最終書込後の再起動と30秒の待機で、SDマウント、電装OFF、未接続入力を確認。Guru Meditation / assertion / 意図しない再起動を観測していない |

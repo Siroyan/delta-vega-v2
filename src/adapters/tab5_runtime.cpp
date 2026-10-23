@@ -71,6 +71,8 @@ struct PlanRequest {
 };
 std::atomic<bool> urgent_off{false}, sd_ready{false}, sd_error{false}, mqtt_connected{false};
 std::atomic<uint32_t> power_epoch{0};
+std::atomic<bool> ignition_press_queued{false};
+std::atomic<vega::Millis> ignition_release_ms{0};
 std::atomic<uint32_t> record_loss_count{0};
 enum class SdFailure : uint8_t { None, QueueFull, Open, Metadata, Write, Flush, EndFlush, ReadbackFlush };
 std::atomic<SdFailure> sd_last_failure{SdFailure::None};
@@ -221,7 +223,7 @@ class EngineOutput final : public vega::IEngineOutput {
     esp_timer_create_args_t args{};
     args.callback = &EngineOutput::expire;
     args.arg = this;
-    args.name = "ecu_pulse";
+    args.name = "ecu_release";
     return esp_timer_create(&args, &timer_) == ESP_OK;
   }
   void configurePower(bool active_high) override {
@@ -229,25 +231,38 @@ class EngineOutput final : public vega::IEngineOutput {
     setPower(false);
   }
   void setPower(bool on) override { gpio_set_level(kPower, on == active_high_); }
-  bool pulse(uint32_t duration_ms) override {
+  bool holdIgnition() override {
     if (!timer_) return false;
-    // All start/stop and callbacks use the same lock, including the generation check.
     esp_timer_stop(timer_);
     portENTER_CRITICAL(&lock_);
-    armed_ = true;
-    deadline_us_ = esp_timer_get_time() + static_cast<int64_t>(duration_ms) * 1000;
+    armed_ = false;
+    held_ = true;
     gpio_set_level(kIgnition, 1);
     portEXIT_CRITICAL(&lock_);
-    if (esp_timer_start_once(timer_, static_cast<uint64_t>(duration_ms) * 1000) != ESP_OK) {
-      stopPulse();
+    return true;
+  }
+  bool releaseIgnitionAfter(uint32_t delay_ms) override {
+    if (!timer_) return false;
+    portENTER_CRITICAL(&lock_);
+    const bool held = held_;
+    if (held) {
+      held_ = false;
+      armed_ = true;
+      deadline_us_ = esp_timer_get_time() + static_cast<int64_t>(delay_ms) * 1000;
+    }
+    portEXIT_CRITICAL(&lock_);
+    if (!held) return false;
+    if (esp_timer_start_once(timer_, static_cast<uint64_t>(delay_ms) * 1000) != ESP_OK) {
+      stopIgnition();
       return false;
     }
     return true;
   }
-  void stopPulse() override {
+  void stopIgnition() override {
     if (timer_) esp_timer_stop(timer_);
     portENTER_CRITICAL(&lock_);
     armed_ = false;
+    held_ = false;
     gpio_set_level(kIgnition, 0);
     portEXIT_CRITICAL(&lock_);
   }
@@ -256,7 +271,7 @@ class EngineOutput final : public vega::IEngineOutput {
   static void expire(void *arg) {
     auto &self = *static_cast<EngineOutput *>(arg);
     portENTER_CRITICAL(&self.lock_);
-    // A delayed callback from an earlier pulse must not shorten a new pulse.
+    // A delayed callback from an earlier release cannot end a newer hold.
     if (self.armed_ && esp_timer_get_time() >= self.deadline_us_) {
       self.armed_ = false;
       gpio_set_level(kIgnition, 0);
@@ -266,7 +281,7 @@ class EngineOutput final : public vega::IEngineOutput {
   esp_timer_handle_t timer_ = nullptr;
   portMUX_TYPE lock_ = portMUX_INITIALIZER_UNLOCKED;
   int64_t deadline_us_ = 0;
-  bool armed_ = false, active_high_ = true;
+  bool armed_ = false, held_ = false, active_high_ = true;
 } engine_output;
 bool outputs_prepared = false;
 
@@ -1113,6 +1128,8 @@ void applicationTask(void *) {
     applyPlanTargets();
     if (urgent_off.exchange(false)) {
       app.power(false);
+      ignition_release_ms = 0;
+      ignition_press_queued = false;
       diagnostic("[APP] electrical OFF; old ON/IGNITE commands invalidated");
     }
     vega::WheelInput input;
@@ -1231,8 +1248,10 @@ void applicationTask(void *) {
     for (unsigned budget = 0; budget < 8 && xQueueReceive(commands, &queued, 0) == pdTRUE;
          ++budget) {
       const auto &command = queued.command;
-      if ((command.kind == CommandKind::PowerOn || command.kind == CommandKind::Ignite) &&
+      if ((command.kind == CommandKind::PowerOn || command.kind == CommandKind::Ignite ||
+           command.kind == CommandKind::IgniteTap) &&
           queued.power_epoch != power_epoch.load(std::memory_order_acquire)) {
+        if (command.kind == CommandKind::Ignite) ignition_press_queued = false;
         diagnostic("[APP] old power command=%u skipped", static_cast<unsigned>(command.kind));
         continue;
       }
@@ -1261,6 +1280,11 @@ void applicationTask(void *) {
           break;
         case CommandKind::Ignite:
           ok = app.ignite();
+          ignition_press_queued = false;
+          break;
+        case CommandKind::IgniteTap:
+          ok = app.ignite();
+          if (ok) ok = app.releaseIgnition(clock_source.now());
           break;
         case CommandKind::Configure: {
           const auto old_gps_source = app.snapshot().settings.gps_source;
@@ -1345,6 +1369,16 @@ void applicationTask(void *) {
       }
       diagnostic("[APP] command=%u accepted=%u", static_cast<unsigned>(command.kind), ok);
     }
+    const auto released_ms = ignition_release_ms.load(std::memory_order_acquire);
+    if (released_ms) {
+      if (app.snapshot().engine == vega::EnginePhase::Holding) {
+        const auto first_release = ignition_release_ms.exchange(0);
+        if (first_release && !app.releaseIgnition(first_release))
+          diagnostic("[APP] ignition release failed");
+      } else if (!ignition_press_queued.load(std::memory_order_acquire)) {
+        ignition_release_ms = 0;
+      }
+    }
     app.tick();
     auto s = app.snapshot();
     xQueueOverwrite(snapshots, &s);
@@ -1391,7 +1425,7 @@ bool prepareOutputs() {
   return outputs_prepared;
 }
 void outputsOff() {
-  engine_output.stopPulse();
+  engine_output.stopIgnition();
   engine_output.setPower(false);
 }
 bool submit(const Command &c) {
@@ -1402,7 +1436,15 @@ bool submit(const Command &c) {
     return true;
   }
   QueuedCommand queued{c, power_epoch.load(std::memory_order_acquire)};
-  return xQueueSend(commands, &queued, 0) == pdTRUE;
+  if (c.kind == CommandKind::Ignite) ignition_press_queued = true;
+  const bool accepted = xQueueSend(commands, &queued, 0) == pdTRUE;
+  if (!accepted && c.kind == CommandKind::Ignite) ignition_press_queued = false;
+  return accepted;
+}
+void requestIgnitionRelease(uint64_t released_us) {
+  vega::Millis empty = 0;
+  ignition_release_ms.compare_exchange_strong(
+      empty, released_us ? released_us / 1000 : clock_source.now());
 }
 bool snapshot(vega::Snapshot &s) { return snapshots && xQueuePeek(snapshots, &s, 0) == pdTRUE; }
 bool strategy(vega::Strategy &s) {
@@ -1667,12 +1709,13 @@ void handleSerialLine(const char *buffer, SerialTransferState &transfer) {
     else if (!strcmp(buffer, "off"))
       command.kind = CommandKind::PowerOff;
     else if (!strcmp(buffer, "ignite"))
-      command.kind = CommandKind::Ignite;
+      command.kind = CommandKind::IgniteTap;
     else
       known = false;
-    if (known)
-      Serial.printf("[CMD] queued=%u\n", submit(command));
-    else if (buffer[0])
+    if (known) {
+      const bool queued = submit(command);
+      Serial.printf("[CMD] queued=%u\n", queued);
+    } else if (buffer[0])
       Serial.println("[CMD] unknown command");
   }
 }

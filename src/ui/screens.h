@@ -695,9 +695,9 @@ typedef struct _objects_t {
     lv_obj_t *settings_advanced_ecu_ready_title;
     lv_obj_t *settings_advanced_ecu_ready_button;
     lv_obj_t *settings_advanced_ecu_ready_button_label;
-    lv_obj_t *settings_advanced_ignition_pulse_title;
-    lv_obj_t *settings_advanced_ignition_pulse_button;
-    lv_obj_t *settings_advanced_ignition_pulse_button_label;
+    lv_obj_t *settings_advanced_ignition_release_delay_title;
+    lv_obj_t *settings_advanced_ignition_release_delay_button;
+    lv_obj_t *settings_advanced_ignition_release_delay_button_label;
     lv_obj_t *settings_advanced_power_high_title;
     lv_obj_t *settings_advanced_power_high_button;
     lv_obj_t *settings_advanced_power_high_button_label;

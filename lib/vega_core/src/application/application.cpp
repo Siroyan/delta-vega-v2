@@ -25,7 +25,7 @@ Application::Application(IClock &c, IEngineOutput &o, ISettingsStore &s, ISessio
       course_(&course),
       settings_(validSettings(cfg) ? cfg : Settings{}),
       race_(course.lapCount()) {
-  output_.stopPulse();
+  output_.stopIgnition();
   output_.configurePower(settings_.power_active_high);
   output_.setPower(false);
 }
@@ -130,16 +130,33 @@ void Application::power(bool on) {
   bool was_on = engine_.phase() != EnginePhase::Off;
   engine_.power(on, clock_.now(), settings_);
   if (!on) {
-    output_.stopPulse();
+    output_.stopIgnition();
     output_error_ = false;
   }
   output_.setPower(on);
   if (on != was_on) event(on ? Event::PowerOn : Event::PowerOff);
 }
 bool Application::ignite() {
-  if (!engine_.ignite(clock_.now(), settings_)) return false;
-  if (!output_.pulse(settings_.ignition_pulse_ms)) output_error_ = true;
+  if (!engine_.ignite(clock_.now())) return false;
+  if (!output_.holdIgnition()) {
+    output_.stopIgnition();
+    output_error_ = true;
+  }
   event(Event::Ignition);
+  return !output_error_;
+}
+bool Application::releaseIgnition(Millis released_ms) {
+  const auto now = clock_.now();
+  if (released_ms > now) released_ms = now;
+  if (!engine_.releaseIgnition(released_ms, settings_)) return false;
+  const auto elapsed = now - released_ms;
+  if (elapsed >= settings_.ignition_release_delay_ms) {
+    output_.stopIgnition();
+    engine_.tick(now);
+  } else if (!output_.releaseIgnitionAfter(settings_.ignition_release_delay_ms - elapsed)) {
+    output_.stopIgnition();
+    output_error_ = true;
+  }
   return !output_error_;
 }
 bool Application::configure(const Settings &requested, SettingsScope scope) {
@@ -159,7 +176,8 @@ bool Application::configure(const Settings &requested, SettingsScope scope) {
   if (race_.phase() == RacePhase::Measuring || !validSettings(s)) return false;
   if (engine_.phase() != EnginePhase::Off && (s.power_active_high != settings_.power_active_high ||
                                               s.ecu_ready_ms != settings_.ecu_ready_ms ||
-                                              s.ignition_pulse_ms != settings_.ignition_pulse_ms))
+                                              s.ignition_release_delay_ms !=
+                                                  settings_.ignition_release_delay_ms))
     return false;
   const bool saved = scope == SettingsScope::General
                          ? store_.saveGeneral(generalSettings(s))
@@ -184,7 +202,7 @@ bool Application::selectCourse(const Course &course, uint8_t index, const Settin
   applyGeneral(combined, generalSettings(settings_));
   if (race_.phase() != RacePhase::Waiting || engine_.phase() != EnginePhase::Off ||
       !validSettings(combined) || !race_.setLapCount(course.lapCount())) return false;
-  output_.stopPulse();
+  output_.stopIgnition();
   output_.configurePower(combined.power_active_high);
   output_.setPower(false);
   course_ = &course;
@@ -299,7 +317,8 @@ void Application::tick() {
   auto now = clock_.now();
   auto before = engine_.phase();
   engine_.tick(now);
-  if (before == EnginePhase::Pulsing && engine_.phase() == EnginePhase::Issued) output_.stopPulse();
+  if (before == EnginePhase::ReleaseDelay && engine_.phase() == EnginePhase::Issued)
+    output_.stopIgnition();
   if (race_.phase() == RacePhase::Measuring && now - last_sample_ >= 500) {
     last_sample_ = now;
     auto s = snapshot();

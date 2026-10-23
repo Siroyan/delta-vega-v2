@@ -11,7 +11,8 @@ bool validSettings(const Settings &s) {
       !validGeo(s.timing) || !validGeo(s.goal) || !std::isfinite(s.wheel_circumference_m) ||
       s.wheel_circumference_m < 0.1 || s.wheel_circumference_m > 10 ||
       s.pulses_per_revolution == 0 || s.pulses_per_revolution > 100 || s.ecu_ready_ms > 60000 ||
-      s.ignition_pulse_ms == 0 || s.ignition_pulse_ms > 10000 || s.pulse_debounce_us < 100 ||
+      s.ignition_release_delay_ms == 0 || s.ignition_release_delay_ms > 10000 ||
+      s.pulse_debounce_us < 100 ||
       s.pulse_debounce_us > 100000 || s.gps_stale_ms < 500 || s.gps_stale_ms > 30000 ||
       s.speed_zero_ms < 500 || s.speed_zero_ms > 30000 || !std::isfinite(s.course_corridor_m) ||
       s.course_corridor_m < 1 || s.course_corridor_m > 200 || !std::isfinite(s.max_gps_step_m) ||

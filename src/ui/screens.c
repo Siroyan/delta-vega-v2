@@ -12963,9 +12963,9 @@ void create_screen_settings() {
                     }
                 }
                 {
-                    // settings_advanced_ignition_pulse_title
+                    // settings_advanced_ignition_release_delay_title
                     lv_obj_t *obj = lv_label_create(parent_obj);
-                    objects.settings_advanced_ignition_pulse_title = obj;
+                    objects.settings_advanced_ignition_release_delay_title = obj;
                     lv_obj_set_pos(obj, 24, 342);
                     lv_obj_set_size(obj, 280, 30);
                     lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
@@ -12980,12 +12980,12 @@ void create_screen_settings() {
                     lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_text_color(obj, lv_color_hex(0x202b36), LV_PART_MAIN | LV_STATE_DEFAULT);
                     lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    lv_label_set_text_static(obj, "IGNITION (ms)");
+                    lv_label_set_text_static(obj, "RELEASE DELAY (s)");
                 }
                 {
-                    // settings_advanced_ignition_pulse_button
+                    // settings_advanced_ignition_release_delay_button
                     lv_obj_t *obj = lv_button_create(parent_obj);
-                    objects.settings_advanced_ignition_pulse_button = obj;
+                    objects.settings_advanced_ignition_release_delay_button = obj;
                     lv_obj_set_pos(obj, 314, 334);
                     lv_obj_set_size(obj, 274, 46);
                     lv_obj_add_event_cb(obj, action_edit_setting, LV_EVENT_CLICKED, (void *)17);
@@ -13002,9 +13002,9 @@ void create_screen_settings() {
                     {
                         lv_obj_t *parent_obj = obj;
                         {
-                            // settings_advanced_ignition_pulse_button_label
+                            // settings_advanced_ignition_release_delay_button_label
                             lv_obj_t *obj = lv_label_create(parent_obj);
-                            objects.settings_advanced_ignition_pulse_button_label = obj;
+                            objects.settings_advanced_ignition_release_delay_button_label = obj;
                             lv_obj_set_pos(obj, 0, 9);
                             lv_obj_set_size(obj, 274, 28);
                             lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
@@ -13019,7 +13019,7 @@ void create_screen_settings() {
                             lv_obj_set_style_text_font(obj, &ui_font_ricty_diminished_24, LV_PART_MAIN | LV_STATE_DEFAULT);
                             lv_obj_set_style_text_color(obj, lv_color_hex(0xffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
                             lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
-                            lv_label_set_text_static(obj, "1000");
+                            lv_label_set_text_static(obj, "1");
                         }
                     }
                 }

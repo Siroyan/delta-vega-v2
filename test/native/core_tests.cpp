@@ -34,19 +34,23 @@ struct Clock : IClock {
   uint64_t nowMicros() const override { return time * 1000 + micros_offset; }
 };
 struct Output : IEngineOutput {
-  bool on = false, high = false, active_high = true, fail = false;
+  bool on = false, high = false, active_high = true, fail = false, fail_release = false;
   unsigned triggers = 0;
   uint32_t duration = 0;
   void configurePower(bool active) override { active_high = active; }
   void setPower(bool state) override { on = state; }
-  bool pulse(uint32_t ms) override {
+  bool holdIgnition() override {
     ++triggers;
     if (fail) return false;
     high = true;
+    return true;
+  }
+  bool releaseIgnitionAfter(uint32_t ms) override {
+    if (fail_release) return false;
     duration = ms;
     return true;
   }
-  void stopPulse() override { high = false; }
+  void stopIgnition() override { high = false; }
 };
 struct Store : ISettingsStore {
   bool fail = false;
@@ -148,11 +152,19 @@ void engineTest() {
   ++f.clock.time;
   f.app.tick();
   assert(f.app.snapshot().ecu_prepare_permille == 0);
+  assert(!f.app.releaseIgnition(f.clock.time));
   assert(f.app.ignite());
-  assert(f.output.triggers == 1 && f.output.duration == 1000);
+  assert(f.output.triggers == 1 && f.output.high);
+  assert(f.app.snapshot().engine == EnginePhase::Holding);
   assert(!f.app.ignite());
   f.app.power(true);
   assert(!f.app.ignite());
+  f.clock.time += 5000;
+  f.app.tick();
+  assert(f.output.high && f.app.snapshot().engine == EnginePhase::Holding);
+  assert(f.app.releaseIgnition(f.clock.time));
+  assert(f.output.duration == 1000 && f.app.snapshot().engine == EnginePhase::ReleaseDelay);
+  assert(!f.app.releaseIgnition(f.clock.time));
   f.clock.time += 999;
   f.app.tick();
   assert(f.output.high);
@@ -190,6 +202,30 @@ void engineTest() {
   f.clock.time += 1000;
   f.app.tick();
   assert(f.app.ignite());
+  const auto released_at = f.clock.time;
+  f.clock.time += 400;
+  assert(f.app.releaseIgnition(released_at));
+  assert(f.output.duration == 600);
+  f.clock.time += 600;
+  f.app.tick();
+  assert(!f.output.high);
+  f.app.power(false);
+  f.app.power(true);
+  f.clock.time += 1000;
+  f.app.tick();
+  assert(f.app.ignite());
+  f.clock.time += 1200;
+  assert(f.app.releaseIgnition(f.clock.time - 1200));
+  assert(!f.output.high && f.app.snapshot().engine == EnginePhase::Issued);
+
+  Fixture release_failure;
+  release_failure.app.power(true);
+  release_failure.clock.time += 1000;
+  release_failure.app.tick();
+  assert(release_failure.app.ignite());
+  release_failure.output.fail_release = true;
+  assert(!release_failure.app.releaseIgnition(release_failure.clock.time));
+  assert(!release_failure.output.high && release_failure.app.snapshot().output_error);
 }
 void raceTest() {
   Fixture f;
@@ -652,9 +688,14 @@ void settingsTest() {
   cfg = f.settings;
   cfg.power_active_high = false;
   assert(!f.app.configure(cfg, SettingsScope::General));
+  cfg = f.settings;
+  cfg.ignition_release_delay_ms = 2500;
+  assert(!f.app.configure(cfg, SettingsScope::General));
   f.app.power(false);
+  cfg.power_active_high = false;
   assert(f.app.configure(cfg, SettingsScope::General));
   assert(!f.output.on && !f.output.active_high);
+  assert(f.store.general.ignition_release_delay_ms == 2500);
   cfg.display_brightness = kMinDisplayBrightness - 1;
   assert(!f.app.configure(cfg, SettingsScope::General));
   cfg.display_brightness = kMaxDisplayBrightness + 1;
@@ -748,7 +789,7 @@ void settingsFormTest() {
   struct AdvancedCase { size_t field; const char *input; const char *formatted; };
   const AdvancedCase advanced[] = {
       {14, "1.034", "1.03400000"}, {15, "2", "2"},
-      {16, "2500", "2500"}, {17, "750", "750"},
+      {16, "2500", "2500"}, {17, "0.750", "0.75"},
       {18, "0", "0"}, {19, "3500", "3500"},
       {20, "4000", "4000"}, {21, "5000", "5000"},
       {22, "55.5", "55.50000000"}, {23, "90.25", "90.25000000"},
@@ -763,6 +804,8 @@ void settingsFormTest() {
   assert(!editSetting(s, 14, "0.09") && !editSetting(s, 14, "1e2"));
   assert(!editSetting(s, 15, "0") && !editSetting(s, 15, "2.5"));
   assert(!editSetting(s, 16, "60001") && !editSetting(s, 17, "0"));
+  assert(!editSetting(s, 17, "10.001") && !editSetting(s, 17, "0.0001"));
+  assert(editSetting(s, 17, "1") && s.ignition_release_delay_ms == 1000);
   assert(!editSetting(s, 18, "2") && !editSetting(s, 18, "01"));
   assert(!editSetting(s, 19, "99") && !editSetting(s, 20, "499"));
   assert(!editSetting(s, 21, "30001") && !editSetting(s, 22, "0.9"));
@@ -782,7 +825,7 @@ void gpsSourceSettingsTest() {
   old.wheel_circumference_m = 1.234;
   old.pulses_per_revolution = 2;
   old.ecu_ready_ms = 1234;
-  old.ignition_pulse_ms = 987;
+  old.ignition_release_delay_ms = 987;
   old.power_active_high = false;
   old.pulse_debounce_us = 4321;
   old.speed_zero_ms = 4567;
@@ -798,7 +841,8 @@ void gpsSourceSettingsTest() {
   assert(decodeSettingsBlob(legacy.data(), legacy.size(), migrated));
   assert(migrated.version == 4 && migrated.gps_source == GpsSource::M5Bus &&
          migrated.display_brightness == kDefaultDisplayBrightness &&
-         migrated.speed_average_intervals == 3);
+         migrated.speed_average_intervals == 3 &&
+         migrated.ignition_release_delay_ms == 987);
   old.version = 2;
   for (size_t field = 0; field < kSettingsFieldCount; ++field) {
     char before[32], after[32];
@@ -839,6 +883,7 @@ void gpsSourceSettingsTest() {
          upgraded_general.gps_source == GpsSource::PortA &&
          upgraded_general.display_brightness == 200 &&
          upgraded_general.wheel_circumference_m == 1.234 &&
+         upgraded_general.ignition_release_delay_ms == 987 &&
          upgraded_general.speed_average_intervals == 3);
   upgraded_general.speed_average_intervals = 8;
   assert(decodeGeneralSettingsBlob(&upgraded_general, sizeof(upgraded_general), old_general));
@@ -1066,7 +1111,7 @@ void settingsMigrationTest() {
   old_vehicle.wheel_circumference_m = 1.27;
   old_vehicle.pulses_per_revolution = 2;
   old_vehicle.ecu_ready_ms = 1500;
-  old_vehicle.ignition_pulse_ms = 450;
+  old_vehicle.ignition_release_delay_ms = 450;
   old_vehicle.display_brightness = 200;
 
   // A pre-catalog standard build has no vega-select record. On first boot,
@@ -1122,7 +1167,7 @@ void settingsMigrationTest() {
   applyCourse(combined, course);
   assert(!combined.power_active_high && combined.gps_source == GpsSource::PortA);
   assert(combined.wheel_circumference_m == 1.27 && combined.pulses_per_revolution == 2);
-  assert(combined.ecu_ready_ms == 1500 && combined.ignition_pulse_ms == 450);
+  assert(combined.ecu_ready_ms == 1500 && combined.ignition_release_delay_ms == 450);
   assert(combined.display_brightness == 200);
   assert(combined.start.latitude == course_defaults.start.latitude);
   assert(combined.total_target_s == 2400 && combined.lap_target_s[0] == 600);
@@ -1165,11 +1210,16 @@ void serialConfigTest() {
   assert(tab5::serialConfigCommand("speed_average_intervals", "6", current, command));
   assert(command.scope == SettingsScope::General &&
          command.settings.speed_average_intervals == 6);
+  assert(tab5::serialConfigCommand("ignition_release_delay_ms", "2500", current, command));
+  assert(command.settings.ignition_release_delay_ms == 2500);
+  assert(tab5::serialConfigCommand("ignition_pulse_ms", "1500", current, command));
+  assert(command.settings.ignition_release_delay_ms == 1500);
 
   assert(!tab5::serialConfigCommand("speed_average_intervals", "6.2", current, command));
   assert(!tab5::serialConfigCommand("power_active_high", "2", current, command));
   assert(!tab5::serialConfigCommand("wheel_circumference_m", "nan", current, command));
   assert(!tab5::serialConfigCommand("min_lap_ms", "-1", current, command));
+  assert(!tab5::serialConfigCommand("ignition_release_delay_ms", "10001", current, command));
   assert(!tab5::serialConfigCommand("unknown", "1", current, command));
 }
 void fourLapStrategyTest() {
@@ -1333,25 +1383,28 @@ void combinedLapTest() {
 void controlGestureTest() {
   constexpr uintptr_t power = 1, ignition = 2;
   ControlGesture gesture;
-  assert(!gesture.sample(false, power));
-  assert(!gesture.sample(true, power));
-  assert(!gesture.sample(true, power));  // repeated press samples are not extra taps
-  assert(gesture.sample(false, power) == power);
-  assert(!gesture.sample(false, power));  // repeated release samples are not extra taps
+  auto sample = [&](bool pressed, uintptr_t hit) { return gesture.sample(pressed, hit); };
+  assert(!sample(false, power).tapped);
+  assert(sample(true, power).pressed == power);
+  assert(!sample(true, power).pressed);  // repeated samples do not restart a hold
+  auto released = sample(false, power);
+  assert(released.released == power && released.tapped == power);
+  assert(!sample(false, power).released);
 
-  assert(!gesture.sample(true, power));
-  assert(!gesture.sample(true, 0));
-  assert(!gesture.sample(true, power));
-  assert(!gesture.sample(false, power));  // leaving the control cancels the tap
+  assert(sample(true, power).pressed == power);
+  assert(!sample(true, 0).tapped);
+  assert(!sample(true, power).pressed);
+  released = sample(false, power);
+  assert(released.released == power && !released.tapped);  // dragged off: no tap
 
-  assert(!gesture.sample(true, 0));
-  assert(!gesture.sample(true, ignition));
-  assert(!gesture.sample(false, ignition));  // entering a control mid-gesture is not a tap
+  assert(!sample(true, 0).pressed);
+  assert(!sample(true, ignition).pressed);
+  assert(!sample(false, ignition).released);  // entering mid-gesture is not a press
 
-  assert(!gesture.sample(true, power));
-  assert(!gesture.sample(false, ignition));
-  assert(!gesture.sample(true, ignition));
-  assert(gesture.sample(false, ignition) == ignition);
+  assert(sample(true, ignition).pressed == ignition);
+  released = sample(false, 0);  // control may be disabled after starting the hold
+  assert(released.released == ignition && !released.tapped);
+  assert(!sample(false, 0).released);
 
   PowerIntent power_intent;
   assert(power_intent.nextTap() == PowerRequest::On);
@@ -1364,6 +1417,97 @@ void controlGestureTest() {
   power_intent.accepted(PowerRequest::On);
   power_intent.observe(true);
   assert(power_intent.nextTap() == PowerRequest::Off);
+}
+void controlReleaseTest() {
+  const ControlTouch ignition{101000000, 101100000};
+  const ControlTouch unrelated{101200000, 101400000};
+
+  ControlReleaseLatch live;
+  live.observePress(ignition.gesture_us);
+  assert(live.prepare(ignition.gesture_us));
+  assert(!live.activate());
+  assert(!live.finish(unrelated.gesture_us, unrelated.sampled_us));
+  assert(live.observeRelease(ignition) == ignition.sampled_us);
+  assert(!live.finish(ignition.gesture_us, ignition.sampled_us));  // UI duplicate
+
+  // A release after reservation but before IGNITE is queued must wait for
+  // activation, otherwise the app can discard it before seeing IGNITE.
+  ControlReleaseLatch preparing;
+  preparing.observePress(ignition.gesture_us);
+  assert(preparing.prepare(ignition.gesture_us));
+  assert(!preparing.observeRelease(ignition));
+  for (unsigned i = 1; i <= ControlReleaseLatch::kHistorySize; ++i) {
+    preparing.observePress(unrelated.gesture_us + i);
+    assert(!preparing.observeRelease({unrelated.gesture_us + i, unrelated.sampled_us + i}));
+  }
+  assert(preparing.activate() == ignition.sampled_us);  // retained even after history wraps
+  assert(!preparing.activate());
+
+  // The raw release can happen just before the UI reserves its fallback.
+  ControlReleaseLatch already_released;
+  assert(!already_released.observeRelease(ignition));
+  assert(already_released.prepare(ignition.gesture_us));
+  assert(already_released.activate() == ignition.sampled_us);
+  assert(!already_released.finish(ignition.gesture_us, ignition.sampled_us));
+
+  // Both taps finish while LVGL is busy. Dispatch must use the first tap's
+  // own retained release, not the globally latest physical release.
+  ControlReleaseLatch delayed;
+  assert(!delayed.observeRelease(ignition));
+  assert(!delayed.observeRelease(unrelated));
+  assert(delayed.prepare(ignition.gesture_us));
+  assert(!delayed.finish(unrelated.gesture_us, unrelated.sampled_us));
+  const auto released_us = delayed.activate();
+  assert(released_us == ignition.sampled_us);
+  assert(!delayed.finish(ignition.gesture_us, ignition.sampled_us));
+  assert(!delayed.observeRelease(unrelated));
+
+  Fixture f;
+  f.app.power(true);
+  f.clock.time = 101500;  // UI dispatch occurs 400 ms after the ignition release.
+  f.app.tick();
+  assert(f.app.ignite());
+  assert(f.app.releaseIgnition(released_us / 1000));
+  assert(f.output.duration == 600);
+  f.clock.time = 102099;
+  f.app.tick();
+  assert(f.output.high);
+  ++f.clock.time;
+  f.app.tick();
+  assert(!f.output.high);  // LOW at original release + 1 s, not at 102400.
+
+  // A later unrelated raw release must not consume a pending older gesture.
+  ControlReleaseLatch overlapping;
+  overlapping.observePress(ignition.gesture_us);
+  assert(overlapping.prepare(ignition.gesture_us));
+  assert(!overlapping.activate());
+  assert(!overlapping.observeRelease(unrelated));
+  assert(overlapping.finish(ignition.gesture_us, ignition.sampled_us) == ignition.sampled_us);
+  overlapping.observePress(102000000);
+  assert(overlapping.prepare(102000000));
+  assert(!overlapping.activate());  // no old release applied to a new press
+  assert(overlapping.observeRelease({102000000, 102500000}) == 102500000);
+
+  // More releases than the bounded input queue can retain: decline an expired
+  // press instead of accepting IGNITE with no recoverable release timestamp.
+  ControlReleaseLatch overflow;
+  overflow.observePress(ignition.gesture_us);
+  assert(!overflow.observeRelease(ignition));
+  for (unsigned i = 1; i <= ControlReleaseLatch::kHistorySize; ++i) {
+    overflow.observePress(unrelated.gesture_us + i);
+    assert(!overflow.observeRelease({unrelated.gesture_us + i, unrelated.sampled_us + i}));
+  }
+  assert(!overflow.prepare(ignition.gesture_us));
+  assert(!overflow.activate());
+  overflow.observePress(103000000);
+  assert(overflow.prepare(103000000));
+  overflow.cancel();  // command queue rejected IGNITE
+  assert(!overflow.observeRelease({103000000, 103500000}));
+  overflow.observePress(104000000);
+  assert(overflow.prepare(104000000));
+  assert(!overflow.prepare(105000000));  // no competing ignition reservation
+  assert(!overflow.activate());
+  assert(overflow.observeRelease({104000000, 104500000}) == 104500000);
 }
 void strategyWarningTest() {
   StrategyLap lap{};
@@ -1459,6 +1603,7 @@ int main() {
   realCourseTest();
   combinedLapTest();
   controlGestureTest();
+  controlReleaseTest();
   std::cout << "PASS: engine, race, GPS/manual finish, passages, wheel, NMEA, settings, "
                "strategy, MVP/JSON, control gestures\n";
 }
