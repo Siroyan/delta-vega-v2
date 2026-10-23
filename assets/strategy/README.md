@@ -50,7 +50,7 @@ python3 scripts/upload_strategy.py assets/strategy/motegi_demo.json --port /dev/
 | `lap` | 1〜コースの周回数。順序は自由だが全周必須 |
 | `route_id` | 1周目は`first_lap`、中間周は`regular_lap`、最終周は`final_lap` |
 | `lap_target_s` | その周の目標ラップタイム（秒）。1〜86400 |
-| `runs` | その周の点火から電装OFFまでの区間。1〜3件、距離順 |
+| `runs` | その周の点火から電装OFFまでの区間。1件以上、回数上限なし、距離順。JSON全体の4096バイト上限を守る |
 | `on_s_m` | 経路の始点から測った、エンジン始動を促す地点（m） |
 | `off_s_m` | 同じ経路上で電装OFF・惰性走行開始を促す地点（m） |
 

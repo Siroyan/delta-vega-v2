@@ -15,7 +15,6 @@ IDENTIFIER = re.compile(r"[A-Za-z0-9_.-]{1,39}\Z")
 FILENAME = re.compile(r"[A-Za-z0-9_-]{1,30}\.json\Z")
 MAX_STRATEGY_BYTES = 4096
 MAX_STRATEGY_LAPS = 7
-MAX_RUNS_PER_LAP = 3
 
 
 @dataclass(frozen=True)
@@ -190,8 +189,8 @@ def validate_strategy(value, catalog, filename):
             errors.append(f"LAP {number}: 目標時間は1〜86400秒で指定してください。")
             continue
         runs = entry["runs"]
-        if not isinstance(runs, list) or not 1 <= len(runs) <= MAX_RUNS_PER_LAP:
-            errors.append(f"LAP {number}: ON/OFF区間は1〜3件にしてください。")
+        if not isinstance(runs, list) or not runs:
+            errors.append(f"LAP {number}: ON/OFF区間は1件以上指定してください。")
             continue
         previous_off = -1
         normalized_runs = []

@@ -3,12 +3,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "course.h"
 
 namespace vega {
 
-constexpr size_t kMaxStrategyRunsPerLap = 3;
 constexpr size_t kMaxStrategyFileBytes = 4096;
 
 struct StrategyRun {
@@ -19,8 +19,8 @@ struct StrategyLap {
   CourseRoute route = CourseRoute::Regular;
   double route_length_m = 0;
   uint32_t lap_target_s = 0;
-  uint8_t run_count = 0;
-  std::array<StrategyRun, kMaxStrategyRunsPerLap> runs{};
+  // The JSON byte limit bounds storage; there is no separate per-lap count limit.
+  std::vector<StrategyRun> runs;
 };
 struct Strategy {
   char course_id[48]{};

@@ -127,7 +127,6 @@ function renderRows() {
     return row;
   });
   $("run-list").replaceChildren(...rows);
-  $("add-run").disabled = lap.runs.length >= 3;
   $("copy-lap").disabled = state.strategy.laps.length <= 1;
 }
 function matrixPoint(point) {

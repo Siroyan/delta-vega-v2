@@ -926,7 +926,7 @@ void strategyTest() {
   assert(plan.laps[0].lap_target_s == 360);
   assert(plan.laps[0].route == CourseRoute::First && plan.laps[0].runs[0].on_s_m == 0);
   assert(plan.laps[6].route == CourseRoute::Final);
-  for (const auto &lap : plan.laps) assert(lap.run_count == 3);
+  for (const auto &lap : plan.laps) assert(lap.runs.size() == 3);
   auto next = nextStrategyCue(plan.laps[0], 0, plan.laps[0].route_length_m);
   assert(next.cue == StrategyCue::On && next.distance_m == 0);
   next = nextStrategyCue(plan.laps[0], 100, plan.laps[0].route_length_m);
@@ -969,7 +969,38 @@ void strategyTest() {
     assert(!parseStrategy(altered.data(), altered.size(), course, asset_motegi_oval_full::course_data.id,
                           result, error, sizeof(error)));
     assert(error[0] && std::strcmp(result.plan_id, plan.plan_id) == 0);
+    assert(result.laps[0].runs.size() == plan.laps[0].runs.size());
+    assert(result.laps[0].runs.back().off_s_m == plan.laps[0].runs.back().off_s_m);
   };
+  // A single lap may contain as many runs as fit in the file byte budget.
+  std::string many_runs = json;
+  const auto runs_at = many_runs.find("\"runs\": [") + std::strlen("\"runs\": [");
+  const auto runs_end = many_runs.find(']', runs_at);
+  std::string intervals;
+  for (unsigned i = 0; i < 80; ++i) {
+    if (i) intervals += ',';
+    intervals += "{\"on_s_m\":" + std::to_string(i * 20) +
+                 ",\"off_s_m\":" + std::to_string(i * 20 + 10) + "}";
+  }
+  many_runs.replace(runs_at, runs_end - runs_at, intervals);
+  assert(many_runs.size() <= kMaxStrategyFileBytes);
+  Strategy expanded{};
+  for (int repeat = 0; repeat < 2; ++repeat) {
+    assert(parseStrategy(many_runs.data(), many_runs.size(), course,
+                         asset_motegi_oval_full::course_data.id, expanded, error, sizeof(error)));
+    assert(expanded.laps[0].runs.size() == 80);
+    assert(expanded.laps[1].runs.size() == 3);
+  }
+  next = nextStrategyCue(expanded.laps[0], 1575, expanded.laps[0].route_length_m);
+  assert(next.cue == StrategyCue::On && next.distance_m == 5);
+  next = nextStrategyCue(expanded.laps[0], 1585, expanded.laps[0].route_length_m);
+  assert(next.cue == StrategyCue::Off && next.distance_m == 5);
+  snapshot.race.lap = 1;
+  snapshot.route_map.s_m = 1585;
+  status.plan_state = PlanState::Ready;
+  presenter.render(snapshot, status, &expanded);
+  assert(view.model.plan_lap.runs.size() == 80);
+  assert(std::strcmp(view.model.action, "NEXT OFF IN 5 m") == 0);
   std::string original_demo = json;
   auto strip = [&](const char *line) {
     auto pos = original_demo.find(line);
@@ -1511,9 +1542,7 @@ void controlReleaseTest() {
 }
 void strategyWarningTest() {
   StrategyLap lap{};
-  lap.run_count = 2;
-  lap.runs[0] = {0, 100};
-  lap.runs[1] = {200, 260};
+  lap.runs = {{0, 100}, {200, 260}};
   StrategyWarning warning;
   StrategyCue cue = StrategyCue::LapEnd;
   assert(!warning.update(1, 1, true, lap, 0, cue));  // Start ON at 0 m has no advance point.
@@ -1529,6 +1558,20 @@ void strategyWarningTest() {
   assert(warning.update(2, 1, true, lap, 75, cue) && cue == StrategyCue::Off);
   warning.reset();
   assert(warning.update(2, 1, true, lap, 75, cue) && cue == StrategyCue::Off);
+  StrategyLap many{};
+  for (unsigned i = 0; i < 12; ++i)
+    many.runs.push_back({100.0 + 100 * i, 140.0 + 100 * i});
+  warning.reset();
+  for (const auto &run : many.runs) {
+    assert(warning.update(3, 1, true, many, run.on_s_m - 25, cue) && cue == StrategyCue::On);
+    assert(!warning.update(3, 1, true, many, run.on_s_m - 24, cue));
+    assert(warning.update(3, 1, true, many, run.off_s_m - 25, cue) && cue == StrategyCue::Off);
+    assert(!warning.update(3, 1, true, many, run.off_s_m - 24, cue));
+  }
+  assert(!warning.update(3, 1, false, many, 1175, cue));
+  assert(!warning.update(3, 1, true, many, 1175, cue));
+  assert(warning.update(3, 2, true, many, 1175, cue) && cue == StrategyCue::On);
+  assert(warning.update(4, 1, true, many, 1175, cue) && cue == StrategyCue::On);
 }
 void misatoCourseTest() {
   Course course(asset_misato_loop::course_data);

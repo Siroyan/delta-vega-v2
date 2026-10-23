@@ -19,7 +19,8 @@ class StrategyWarning {
 
  private:
   uint32_t session_ = 0;
-  std::array<uint8_t, kLapCount> announced_{};
+  // One two-bit flag per run, so warnings also support arbitrary run counts.
+  std::array<std::vector<uint8_t>, kLapCount> announced_{};
 };
 
 }  // namespace vega

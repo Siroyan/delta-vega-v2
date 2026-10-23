@@ -38,6 +38,11 @@ def simple_strategy(course):
     }
 
 
+def many_runs(count):
+    return [{"on_s_m": index * 20, "off_s_m": index * 20 + 10}
+            for index in range(count)]
+
+
 class ModelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -66,6 +71,43 @@ class ModelTests(unittest.TestCase):
         self.assertTrue(validate_strategy(plan, self.catalog, "test.json")[0])
         plan["laps"][0]["runs"] = [{"on_s_m": 0, "off_s_m": 200}]
         self.assertTrue(validate_strategy(plan, self.catalog, "test.json")[0])
+
+    def test_more_than_three_runs_per_lap(self):
+        course = self.catalog.courses["motegi_oval_full"]
+        for count in (4, 8):
+            with self.subTest(runs_per_lap=count):
+                plan = simple_strategy(course)
+                for lap in plan["laps"]:
+                    lap["runs"] = many_runs(count)
+                errors, normalized, payload = validate_strategy(plan, self.catalog, "test.json")
+                self.assertEqual(errors, [])
+                self.assertEqual(parse_import(payload), plan)
+                self.assertTrue(all(len(lap["runs"]) == count for lap in normalized["laps"]))
+                # Validation must still inspect intervals beyond the old cap.
+                runs = plan["laps"][0]["runs"]
+                runs[-1]["on_s_m"] = runs[-2]["off_s_m"]
+                self.assertTrue(validate_strategy(plan, self.catalog, "test.json")[0])
+
+    def test_run_count_is_limited_only_by_file_bytes(self):
+        course = self.catalog.courses["motegi_oval_full"]
+        plan = simple_strategy(course)
+        plan["laps"][0]["runs"] = many_runs(80)
+        errors, _, payload = validate_strategy(plan, self.catalog, "test.json")
+        self.assertEqual(errors, [])
+        self.assertEqual(len(parse_import(payload)["laps"][0]["runs"]), 80)
+        for lap in plan["laps"]:
+            lap["runs"] = many_runs(20)
+        errors, normalized, payload = validate_strategy(plan, self.catalog, "test.json")
+        self.assertIn("4096バイト", " ".join(errors))
+        self.assertIsNone(normalized)
+        self.assertIsNone(payload)
+
+    def test_empty_runs_are_rejected(self):
+        plan = simple_strategy(self.catalog.courses["misato_loop"])
+        for value in ([], None, "runs"):
+            with self.subTest(runs=value):
+                plan["laps"][0]["runs"] = value
+                self.assertIn("1件以上", " ".join(validate_strategy(plan, self.catalog, "test.json")[0]))
 
     def test_invalid_names_and_duplicate_json_are_rejected(self):
         course = self.catalog.courses["misato_loop"]
@@ -134,10 +176,19 @@ int main(int argc, char **argv) {
                        str(CORE / "domain/course.cpp"), str(CORE / "domain/strategy.cpp"),
                        str(CORE / "domain/types.cpp"), "-o", str(binary)]
             subprocess.run(command, check=True, cwd=ROOT, capture_output=True)
-            for path in EXAMPLES.glob("*.json"):
-                with self.subTest(path=path.name):
-                    plan = parse_import(path.read_bytes())
-                    _, _, payload = validate_strategy(plan, self.catalog, path.name)
+            cases = [(path.name, parse_import(path.read_bytes())) for path in EXAMPLES.glob("*.json")]
+            course = self.catalog.courses["motegi_oval_full"]
+            expanded = simple_strategy(course)
+            for lap in expanded["laps"]:
+                lap["runs"] = many_runs(8)
+            cases.append(("eight-per-lap.json", expanded))
+            concentrated = simple_strategy(course)
+            concentrated["laps"][0]["runs"] = many_runs(80)
+            cases.append(("eighty-first-lap.json", concentrated))
+            for filename, plan in cases:
+                with self.subTest(path=filename):
+                    errors, _, payload = validate_strategy(plan, self.catalog, filename)
+                    self.assertEqual(errors, [])
                     output.write_bytes(payload)
                     course = self.catalog.by_id[plan["course_id"]]
                     lengths = [course.data["routes"][name]["length_m"] for name in
@@ -183,8 +234,10 @@ class HttpTests(unittest.TestCase):
             self.get("/maps/../course_manifest.json")
 
     def test_validate_export_and_reimport(self):
-        course = self.catalog.courses["misato_loop"]
+        course = self.catalog.courses["motegi_oval_full"]
         plan = simple_strategy(course)
+        for lap in plan["laps"]:
+            lap["runs"] = many_runs(4)
         result = json.loads(self.post("/api/validate", {
             "strategy": plan, "filename": "test.json"}).read())
         self.assertEqual(result["errors"], [])

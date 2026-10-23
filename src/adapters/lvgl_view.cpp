@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 #include "../ui/actions.h"
 #include "../ui/fonts.h"
@@ -194,13 +195,12 @@ lv_obj_tree_walk_res_t installGeneratedButtonSound(lv_obj_t *obj, void *) {
 constexpr size_t kPlanLinePoints = 96;
 struct PlanLine {
   lv_obj_t *object = nullptr;
-  std::array<lv_point_precise_t, kPlanLinePoints> points{};
+  std::vector<lv_point_precise_t> points;
 };
 struct PlanMap {
-  std::array<PlanLine, vega::kMaxStrategyRunsPerLap> acceleration{};
-  std::array<PlanLine, vega::kMaxStrategyRunsPerLap + 1> coasting{};
-  std::array<lv_obj_t *, vega::kMaxStrategyRunsPerLap> on_backing{}, on_flame{},
-      off_square{};
+  lv_obj_t *parent = nullptr;
+  std::vector<PlanLine> acceleration, coasting;
+  std::vector<lv_obj_t *> on_backing, on_flame, off_square;
   uint8_t shown_lap = 0;
   bool shown = false;
 };
@@ -231,6 +231,7 @@ void drawPlanLine(PlanLine &line, const vega::CoursePath &path,
   }
   const size_t count = std::min(kPlanLinePoints,
                                 static_cast<size_t>(std::ceil((to_m - from_m) / 15)) + 2);
+  line.points.resize(count);
   for (size_t i = 0; i < count; ++i) {
     const double s_m = from_m + (to_m - from_m) * i / (count - 1);
     line.points[i] = planPixel(path, s_m);
@@ -242,7 +243,7 @@ void drawPlanLine(PlanLine &line, const vega::CoursePath &path,
 void hidePlanMap(PlanMap &map) {
   for (auto &line : map.acceleration) visible(line.object, false);
   for (auto &line : map.coasting) visible(line.object, false);
-  for (size_t i = 0; i < vega::kMaxStrategyRunsPerLap; ++i) {
+  for (size_t i = 0; i < map.on_flame.size(); ++i) {
     visible(map.on_backing[i], false);
     visible(map.on_flame[i], false);
     visible(map.off_square[i], false);
@@ -251,6 +252,8 @@ void hidePlanMap(PlanMap &map) {
   map.shown_lap = 0;
 }
 
+void resizePlanMap(PlanMap &map, size_t run_count);
+
 void renderPlanMap(PlanMap &map, const vega::DisplayModel &model) {
   if (!model.plan_loaded) {
     if (map.shown) hidePlanMap(map);
@@ -258,17 +261,10 @@ void renderPlanMap(PlanMap &map, const vega::DisplayModel &model) {
   }
   if (map.shown && map.shown_lap == model.plan_lap_number) return;
   const auto &lap = model.plan_lap;
+  resizePlanMap(map, lap.runs.size());
   const auto &path = courseData().routes[static_cast<size_t>(lap.route)];
   double previous_off = 0;
-  for (size_t i = 0; i < vega::kMaxStrategyRunsPerLap; ++i) {
-    if (i >= lap.run_count) {
-      visible(map.acceleration[i].object, false);
-      visible(map.coasting[i].object, false);
-      visible(map.on_backing[i], false);
-      visible(map.on_flame[i], false);
-      visible(map.off_square[i], false);
-      continue;
-    }
+  for (size_t i = 0; i < lap.runs.size(); ++i) {
     const auto &run = lap.runs[i];
     drawPlanLine(map.coasting[i], path, previous_off, run.on_s_m);
     drawPlanLine(map.acceleration[i], path, run.on_s_m, run.off_s_m);
@@ -286,14 +282,39 @@ void renderPlanMap(PlanMap &map, const vega::DisplayModel &model) {
     visible(map.off_square[i], true);
     previous_off = run.off_s_m;
   }
-  drawPlanLine(map.coasting[lap.run_count], path, previous_off, lap.route_length_m);
-  for (size_t i = lap.run_count + 1; i < map.coasting.size(); ++i)
-    visible(map.coasting[i].object, false);
+  drawPlanLine(map.coasting[lap.runs.size()], path, previous_off, lap.route_length_m);
   map.shown = true;
   map.shown_lap = model.plan_lap_number;
 }
 
 void createPlanMap(PlanMap &map, lv_obj_t *parent) {
+  // Keep dynamically recreated plan objects below the position/start/goal
+  // markers and legend, which are created after this transparent layer.
+  map.parent = lv_obj_create(parent);
+  lv_obj_remove_style_all(map.parent);
+  lv_obj_set_pos(map.parent, 0, 0);
+  lv_obj_set_size(map.parent, kCourseMapSize, kCourseMapSize);
+  lv_obj_remove_flag(map.parent, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(map.parent, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+void resizePlanMap(PlanMap &map, size_t run_count) {
+  if (map.acceleration.size() == run_count && map.coasting.size() == run_count + 1) return;
+  // LVGL retains pointers into PlanLine::points. Delete the old lines before
+  // resizing so vector relocation never leaves a dangling point buffer.
+  for (auto &line : map.acceleration) lv_obj_delete(line.object);
+  for (auto &line : map.coasting) lv_obj_delete(line.object);
+  for (auto *object : map.on_backing) lv_obj_delete(object);
+  for (auto *object : map.on_flame) lv_obj_delete(object);
+  for (auto *object : map.off_square) lv_obj_delete(object);
+  map.acceleration.clear();
+  map.coasting.clear();
+  map.acceleration.resize(run_count);
+  map.coasting.resize(run_count + 1);
+  map.on_backing.resize(run_count);
+  map.on_flame.resize(run_count);
+  map.off_square.resize(run_count);
+  auto *parent = map.parent;
   auto make_line = [parent](PlanLine &line, uint32_t color) {
     line.object = lv_line_create(parent);
     lv_obj_set_pos(line.object, 0, 0);
@@ -306,7 +327,7 @@ void createPlanMap(PlanMap &map, lv_obj_t *parent) {
   };
   for (auto &line : map.acceleration) make_line(line, 0xDB741D);
   for (auto &line : map.coasting) make_line(line, 0x1769B2);
-  for (size_t i = 0; i < vega::kMaxStrategyRunsPerLap; ++i) {
+  for (size_t i = 0; i < run_count; ++i) {
     auto *backing = lv_obj_create(parent);
     lv_obj_set_size(backing, 44, 44);
     lv_obj_set_style_pad_all(backing, 0, 0);
@@ -1285,8 +1306,15 @@ void viewUpdate() {
                                     : "SAVE NOT ACCEPTED - TRY AGAIN");
     }
   }
-  vega::Strategy strategy_data;
-  const bool plan_loaded = strategy(strategy_data);
+  const auto strategy_data = strategy();
+  static std::shared_ptr<const vega::Strategy> displayed_strategy;
+  if (displayed_strategy != strategy_data) {
+    // A new selection can finish loading between two UI frames. Redraw even
+    // when the lap number stays the same and no Loading frame was displayed.
+    for (auto &map : plan_maps) hidePlanMap(map);
+    displayed_strategy = strategy_data;
+  }
+  const bool plan_loaded = strategy_data != nullptr;
   const auto ui_status = status();
   if (s.race.phase != vega::RacePhase::Measuring) {
     strategy_warning.reset();
@@ -1295,14 +1323,14 @@ void viewUpdate() {
     vega::StrategyCue cue;
     if (strategy_warning.update(
             s.race.session, s.race.lap, s.gps_fresh && s.route_map.on_course,
-            strategy_data.laps[s.race.lap - 1], s.route_map.s_m, cue)) {
+            strategy_data->laps[s.race.lap - 1], s.route_map.s_m, cue)) {
       audioStrategyWarning();
       Serial.printf("[AUDIO] strategy %s warning lap=%u position=%.1f m\n",
                     cue == vega::StrategyCue::On ? "ON" : "OFF", s.race.lap,
                     s.route_map.s_m);
     }
   }
-  presenter.render(s, ui_status, plan_loaded ? &strategy_data : nullptr);
+  presenter.render(s, ui_status, strategy_data.get());
   enabled(objects.start_button, s.race.phase == vega::RacePhase::Waiting &&
                                 ui_status.sd_ready && courseCount() != 0 &&
                                 ui_status.plan_state != vega::PlanState::Loading);
@@ -1619,17 +1647,18 @@ bool viewDiagnostic(const char *command) {
   } else if (!strcmp(command, "ui-plan")) {
     const auto &plan_map =
         lv_screen_active() == objects.waiting ? plan_maps[1] : plan_maps[0];
+    const bool have_run = !plan_map.on_flame.empty();
     Serial.printf("[UI PLAN] shown=%u lap=%u orange=%u blue=%u on=%d,%d off=%d,%d "
                   "action=%s plan_status=%s\n",
                   plan_map.shown, plan_map.shown_lap,
-                  plan_map.shown &&
+                  plan_map.shown && have_run &&
                       !lv_obj_has_flag(plan_map.acceleration[0].object, LV_OBJ_FLAG_HIDDEN),
-                  plan_map.shown &&
+                  plan_map.shown && have_run &&
                       !lv_obj_has_flag(plan_map.coasting[0].object, LV_OBJ_FLAG_HIDDEN),
-                  lv_obj_get_x(plan_map.on_flame[0]) + 20,
-                  lv_obj_get_y(plan_map.on_flame[0]) + 20,
-                  lv_obj_get_x(plan_map.off_square[0]) + 12,
-                  lv_obj_get_y(plan_map.off_square[0]) + 12,
+                  have_run ? lv_obj_get_x(plan_map.on_flame[0]) + 20 : 0,
+                  have_run ? lv_obj_get_y(plan_map.on_flame[0]) + 20 : 0,
+                  have_run ? lv_obj_get_x(plan_map.off_square[0]) + 12 : 0,
+                  have_run ? lv_obj_get_y(plan_map.off_square[0]) + 12 : 0,
                   lv_label_get_text(objects.next_action_label),
                   lv_label_get_text(objects.plan_status_label));
   } else if (!strcmp(command, "ui-settings"))
