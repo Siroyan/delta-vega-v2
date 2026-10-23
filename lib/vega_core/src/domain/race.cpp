@@ -8,6 +8,7 @@ bool RaceSession::start(Millis now, uint64_t pulses) {
   start_pulses_ = pulses;
   lap_ = 1;
   approximate_ = false;
+  result_ = {};
   ++session_;
   return true;
 }
@@ -16,12 +17,15 @@ bool RaceSession::cancel() {
   phase_ = RacePhase::Waiting;
   lap_ = 0;
   approximate_ = false;
+  result_ = {};
   return true;
 }
 bool RaceSession::advance(Millis now, bool manual, const Settings &s) {
   if (phase_ != RacePhase::Measuring || lap_ >= lap_count_ || now < last_update_ ||
       now - last_update_ < s.lap_duplicate_ms || (!manual && sinceLap(now) < s.min_lap_ms))
     return false;
+  result_.completed_lap_times_ms[lap_ - 1] = sinceLap(now);
+  result_.completed_lap_count = lap_;
   ++lap_;
   lap_start_ = last_update_ = now;
   approximate_ = manual;
@@ -31,12 +35,14 @@ bool RaceSession::finish(Millis now, uint64_t pulses, const Settings &s) {
   if (phase_ != RacePhase::Measuring || lap_ != lap_count_ || now < last_update_)
     return false;
   result_ = reading(now, pulses, s);
+  result_.completed_lap_times_ms[lap_ - 1] = result_.lap_ms;
+  result_.completed_lap_count = lap_;
   phase_ = result_.phase = RacePhase::Finished;
   return true;
 }
 RaceReading RaceSession::reading(Millis now, uint64_t pulses, const Settings &s) const {
   if (phase_ == RacePhase::Finished) return result_;
-  RaceReading r;
+  RaceReading r = result_;
   r.phase = phase_;
   r.lap = lap_;
   r.session = session_;

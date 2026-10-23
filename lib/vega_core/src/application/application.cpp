@@ -93,13 +93,16 @@ bool Application::start() {
 }
 bool Application::cancel() {
   if (race_.phase() != RacePhase::Measuring) return false;
-  auto s = snapshot();
-  recorder_.event(Event::Cancelled, s);
-  recorder_.end(EndReason::Cancelled, s);
+  {
+    auto s = snapshot();
+    recorder_.event(Event::Cancelled, s);
+    recorder_.end(EndReason::Cancelled, s);
+  }
   race_.cancel();
   timing_.reset();
   manual_lap_requires_progress_ = false;
   resetFinishBranch();
+  telemetry_.publish(snapshot());
   return true;
 }
 bool Application::manualLap() {

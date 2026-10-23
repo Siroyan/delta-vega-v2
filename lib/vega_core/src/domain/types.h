@@ -97,6 +97,9 @@ struct RaceReading {
   double average_kmh = 0;
   uint32_t session = 0;
   bool lap_approximate = false;
+  // Fixed storage remains safe to copy through the adapter's FreeRTOS queues.
+  std::array<Millis, kMaxRaceLaps> completed_lap_times_ms{};
+  uint8_t completed_lap_count = 0;
 };
 struct MapPosition {
   double x = 0;

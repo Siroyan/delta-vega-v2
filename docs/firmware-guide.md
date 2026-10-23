@@ -69,14 +69,15 @@ CURRENT SPEEDは最新の受理パルスから最大N区間を取り、`N区間�
 - 走行戦略はWaiting画面からmicroSDの`/vega/strategies/*.json`または互換ファイル`/vega/strategy.json`を選び、選択したコースの周回数・経路ID・ON/OFF地点・目標時間を検証する。schema 2なら全体・各周TARGETを戦略から読み、計測開始時のmicroSDログにも反映する。Waitingで1周目をプレビューし、Mainでは現在周回の橙色のエンジン使用区間、青色の惰性区間、点火/OFF地点を地図へ重ねる。GPSが有効なら次の地点までの距離を表示する。形式とダミーは[走行戦略データREADME](../assets/strategy/README.md)。プランは表示専用で、GPIO出力を変更しない。
 - Tab5内蔵スピーカーは、画面のボタン操作で短い1音を鳴らす。電装・点火の大きなボタンも同様。戦略を読み込んで計測している間は、GPS位置がコース内で有効な場合に限り、各エンジンON/OFF地点の30 m手前に入ると「ピピ、ピピ」と予告する。同じ地点は同一周回・計測セッション内で一度だけ予告し、GPSの一時的な欠落や位置の揺れでは鳴り直さない。0 mの始動地点には手前の予告地点がないため鳴らない。音声処理は別タスクに送り、タッチや画面描画を待たせない。予告音は運転操作の補助であり、エンジン出力を自動操作しない。
 - 計測開始から取消/完走までのみ、`/vega/session-0000000001.jsonl`のような個別ファイルをmicroSDへ保存する。NVSの連番と既存ファイルの確認で再起動後も上書きを防ぐ。
-- 最初の行はコースID・周回数と設定メタデータ（`schema_version:3`）。500 ms周期のサンプルはMQTTの10項目に加え、`gps_seen`、`gps_fix_valid`、`gps_fresh`、`gps_speed_kmh`、`gps_satellites`、`gps_hdop`、`gps_gga_fix_quality`、`gps_utc_ms_of_day`、`gps_age_ms`、`gps_quality_age_ms`を記録する。GGA未受信などで不明な数値は`null`。`gps_age_ms`は最後のRMC受信から、`gps_quality_age_ms`は最後のGGA受信からの経過時間。`gps_utc_ms_of_day`はRMCのUTC時刻を午前0時からのミリ秒で表す。開始・取消・完走・手動補正・電装操作は`type:event`で記録し、取消データも残す。
+- 最初の行はコースID・周回数と設定メタデータ（`schema_version:3`）。500 ms周期のサンプルはMQTTの11項目（確定済みラップ配列を含む）に加え、`gps_seen`、`gps_fix_valid`、`gps_fresh`、`gps_speed_kmh`、`gps_satellites`、`gps_hdop`、`gps_gga_fix_quality`、`gps_utc_ms_of_day`、`gps_age_ms`、`gps_quality_age_ms`を記録する。GGA未受信などで不明な数値は`null`。`gps_age_ms`は最後のRMC受信から、`gps_quality_age_ms`は最後のGGA受信からの経過時間。`gps_utc_ms_of_day`はRMCのUTC時刻を午前0時からのミリ秒で表す。開始・取消・完走・手動補正・電装操作は`type:event`で記録し、取消データも残す。
 - GPSのNMEA原文と画面上のアイコン座標を記録する一時的な診断機能は撤去した。位置、速度、衛星数、HDOPなどは500 ms周期の通常サンプルに残る。
 - USB接続時にTab5が再起動しても、シリアルの`log`でNVSの記録番号を使って最新のSDセッションを読み出せる。`log-read 番号`で古いセッションも指定できる。
 - SD Writerは別タスク。48件のキューを使い、500 msサンプルだけなら約24秒分（イベント数で減少）。書込、flush/fsync、キューあふれを警告し、計測を継続する。同期はセッション開始時、1秒周期、終了時。エラー表示は次のセッションのファイルを正常に開き、メタデータを同期できた場合に解除する。突然の電源断で直近の未同期データが失われる可能性がある。計測復元は未実装。
-- SD未挿入時も開始・計測を継続する。開始時にマウントできなかった場合は次のセッション開始時に再試行する。通信断時の後送信は初期範囲外。
+- SD未挿入時も開始・計測を継続する。開始時にマウントできなかった場合は次のセッション開始時に再試行する。通信断中の全サンプルの後送信は対象外だが、確定済みラップ履歴を含む最新状態は復旧後に送る。
 - Wi-Fi/MQTT/NTPは別タスク。未設定なら通信を開始せず、オフラインで動作する。
 - `network_secrets.example.h`を`network_secrets.h`へコピーし、Wi-FiとAWS IoTの接続先を設定する。Amazon Root CA 1は設定例に含まれる。クライアント証明書と秘密鍵はPEM全文を各`R"EOF(...)EOF"`文字列に貼り付ける。`network_secrets.h`はGit除外。TLSホスト名検証を無効化しない。
-- MQTT接続先は旧版のAWS IoT、トピックは`v0/delta_machine_alpha/telemetry/racing_data`、計測中500 ms、QoS 0、retainなし。接続済みの最新サンプルだけを送信する。
+- MQTT接続先は旧版のAWS IoT、トピックは`v0/delta_machine_alpha/telemetry/racing_data`、計測中500 ms、QoS 0、retainなし。通信断中も最新1件を保持し、再接続時に送信する。完走・取消後の結果も送信対象にする。
+- 詳細は[MQTTテレメトリのデータ仕様](mqtt-telemetry.md)を参照。`completed_lap_times_ms`に、現在の計測で確定した1〜最大100周のラップタイムをミリ秒の配列として含める。未確定時と取消後は空配列。
 - 旧版の10項目は保持。`speed`、`average_speed`、`latitude`、`longitude`は未取得/無効時に`null`。旧consumerのnull対応はAWS接続時に確認する。`timestamp_ms`は64 bit起動後msでUTCではない。
 - メモ初期値は旧版の大会固有文字列から`Delta Vega v2`へ変更し、機体IDとともに通信設定へ集約した。
 - 時計はJST、同期先は`pool.ntp.org`（ローカル設定で変更可能）。未同期はUNSYNCED。同期後、Wi-Fi断または最終同期から2時間超ならHOLDOVER。それ以外はSYNCED。経過時間は常にesp_timerの単調時計を使う。

@@ -1,4 +1,5 @@
 #include <cassert>
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstring>
@@ -7,6 +8,7 @@
 #include <iterator>
 #include <limits>
 #include <string>
+#include <type_traits>
 
 #include "../../assets/maps/motegi_oval_full/course_data.h"
 #include "../../assets/maps/misato_loop/course_data.h"
@@ -18,6 +20,7 @@
 #include "../../src/adapters/reed_pulse_filter.h"
 #include "../../src/adapters/serial_config.h"
 #include "application/application.h"
+#include "application/latest_telemetry.h"
 #include "application/telemetry_json.h"
 #include "domain/nmea.h"
 #include "domain/settings_codec.h"
@@ -92,12 +95,21 @@ struct Recorder : ISessionRecorder {
 };
 struct Telemetry : ITelemetry {
   unsigned count = 0;
-  void publish(const Snapshot &) override { ++count; }
+  Snapshot last{};
+  void publish(const Snapshot &s) override { ++count; last = s; }
 };
 struct View : IView {
   DisplayModel model;
   void show(const DisplayModel &m) override { model = m; }
 };
+void assertLapHistory(const RaceReading &r) {
+  const unsigned count = r.phase == RacePhase::Waiting ? 0 :
+                         r.lap - (r.phase == RacePhase::Measuring ? 1 : 0);
+  assert(r.completed_lap_count == count);
+  Millis sum = 0;
+  for (unsigned i = 0; i < count; ++i) sum += r.completed_lap_times_ms[i];
+  assert(sum + (r.phase == RacePhase::Measuring ? r.lap_ms : 0) == r.total_ms);
+}
 const CoursePoint square[] = {{0, 0, 0}, {1000, 0, 1000}, {1000, 1000, 2000}, {0, 1000, 3000}};
 const CourseData course_data{square, 4, 4000, {36, 140}, 100000, 100000, {0.4, 0, 0, 0, -0.4, 480}};
 struct Fixture {
@@ -119,11 +131,20 @@ struct Fixture {
     return s;
   }
   void fix(double distance) {
+    const auto before = app.snapshot().race;
     GpsFix g;
     g.valid = true;
     g.position = course.pointAt(distance);
     g.received_ms = clock.time;
     app.gps(g);
+    const auto after = app.snapshot().race;
+    assertLapHistory(after);
+    if (after.lap > before.lap ||
+        (before.phase == RacePhase::Measuring && after.phase == RacePhase::Finished)) {
+      const Millis lap_start = before.total_ms - before.lap_ms;
+      assert(after.completed_lap_times_ms[before.lap - 1] ==
+             after.total_ms - lap_start);
+    }
   }
   void travel(double from, double to) {
     for (double s = from; s <= to; s += 20) {
@@ -280,6 +301,11 @@ void manualFinishTest() {
          f.recorder.finished_events == 0);
   assert(f.recorder.reason == EndReason::Finished);
   assert(f.recorder.last.race.total_ms == expected_total);
+  assertLapHistory(f.app.snapshot().race);
+  assert(f.telemetry.last.race.completed_lap_count == 7);
+  for (unsigned i = 0; i < 6; ++i)
+    assert(f.telemetry.last.race.completed_lap_times_ms[i] == 10000);
+  assert(f.telemetry.last.race.completed_lap_times_ms[6] == 0);
   assert(!f.app.manualFinish());
   f.clock.time += 300000;
   assert(f.app.snapshot().race.total_ms == expected_total);
@@ -316,6 +342,7 @@ void fourLapCourseTest() {
   assert(!app.manualLap());
   assert(app.manualFinish());
   assert(app.snapshot().race.phase == RacePhase::Finished);
+  assertLapHistory(app.snapshot().race);
   assert(recorder.manual_finish_events == 1);
 
   // Automatic GPS completion must also use the course's fourth lap.
@@ -346,6 +373,7 @@ void fourLapCourseTest() {
   assert(gps_app.snapshot().race.phase == RacePhase::Measuring);
   travel(12720, 15600);
   assert(gps_app.snapshot().race.phase == RacePhase::Finished);
+  assertLapHistory(gps_app.snapshot().race);
   assert(gps_recorder.finished_events == 1);
 }
 void hundredLapCourseTest() {
@@ -380,6 +408,9 @@ void hundredLapCourseTest() {
   assert(!app.manualLap());
   assert(app.manualFinish());
   assert(app.snapshot().race.phase == RacePhase::Finished);
+  assertLapHistory(app.snapshot().race);
+  for (unsigned i = 0; i < 99; ++i)
+    assert(app.snapshot().race.completed_lap_times_ms[i] == 10000);
   assert(recorder.manual_finish_events == 1);
 
   Clock gps_clock;
@@ -411,6 +442,7 @@ void hundredLapCourseTest() {
   }
   travel(396720, 399600);
   assert(gps_app.snapshot().race.phase == RacePhase::Finished);
+  assertLapHistory(gps_app.snapshot().race);
   assert(gps_recorder.finished_events == 1);
 }
 void gpsRaceTest() {
@@ -430,6 +462,185 @@ void gpsRaceTest() {
   assert(f.app.snapshot().race.total_ms == result.total_ms);
   assert(!f.app.start());
   assert(!f.app.cancel());
+}
+void lapHistoryTest() {
+  static_assert(std::is_trivially_copyable<Snapshot>::value);
+  Settings settings;
+  RaceSession race(3);
+  assert(race.reading(0, 0, settings).completed_lap_count == 0);
+  assert(race.start(100000, 0));
+  assertLapHistory(race.reading(100000, 0, settings));
+  assert(!race.finish(200000, 0, settings));
+  assert(race.advance(462000, false, settings));
+  assert(!race.advance(462000, true, settings));
+  assert(race.reading(500000, 0, settings).completed_lap_times_ms[0] == 362000);
+  assert(race.advance(820000, true, settings));
+  assert(!race.advance(830000, true, settings));
+  auto running = race.reading(865000, 0, settings);
+  assert(running.completed_lap_count == 2 && running.lap_ms == 45000);
+  assert(running.completed_lap_times_ms[1] == 358000);
+  assertLapHistory(running);
+  assert(race.finish(865000, 0, settings));
+  const auto result = race.reading(999999, 0, settings);
+  assertLapHistory(result);
+  assert(result.completed_lap_times_ms[2] == 45000 && result.total_ms == 765000);
+  assert(!race.finish(900000, 0, settings) && !race.cancel());
+  assert(race.reading(1000000, 0, settings).completed_lap_times_ms ==
+         result.completed_lap_times_ms);
+
+  Fixture cancelled;
+  assert(cancelled.app.start());
+  cancelled.clock.time += 20000;
+  assert(cancelled.app.manualLap());
+  assert(cancelled.app.snapshot().race.completed_lap_count == 1);
+  assert(cancelled.app.cancel());
+  assert(cancelled.telemetry.last.race.phase == RacePhase::Waiting);
+  assertLapHistory(cancelled.telemetry.last.race);
+  assert(std::all_of(cancelled.telemetry.last.race.completed_lap_times_ms.begin(),
+                     cancelled.telemetry.last.race.completed_lap_times_ms.end(),
+                     [](Millis value) { return value == 0; }));
+  assert(cancelled.app.start());
+  assert(cancelled.telemetry.last.race.completed_lap_count == 0);
+
+  RaceSession hundred(100);
+  settings.min_lap_ms = 10000;
+  assert(hundred.start(0, 0));
+  Millis now = 0;
+  for (unsigned i = 0; i < 99; ++i) {
+    now += 10000 + i;
+    assert(hundred.advance(now, i % 2, settings));
+    const auto reading = hundred.reading(now, 0, settings);
+    assert(reading.completed_lap_count == i + 1);
+    assert(reading.completed_lap_times_ms[i] == 10000 + i);
+    assertLapHistory(reading);
+  }
+  now += 45000;
+  assert(hundred.finish(now, 0, settings));
+  const auto finished = hundred.reading(now + 1000, 0, settings);
+  assert(finished.completed_lap_count == 100 && finished.completed_lap_times_ms[99] == 45000);
+  assertLapHistory(finished);
+  Snapshot queued;
+  queued.race = finished;
+  Snapshot copied;
+  std::memcpy(&copied, &queued, sizeof(copied));
+  assert(copied.race.completed_lap_times_ms == finished.completed_lap_times_ms);
+}
+void lapHistoryJsonTest() {
+  Snapshot s;
+  char json[kSessionSampleJsonCapacity];
+  assert(telemetryJson(s, json, sizeof(json)));
+  assert(std::strstr(json, "\"completed_lap_times_ms\":[]"));
+  s.race.phase = RacePhase::Measuring;
+  s.race.lap = 3;
+  s.race.total_ms = 765000;
+  s.race.lap_ms = 45000;
+  s.race.completed_lap_count = 2;
+  s.race.completed_lap_times_ms[0] = 362000;
+  s.race.completed_lap_times_ms[1] = 358000;
+  s.now_ms = 865000;
+  const size_t length = telemetryJson(s, json, sizeof(json), "pi", "test");
+  assert(length);
+  assert(std::string(json) ==
+      "{\"speed\":null,\"average_speed\":null,\"lap_number\":3,"
+      "\"total_time_ms\":765000,\"lap_time_ms\":45000,\"latitude\":null,\"longitude\":null,"
+      "\"timestamp_ms\":865000,\"machine_id\":\"pi\",\"memo\":\"test\","
+      "\"completed_lap_times_ms\":[362000,358000]}");
+  assert(telemetryJson(s, json, length + 1, "pi", "test") == length);
+  assert(!telemetryJson(s, json, length, "pi", "test"));
+  assert(!telemetryJson(s, json, 0));
+  assert(!telemetryJson(s, nullptr, sizeof(json)));
+  s.race.completed_lap_count = 101;
+  assert(!telemetryJson(s, json, sizeof(json)));
+
+  // Full-width durations and escaped metadata exercise the declared upper bound.
+  s.race.completed_lap_count = 100;
+  s.race.completed_lap_times_ms.fill(std::numeric_limits<Millis>::max());
+  s.race.total_ms = s.race.lap_ms = s.now_ms = std::numeric_limits<Millis>::max();
+  s.race.phase = RacePhase::Finished;
+  s.race.lap = 100;
+  const std::string machine(63, '"'), memo(127, '"');
+  std::string expected = "\"completed_lap_times_ms\":[";
+  for (unsigned i = 0; i < 100; ++i) {
+    if (i) expected += ',';
+    expected += "18446744073709551615";
+  }
+  expected += ']';
+  assert(telemetryJson(s, json, kTelemetryJsonCapacity, machine.c_str(), memo.c_str()));
+  assert(std::strstr(json, expected.c_str()));
+  assert(!telemetryJson(s, json, 1100, machine.c_str(), memo.c_str()));
+  s.gps_seen = s.gps_fresh = s.gps.valid = true;
+  s.gps.speed_valid = s.gps.quality_valid = s.gps.utc_valid = true;
+  s.gps.position = {-90, -180};
+  s.gps.satellites = s.gps.gga_fix_quality = 255;
+  s.gps.speed_kmh = 999.999;
+  s.gps.hdop = 99.99;
+  s.gps.utc_ms_of_day = std::numeric_limits<uint32_t>::max();
+  assert(sessionSampleJson(s, json, sizeof(json), machine.c_str(), memo.c_str()));
+  assert(std::strstr(json, expected.c_str()));
+  assert(std::strstr(json, "\"gps_satellites\":255"));
+  const size_t sd_length = std::strlen(json);
+  assert(sessionSampleJson(s, json, sd_length + 1, machine.c_str(), memo.c_str()) == sd_length);
+  assert(!sessionSampleJson(s, json, sd_length, machine.c_str(), memo.c_str()));
+}
+void latestTelemetryTest() {
+  LatestTelemetry latest;
+  assert(!latest.pending(true, 1, 0));
+  Fixture f;
+  latest.update(f.app.snapshot());
+  assert(!latest.pending(false, 1, f.clock.time));
+  assert(latest.pending(true, 1, f.clock.time + 60000)); // Initial Waiting never expires.
+  latest.sent(1);
+  assert(!latest.pending(true, 1, f.clock.time));
+  assert(latest.pending(true, 2, f.clock.time)); // A new connection resends even without updates.
+  latest.sent(2);
+  assert(f.app.start());
+  latest.update(f.telemetry.last);
+  assert(latest.pending(true, 2, f.clock.time + 1499));
+  assert(!latest.pending(true, 2, f.clock.time + 1500));
+  assert(!latest.pending(true, 2, f.clock.time - 1));
+  // Coalesce multiple offline laps; the next live packet contains all of them.
+  for (unsigned i = 1; i < 7; ++i) {
+    f.clock.time += 10000;
+    assert(f.app.manualLap());
+    f.app.tick();
+    latest.update(f.telemetry.last);
+    assert(!latest.pending(false, 2, f.clock.time));
+    const auto *reconnected = latest.pending(true, 3, f.clock.time);
+    assert(reconnected && reconnected->race.completed_lap_count == i);
+  }
+  f.clock.time += 45000;
+  assert(f.app.manualFinish());
+  latest.update(f.telemetry.last);
+  assert(!latest.pending(false, 3, f.clock.time));
+  const auto *result = latest.pending(true, 4, f.clock.time + 3600000);
+  assert(result && result->race.phase == RacePhase::Finished);
+  assertLapHistory(result->race);
+  assert(result->race.completed_lap_count == 7 && result->race.completed_lap_times_ms[6] == 45000);
+  char json[kTelemetryJsonCapacity];
+  assert(telemetryJson(*result, json, sizeof(json)));
+  assert(std::strstr(json, "\"completed_lap_times_ms\":[10000,10000,10000,10000,10000,10000,45000]"));
+  // Failed publishes remain pending; success suppresses repeats until reconnection.
+  assert(latest.pending(true, 4, f.clock.time + 3600001));
+  latest.sent(4);
+  assert(!latest.pending(true, 4, f.clock.time + 3600002));
+  assert(latest.pending(true, 5, f.clock.time + 3600003));
+
+  Fixture cancelled;
+  assert(cancelled.app.start());
+  cancelled.clock.time += 20000;
+  assert(cancelled.app.manualLap());
+  cancelled.app.tick();
+  latest.update(cancelled.telemetry.last);
+  assert(cancelled.app.cancel());
+  latest.update(cancelled.telemetry.last);
+  auto *empty = latest.pending(true, 6, cancelled.clock.time + 60000);
+  assert(empty && empty->race.phase == RacePhase::Waiting);
+  assert(empty->race.completed_lap_count == 0);
+  assert(telemetryJson(*empty, json, sizeof(json)));
+  assert(std::strstr(json, "\"completed_lap_times_ms\":[]"));
+  assert(cancelled.app.start());
+  latest.update(cancelled.telemetry.last);
+  assert(latest.pending(true, 6, cancelled.clock.time)->race.completed_lap_count == 0);
 }
 void passageTest() {
   Fixture f;
@@ -1626,6 +1837,9 @@ int main() {
   fourLapCourseTest();
   hundredLapCourseTest();
   gpsRaceTest();
+  lapHistoryTest();
+  lapHistoryJsonTest();
+  latestTelemetryTest();
   passageTest();
   gpsOutageAndManualLapTest();
   wheelTest();
