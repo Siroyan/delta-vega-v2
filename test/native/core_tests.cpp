@@ -642,6 +642,145 @@ void latestTelemetryTest() {
   latest.update(cancelled.telemetry.last);
   assert(latest.pending(true, 6, cancelled.clock.time)->race.completed_lap_count == 0);
 }
+void waitingTelemetryTest() {
+  Fixture f;
+  const auto boot = f.clock.time;
+  // The adapter publishes the initial Waiting state once, before its loop.
+  f.telemetry.publish(f.app.snapshot());
+  f.app.tick();
+  assert(f.telemetry.count == 1);
+  f.clock.time = boot + 4999;
+  f.app.tick();
+  assert(f.telemetry.count == 1);
+  f.clock.time = boot + 5000;
+  f.fix(100);
+  f.app.tick();
+  assert(f.telemetry.count == 2 && f.telemetry.last.now_ms == f.clock.time);
+  assert(f.telemetry.last.gps_fresh);
+  assert(f.telemetry.last.gps.position.longitude == f.course.pointAt(100).longitude);
+  const auto previous_position = f.telemetry.last.gps.position;
+  f.app.tick();
+  assert(f.telemetry.count == 2); // No duplicate at the same deadline.
+  f.clock.time = boot + 10000;
+  f.fix(200);
+  f.app.tick();
+  assert(f.telemetry.count == 3 && f.telemetry.last.now_ms == f.clock.time);
+  assert(f.telemetry.last.gps.position.longitude != previous_position.longitude);
+  char json[kTelemetryJsonCapacity];
+  assert(telemetryJson(f.telemetry.last, json, sizeof(json)));
+  assert(std::strstr(json, "\"timestamp_ms\":110000"));
+  assert(std::strstr(json, "\"lap_number\":0"));
+  assert(std::strstr(json, "\"completed_lap_times_ms\":[]"));
+  // Delayed ticks send one current state, never a catch-up burst.
+  f.clock.time += 20000;
+  f.app.tick();
+  f.app.tick();
+  assert(f.telemetry.count == 4 && f.telemetry.last.now_ms == f.clock.time);
+  assert(!f.telemetry.last.gps_fresh);
+  assert(f.recorder.begins == 0 && f.recorder.samples == 0 && f.recorder.ends == 0);
+
+  // Starting just before a Waiting deadline switches to the 500 ms cadence.
+  f.clock.time += 4999;
+  assert(f.app.start());
+  const auto started = f.clock.time;
+  const auto start_count = f.telemetry.count;
+  assert(f.recorder.begins == 1 && f.recorder.samples == 1);
+  assert(f.telemetry.last.race.phase == RacePhase::Measuring);
+  f.clock.time = started + 1;
+  f.app.tick();
+  f.clock.time = started + 499;
+  f.app.tick();
+  assert(f.telemetry.count == start_count);
+  f.clock.time = started + 500;
+  f.app.tick();
+  assert(f.telemetry.count == start_count + 1 && f.recorder.samples == 2);
+
+  f.clock.time += 200;
+  assert(f.app.cancel());
+  const auto cancelled = f.clock.time;
+  const auto cancel_count = f.telemetry.count;
+  assert(cancel_count == start_count + 2);
+  assert(f.telemetry.last.race.phase == RacePhase::Waiting);
+  assert(f.telemetry.last.now_ms == cancelled);
+  f.app.tick();
+  f.clock.time = cancelled + 4999;
+  f.app.tick();
+  assert(f.telemetry.count == cancel_count);
+  f.clock.time = cancelled + 5000;
+  f.app.tick();
+  assert(f.telemetry.count == cancel_count + 1);
+  assert(f.telemetry.last.now_ms == f.clock.time);
+  assert(f.telemetry.last.race.lap == 0 && f.telemetry.last.race.total_ms == 0);
+  assert(f.telemetry.last.race.completed_lap_count == 0);
+  assert(f.recorder.samples == 2 && f.recorder.ends == 1);
+
+  Fixture finished;
+  assert(finished.app.start());
+  for (int lap = 1; lap < 7; ++lap) {
+    finished.clock.time += 10000;
+    assert(finished.app.manualLap());
+  }
+  finished.clock.time += 1500;
+  assert(finished.app.manualFinish());
+  assert(finished.telemetry.last.race.phase == RacePhase::Finished);
+  assertLapHistory(finished.telemetry.last.race);
+  const auto finish_count = finished.telemetry.count;
+  const auto finish_samples = finished.recorder.samples;
+  for (const Millis interval : {500, 5000, 60000}) {
+    finished.clock.time += interval;
+    finished.app.tick();
+    assert(finished.telemetry.count == finish_count);
+    assert(finished.recorder.samples == finish_samples);
+  }
+}
+void waitingTelemetryReconnectTest() {
+  Fixture f;
+  LatestTelemetry latest;
+  f.telemetry.publish(f.app.snapshot());
+  latest.update(f.telemetry.last);
+  assert(!latest.pending(false, 0, f.clock.time));
+  // Mirror the adapter's latest-only queue while disconnected.
+  for (int update = 0; update < 3; ++update) {
+    f.clock.time += 5000;
+    f.app.tick();
+    latest.update(f.telemetry.last);
+    assert(!latest.pending(false, 0, f.clock.time));
+  }
+  auto *pending = latest.pending(true, 1, f.clock.time);
+  assert(pending && pending->now_ms == f.clock.time);
+  assert(pending->race.phase == RacePhase::Waiting);
+  latest.sent(1);
+  assert(!latest.pending(true, 1, f.clock.time));
+  f.clock.time += 4999;
+  f.app.tick();
+  assert(f.telemetry.count == 4 && !latest.pending(true, 1, f.clock.time));
+  ++f.clock.time;
+  f.app.tick();
+  latest.update(f.telemetry.last);
+  assert(latest.pending(true, 1, f.clock.time)->now_ms == f.clock.time);
+  // A failed send stays pending. A brief reconnect also resends immediately.
+  assert(latest.pending(true, 1, f.clock.time + 1));
+  latest.sent(1);
+  assert(!latest.pending(false, 1, f.clock.time));
+  assert(latest.pending(true, 2, f.clock.time));
+  latest.sent(2);
+
+  assert(f.app.start());
+  latest.update(f.telemetry.last);
+  assert(latest.pending(true, 2, f.clock.time)->race.phase == RacePhase::Measuring);
+  latest.sent(2);
+  f.clock.time += 100;
+  assert(f.app.cancel());
+  latest.update(f.telemetry.last);
+  assert(!latest.pending(false, 2, f.clock.time));
+  f.clock.time += 5000;
+  f.app.tick();
+  latest.update(f.telemetry.last);
+  pending = latest.pending(true, 3, f.clock.time);
+  assert(pending && pending->now_ms == f.clock.time);
+  assert(pending->race.phase == RacePhase::Waiting && pending->race.completed_lap_count == 0);
+  assert(f.recorder.begins == 1 && f.recorder.samples == 1 && f.recorder.ends == 1);
+}
 void passageTest() {
   Fixture f;
   PassageDetector d;
@@ -1840,6 +1979,8 @@ int main() {
   lapHistoryTest();
   lapHistoryJsonTest();
   latestTelemetryTest();
+  waitingTelemetryTest();
+  waitingTelemetryReconnectTest();
   passageTest();
   gpsOutageAndManualLapTest();
   wheelTest();

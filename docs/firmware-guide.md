@@ -76,7 +76,7 @@ CURRENT SPEEDは最新の受理パルスから最大N区間を取り、`N区間�
 - SD未挿入時も開始・計測を継続する。開始時にマウントできなかった場合は次のセッション開始時に再試行する。通信断中の全サンプルの後送信は対象外だが、確定済みラップ履歴を含む最新状態は復旧後に送る。
 - Wi-Fi/MQTT/NTPは別タスク。未設定なら通信を開始せず、オフラインで動作する。
 - `network_secrets.example.h`を`network_secrets.h`へコピーし、Wi-FiとAWS IoTの接続先を設定する。Amazon Root CA 1は設定例に含まれる。クライアント証明書と秘密鍵はPEM全文を各`R"EOF(...)EOF"`文字列に貼り付ける。`network_secrets.h`はGit除外。TLSホスト名検証を無効化しない。
-- MQTT接続先は旧版のAWS IoT、トピックは`v0/delta_machine_alpha/telemetry/racing_data`、計測中500 ms、QoS 0、retainなし。通信断中も最新1件を保持し、再接続時に送信する。完走・取消後の結果も送信対象にする。
+- MQTT接続先は旧版のAWS IoT、トピックは`v0/delta_machine_alpha/telemetry/racing_data`、Waiting中5秒、計測中500 ms、QoS 0、retainなし。Waiting中も新しい状態を送るため、計測開始前からピット側で受信を確認できる。この送信でSDサンプルは記録しない。通信断中も最新1件を保持し、再接続時に送信する。完走・取消後の結果も送信対象にする。
 - 詳細は[MQTTテレメトリのデータ仕様](mqtt-telemetry.md)を参照。`completed_lap_times_ms`に、現在の計測で確定した1〜最大100周のラップタイムをミリ秒の配列として含める。未確定時と取消後は空配列。
 - 旧版の10項目は保持。`speed`、`average_speed`、`latitude`、`longitude`は未取得/無効時に`null`。旧consumerのnull対応はAWS接続時に確認する。`timestamp_ms`は64 bit起動後msでUTCではない。
 - メモ初期値は旧版の大会固有文字列から`Delta Vega v2`へ変更し、機体IDとともに通信設定へ集約した。

@@ -25,7 +25,7 @@
 | 始動 | 押下時LOW→HIGH、押下中HIGHを維持し、解放の1秒後（設定可能）にLOW。電装ONごとに1回まで |
 | エンジン動作 | 始動後の動作・自動停止は車両側が担当。Tab5による早期停止は電装OFFのみ |
 | 状態応答 | 電装・エンジンの実状態を確認する信号なし。指令状態を実状態と混同しない |
-| MQTT | 旧版のAWS IoT接続・トピック・10項目・500 ms周期を維持し、確定済みラップ配列を追加。最新状態を保持して再接続時に送信する（[仕様](mqtt-telemetry.md)） |
+| MQTT | 旧版のAWS IoT接続・トピック・10項目・計測中500 ms周期を維持し、確定済みラップ配列を追加。Waiting中は5秒周期。最新状態を保持して再接続時に送信する（[仕様](mqtt-telemetry.md)） |
 | microSD | 計測中のみ保存、必須。項目はMQTTに倣う。未挿入・書込失敗は警告して計測継続 |
 | 初期範囲外 | 通信断中の全サンプルの自動後送信、再起動後の計測復元。確定済みラップ履歴を含む最新状態は再接続時に送信する。AWSでの走行プラン解析・受信は将来機能 |
 
@@ -184,7 +184,7 @@ UART1をGPIO7/6へ割り当てる。GPIO6/7はSTAMP拡張とも共有するた�
 
 - AWS IoTへMQTT over TLS、クライアント証明書認証。
 - トピック: `v0/delta_machine_alpha/telemetry/racing_data`。
-- 送信周期: 計測中500 ms、QoS 0。
+- 送信周期: Waiting中5秒、計測中500 ms、QoS 0。Waitingの送信ではSDサンプルを記録しない。
 - 項目: `speed`、`average_speed`、`lap_number`、`total_time_ms`、`lap_time_ms`、`latitude`、`longitude`、`timestamp_ms`、`machine_id`、`memo`。
 - 現行実装では`completed_lap_times_ms`を追加し、最大100周の確定済みラップを各メッセージに含める。形式と取消・完走時の扱いは[MQTTデータ仕様](mqtt-telemetry.md)を参照。
 - `timestamp_ms`は旧版では起動後の経過msであり、UTC時刻ではない。レース経過とは別。
