@@ -8,6 +8,7 @@
 #include <time.h>
 
 #include "course_data.h"
+#include "motion_settings.h"
 #include "sim_display.h"
 #include "strategy_storage.h"
 
@@ -65,6 +66,11 @@ void saveWheel() {
   }
 }
 
+void saveMotionSettings() {
+  if (preferences_ready && !sim::saveMotionSettings(preferences, driving_config))
+    Serial.println("[SIM] motion settings save failed; current settings are not persistent");
+}
+
 void loadSettings() {
   preferences_ready = preferences.begin("atom-sim", false);
   if (!preferences_ready) {
@@ -72,20 +78,20 @@ void loadSettings() {
     return;
   }
   const uint8_t stored_course = preferences.getUChar("course", 0);
-  const float stored_speed = preferences.getFloat("speed", 12);
   const float stored_wheel = preferences.getFloat("wheel", 1.03);
   const uint32_t stored_ppr = preferences.getUInt("ppr", 1);
   if (stored_course < sim::course_count) state.course_index = stored_course;
-  if (isfinite(stored_speed) && stored_speed >= 1 && stored_speed <= 60)
-    state.speed_kmh = stored_speed;
   if (isfinite(stored_wheel) && stored_wheel >= 0.1 && stored_wheel <= 10)
     state.wheel_circumference_m = stored_wheel;
   if (stored_ppr >= 1 && stored_ppr <= 100)
     state.pulses_per_revolution = stored_ppr;
   driving_config.max_speed_kmh = state.speed_kmh;
-  sim::MotionConfig saved{state.speed_kmh, preferences.getFloat("initial", 0),
-                         preferences.getFloat("accel", 0.3), preferences.getFloat("coast", 0.03)};
-  if (sim::validMotionConfig(saved)) driving_config = saved;
+  const auto loaded = sim::loadMotionSettings(preferences, driving_config);
+  if (loaded == sim::MotionSettingsLoad::Invalid)
+    Serial.println("[SIM] invalid saved motion settings; defaults will be used");
+  else if (loaded == sim::MotionSettingsLoad::Legacy)
+    saveMotionSettings();
+  state.speed_kmh = driving_config.max_speed_kmh;
 }
 
 const sim::Course &course() { return sim::courses[state.course_index]; }
@@ -464,11 +470,7 @@ void command(char *line) {
       Serial.println("[SIM PLAN] error=invalid dynamics parameters");
     else {
       driving_config = replacement;
-      if (preferences_ready) {
-        preferences.putFloat("initial", replacement.initial_speed_kmh);
-        preferences.putFloat("accel", replacement.acceleration_mps2);
-        preferences.putFloat("coast", replacement.coast_deceleration_mps2);
-      }
+      saveMotionSettings();
       resetRace();
       Serial.println("[SIM PLAN] dynamics=ready");
     }
@@ -502,7 +504,7 @@ void command(char *line) {
       state.speed_kmh = value;
       driving_config.max_speed_kmh = value;
       if (driving_config.initial_speed_kmh > value) driving_config.initial_speed_kmh = value;
-      if (preferences_ready) preferences.putFloat("speed", value);
+      saveMotionSettings();
       Serial.printf("[SIM] speed=%.1f km/h\n", value);
       resetRace();
     } else Serial.println("[SIM] speed must be 1..60 km/h");

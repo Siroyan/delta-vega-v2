@@ -21,6 +21,12 @@ def main():
                         "-I", str(PROJECT / "src"), str(PROJECT / "src/strategy_motion.cpp"),
                         str(PROJECT / "tests/motion_test.cpp"), "-o", str(binary)], check=True)
         subprocess.run([str(binary)], check=True)
+        settings_binary = Path(folder) / "motion-settings-test"
+        subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror", "-g", "-O1",
+                        "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+                        "-I", str(PROJECT / "src"), str(PROJECT / "src/strategy_motion.cpp"),
+                        str(PROJECT / "tests/motion_settings_test.cpp"), "-o", str(settings_binary)], check=True)
+        subprocess.run([str(settings_binary)], check=True)
         courses = {}
         for path in (ROOT / "assets/maps").glob("*/course.json"):
             course = json.loads(path.read_text())
